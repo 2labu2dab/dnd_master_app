@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 from dataclasses import dataclass
 from typing import Dict, Tuple, List
 import math
@@ -23,6 +23,15 @@ class Token:
     is_dead: bool = False  # Новое поле для статуса "мертв"
     avatar_path: str = None
     avatar_image: ImageTk.PhotoImage = None
+
+
+@dataclass
+class GridSettings:
+    visible: bool = False
+    visible_to_players: bool = False
+    cell_size: int = 50  # Количество клеток по ширине
+    color: str = "#888888"
+    opacity: int = 100
 
 
 @dataclass
@@ -68,6 +77,7 @@ class PlayerView:
             points.append(x + size * math.cos(angle_rad))
             points.append(y + size * math.sin(angle_rad))
         return self.canvas.create_polygon(points, **kwargs)
+
 
     def redraw_map(self):
         self.canvas.delete("all")
@@ -120,10 +130,40 @@ class PlayerView:
             Image.eval(visibility_mask, lambda x: 255 - int(x * self.fog_opacity))
         )
 
-        # Combine images
+        # Combine images - это наша базовая карта с туманом
         combined = Image.alpha_composite(map_img.convert("RGBA"), fog)
+        
+        # Draw grid if enabled and visible to players
+        if (hasattr(self.master, "grid_settings") and \
+           self.master.grid_settings.visible and \
+           self.master.grid_settings.visible_to_players):
+            
+            # Create grid image
+            grid_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw_grid = ImageDraw.Draw(grid_img)
+            
+            cell_width = width / self.master.grid_settings.cell_size
+            cell_count_height = int(height / cell_width)
+            
+            # Draw vertical lines
+            for i in range(self.master.grid_settings.cell_size + 1):
+                x = i * cell_width
+                draw_grid.line([(x, 0), (x, height)], fill=self.master.grid_settings.color)
+            
+            # Draw horizontal lines
+            for i in range(cell_count_height + 1):
+                y = i * cell_width
+                draw_grid.line([(0, y), (width, y)], fill=self.master.grid_settings.color)
+            
+            # Apply opacity
+            grid_img.putalpha(self.master.grid_settings.opacity)
+            
+            # Combine with map
+            combined = Image.alpha_composite(combined, grid_img)
+        
+        # Convert to PhotoImage
         photo = ImageTk.PhotoImage(combined)
-
+        
         # Draw on canvas
         self.canvas.create_image(
             self.master.offset_x,
@@ -133,6 +173,43 @@ class PlayerView:
             tags="map",
         )
         self.canvas.image = photo  # Keep reference
+        
+        # Draw ruler if active and visible to players
+        if (hasattr(self.master, "ruler_active") and \
+           self.master.ruler_active and \
+           hasattr(self.master, "ruler_visible_to_players") and \
+           self.master.ruler_visible_to_players and \
+           hasattr(self.master, "ruler_start") and \
+           hasattr(self.master, "ruler_end") and \
+           self.master.ruler_start and \
+           self.master.ruler_end):
+            
+            start_x = self.master.ruler_start[0] * self.master.scale + self.master.offset_x
+            start_y = self.master.ruler_start[1] * self.master.scale + self.master.offset_y
+            end_x = self.master.ruler_end[0] * self.master.scale + self.master.offset_x
+            end_y = self.master.ruler_end[1] * self.master.scale + self.master.offset_y
+            
+            # Draw ruler line
+            self.canvas.create_line(
+                start_x, start_y, end_x, end_y,
+                fill="red", width=2, arrow=tk.BOTH, tags="ruler"
+            )
+            
+            # Calculate distance
+            cell_width_px = width / self.master.grid_settings.cell_size
+            dx = (self.master.ruler_end[0] - self.master.ruler_start[0]) / cell_width_px
+            dy = (self.master.ruler_end[1] - self.master.ruler_start[1]) / cell_width_px
+            distance = math.sqrt(dx**2 + dy**2) * 5
+            
+            # Draw distance text
+            self.canvas.create_text(
+                (start_x + end_x) / 2,
+                (start_y + end_y) / 2 - 15,
+                text=f"{distance:.1f} футов",
+                fill="red",
+                font=("Arial", 10, "bold"),
+                tags="ruler"
+            )
 
     def _is_token_visible(self, token):
         """Check if token should be visible to players"""
@@ -304,6 +381,13 @@ class DnDMapMaster:
         self.next_token_id = 1
         self.next_zone_id = 1
 
+        # Grid and ruler settings
+        self.grid_settings = GridSettings()
+        self.ruler_active = False
+        self.ruler_start = None
+        self.ruler_end = None
+        self.ruler_visible_to_players = True
+
         # Display settings
         self.scale = 1.0
         self.offset_x = 0
@@ -333,6 +417,126 @@ class DnDMapMaster:
         self._setup_bindings()
         self._create_context_menus()
         self.root.bind("<Configure>", self._on_window_resize)
+
+    def toggle_grid(self):
+        """Переключение видимости сетки"""
+        self.grid_settings.visible = not self.grid_settings.visible
+        self.redraw_map()
+        status = "видима" if self.grid_settings.visible else "скрыта"
+        self.update_status(f"Сетка теперь {status}")
+
+    def toggle_grid_for_players(self):
+        """Переключение видимости сетки для игроков"""
+        self.grid_settings.visible_to_players = (
+            not self.grid_settings.visible_to_players
+        )
+        self.redraw_map()
+        status = "видима" if self.grid_settings.visible_to_players else "скрыта"
+        self.update_status(f"Сетка для игроков теперь {status}")
+
+    def set_grid_cell_count(self):
+        """Установить количество клеток по ширине"""
+        count = simpledialog.askinteger(
+            "Количество клеток",
+            "Введите количество клеток по ширине:",
+            initialvalue=self.grid_settings.cell_size,
+            minvalue=1,
+            maxvalue=200,
+        )
+        if count:
+            self.grid_settings.cell_size = count
+            self.redraw_map()
+            self.update_status(f"Установлено {count} клеток по ширине")
+
+    def toggle_ruler(self):
+        """Активировать/деактивировать линейку"""
+        self.ruler_active = not self.ruler_active
+        if not self.ruler_active:
+            self.ruler_start = None
+            self.ruler_end = None
+        self.redraw_map()
+        status = "активна" if self.ruler_active else "неактивна"
+        self.update_status(f"Линейка теперь {status}")
+
+    def _draw_grid(self):
+        """Отрисовка сетки на холсте"""
+        if not self.map_image or not self.grid_settings.visible:
+            return
+
+        width = self.map_image.width
+        height = self.map_image.height
+
+        # Рассчитываем размер клетки в пикселях
+        cell_width = width / self.grid_settings.cell_size
+        cell_height = cell_width  # Квадратные клетки
+
+        # Рассчитываем количество клеток по высоте
+        cell_count_height = int(height / cell_height)
+
+        # Рисуем вертикальные линии
+        for i in range(self.grid_settings.cell_size + 1):
+            x = i * cell_width
+            self.canvas.create_line(
+                x * self.scale + self.offset_x,
+                self.offset_y,
+                x * self.scale + self.offset_x,
+                height * self.scale + self.offset_y,
+                fill=self.grid_settings.color,
+                width=1,
+                tags="grid",
+            )
+
+        # Рисуем горизонтальные линии
+        for i in range(cell_count_height + 1):
+            y = i * cell_height
+            self.canvas.create_line(
+                self.offset_x,
+                y * self.scale + self.offset_y,
+                width * self.scale + self.offset_x,
+                y * self.scale + self.offset_y,
+                fill=self.grid_settings.color,
+                width=1,
+                tags="grid",
+            )
+
+    def _draw_ruler(self):
+        """Отрисовка линейки на холсте"""
+        if not self.ruler_start or not self.ruler_end:
+            return
+
+        start_x = self.ruler_start[0] * self.scale + self.offset_x
+        start_y = self.ruler_start[1] * self.scale + self.offset_y
+        end_x = self.ruler_end[0] * self.scale + self.offset_x
+        end_y = self.ruler_end[1] * self.scale + self.offset_y
+
+        # Рисуем линию линейки
+        self.canvas.create_line(
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            fill="red",
+            width=2,
+            arrow=tk.BOTH,
+            tags="ruler",
+        )
+
+        # Рассчитываем расстояние в футах
+        width = self.map_image.width
+        cell_width = width / self.grid_settings.cell_size
+        dx = (self.ruler_end[0] - self.ruler_start[0]) / cell_width
+        dy = (self.ruler_end[1] - self.ruler_start[1]) / cell_width
+        distance = math.sqrt(dx**2 + dy**2) * 5  # 5 футов на клетку
+
+        # Рисуем текст с расстоянием
+        self.canvas.create_text(
+            (start_x + end_x) / 2,
+            (start_y + end_y) / 2 - 15,
+            text=f"{distance:.1f} футов",
+            fill="red",
+            font=("Arial", 10, "bold"),
+            tags="ruler",
+        )
 
     def _create_context_menus(self):
         """Создать контекстные меню для токенов и зон"""
@@ -664,6 +868,22 @@ class DnDMapMaster:
                 fg="white",
             ).pack(pady=5, padx=10, fill=tk.X)
 
+        grid_controls = [
+            ("Сетка (вкл/выкл)", self.toggle_grid),
+            ("Сетка игрокам", self.toggle_grid_for_players),
+            ("Количество клеток", self.set_grid_cell_count),
+            ("Линейка", self.toggle_ruler),
+        ]
+
+        for text, command in grid_controls:
+            tk.Button(
+                self.control_panel,
+                text=text,
+                command=command,
+                bg="#444444",
+                fg="white",
+            ).pack(pady=5, padx=10, fill=tk.X)
+
         # Tokens list
         self.tokens_frame = tk.LabelFrame(
             self.control_panel, text="Персонажи", bg="#333333", fg="white"
@@ -747,6 +967,14 @@ class DnDMapMaster:
                 "offset_x": self.offset_x,
                 "offset_y": self.offset_y,
             },
+            "grid_settings": {
+                "visible": self.grid_settings.visible,
+                "visible_to_players": self.grid_settings.visible_to_players,
+                "cell_size": self.grid_settings.cell_size,
+                "color": self.grid_settings.color,
+                "opacity": self.grid_settings.opacity,
+            },
+            "ruler_visible_to_players": self.ruler_visible_to_players,
         }
 
         file_path = filedialog.asksaveasfilename(
@@ -840,7 +1068,16 @@ class DnDMapMaster:
                 self.scale = data["view_settings"]["scale"]
                 self.offset_x = data["view_settings"]["offset_x"]
                 self.offset_y = data["view_settings"]["offset_y"]
+            
+            if "grid_settings" in data:
+                grid_data = data["grid_settings"]
+                self.grid_settings.visible = grid_data.get("visible", False)
+                self.grid_settings.visible_to_players = grid_data.get("visible_to_players", False)
+                self.grid_settings.cell_size = grid_data.get("cell_size", 50)
+                self.grid_settings.color = grid_data.get("color", "#888888")
+                self.grid_settings.opacity = grid_data.get("opacity", 100)
 
+            self.ruler_visible_to_players = data.get("ruler_visible_to_players", True)
             self.redraw_map()
             self._update_tokens_list()
             self._update_zones_list()
@@ -935,7 +1172,6 @@ class DnDMapMaster:
             )
 
             self.zones[zone_id] = zone
-
 
     def _setup_bindings(self):
         """Setup event bindings"""
@@ -1078,6 +1314,10 @@ class DnDMapMaster:
             # Draw snap points
             for point in self.snap_points:
                 self._draw_snap_point(point)
+
+            # Рисуем сетку
+            self._draw_grid()
+            self._draw_ruler()
 
             # Update scroll region
             self.canvas.config(
@@ -1364,6 +1604,17 @@ class DnDMapMaster:
 
     def on_canvas_click(self, event):
         """Handle canvas click"""
+        if self.ruler_active:
+            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
+            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+            
+            if not self.ruler_start:
+                self.ruler_start = (x, y)
+            else:
+                self.ruler_end = (x, y)
+            self.redraw_map()
+            return
+
         if self.creating_zone:
             # Convert to map coordinates
             x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
@@ -1423,6 +1674,13 @@ class DnDMapMaster:
 
     def on_canvas_drag(self, event):
         """Handle canvas dragging"""
+        if self.ruler_active and self.ruler_start:
+            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
+            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+            self.ruler_end = (x, y)
+            self.redraw_map()
+            return
+
         if self.creating_zone:
             return
 
