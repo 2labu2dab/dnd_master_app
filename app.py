@@ -24,6 +24,7 @@ LISTBOX_SELECTION = "#4e7cff"
 SCROLLBAR_BG = "#3a3a3a"
 SCROLLBAR_ACTIVE = "#5a5a5a"
 
+
 @dataclass
 class Token:
     id: str
@@ -60,22 +61,26 @@ class PlayerView:
         self.root = root
         self.master = master_app
         self.root.configure(bg=DARK_BG)
-        
+
         # Configure window style
         style = ttk.Style()
-        style.theme_use('clam')
+        style.theme_use("clam")
         style.configure("TFrame", background=DARK_BG)
         style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
-        style.configure("TButton", 
-                       background=BUTTON_BG, 
-                       foreground=TEXT_COLOR,
-                       borderwidth=1,
-                       focusthickness=3,
-                       focuscolor='none')
-        style.map("TButton",
-                  background=[('active', BUTTON_HOVER), ('pressed', ACCENT_COLOR)],
-                  foreground=[('active', TEXT_COLOR), ('pressed', TEXT_COLOR)])
-        
+        style.configure(
+            "TButton",
+            background=BUTTON_BG,
+            foreground=TEXT_COLOR,
+            borderwidth=1,
+            focusthickness=3,
+            focuscolor="none",
+        )
+        style.map(
+            "TButton",
+            background=[("active", BUTTON_HOVER), ("pressed", ACCENT_COLOR)],
+            foreground=[("active", TEXT_COLOR), ("pressed", TEXT_COLOR)],
+        )
+
         self.canvas = tk.Canvas(root, bg=DARKER_BG, highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
@@ -94,8 +99,8 @@ class PlayerView:
         self.fog_color = (0, 0, 0, 200)
         self.fog_opacity = 0.8
         self.player_outline = "#4CAF50"  # Green
-        self.npc_outline = "#FFC107"     # Yellow
-        self.enemy_outline = "#F44336"   # Red
+        self.npc_outline = "#FFC107"  # Yellow
+        self.enemy_outline = "#F44336"  # Red
 
         self.redraw_map()
 
@@ -162,37 +167,42 @@ class PlayerView:
 
         # Combine images
         combined = Image.alpha_composite(map_img.convert("RGBA"), fog)
-        
+
         # Draw grid if enabled and visible to players
-        if (hasattr(self.master, "grid_settings") and \
-           self.master.grid_settings.visible and \
-           self.master.grid_settings.visible_to_players):
-            
+        if (
+            hasattr(self.master, "grid_settings")
+            and self.master.grid_settings.visible
+            and self.master.grid_settings.visible_to_players
+        ):
             grid_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
             draw_grid = ImageDraw.Draw(grid_img)
-            
+
             cell_width = width / self.master.grid_settings.cell_size
             cell_count_height = int(height / cell_width)
-            
+
             # Draw vertical lines
             for i in range(self.master.grid_settings.cell_size + 1):
                 x = i * cell_width
-                draw_grid.line([(x, 0), (x, height)], fill=self.master.grid_settings.color)
-            
+                draw_grid.line(
+                    [(x, 0), (x, height)], fill=self.master.grid_settings.color
+                )
+
             # Draw horizontal lines
             for i in range(cell_count_height + 1):
                 y = i * cell_width
-                draw_grid.line([(0, y), (width, y)], fill=self.master.grid_settings.color)
-            
+                draw_grid.line(
+                    [(0, y), (width, y)], fill=self.master.grid_settings.color
+                )
+
             # Apply opacity
             grid_img.putalpha(self.master.grid_settings.opacity)
-            
+
             # Combine with map
             combined = Image.alpha_composite(combined, grid_img)
-        
+
         # Convert to PhotoImage
         photo = ImageTk.PhotoImage(combined)
-        
+
         # Draw on canvas
         self.canvas.create_image(
             self.master.offset_x,
@@ -202,34 +212,45 @@ class PlayerView:
             tags="map",
         )
         self.canvas.image = photo  # Keep reference
-        
+
         # Draw ruler if active and visible to players
-        if (hasattr(self.master, "ruler_active") and \
-           self.master.ruler_active and \
-           hasattr(self.master, "ruler_visible_to_players") and \
-           self.master.ruler_visible_to_players and \
-           hasattr(self.master, "ruler_start") and \
-           hasattr(self.master, "ruler_end") and \
-           self.master.ruler_start and \
-           self.master.ruler_end):
-            
-            start_x = self.master.ruler_start[0] * self.master.scale + self.master.offset_x
-            start_y = self.master.ruler_start[1] * self.master.scale + self.master.offset_y
+        if (
+            hasattr(self.master, "ruler_active")
+            and self.master.ruler_active
+            and hasattr(self.master, "ruler_visible_to_players")
+            and self.master.ruler_visible_to_players
+            and hasattr(self.master, "ruler_start")
+            and hasattr(self.master, "ruler_end")
+            and self.master.ruler_start
+            and self.master.ruler_end
+        ):
+            start_x = (
+                self.master.ruler_start[0] * self.master.scale + self.master.offset_x
+            )
+            start_y = (
+                self.master.ruler_start[1] * self.master.scale + self.master.offset_y
+            )
             end_x = self.master.ruler_end[0] * self.master.scale + self.master.offset_x
             end_y = self.master.ruler_end[1] * self.master.scale + self.master.offset_y
-            
+
             # Draw ruler line
             self.canvas.create_line(
-                start_x, start_y, end_x, end_y,
-                fill="#FF5252", width=2, arrow=tk.BOTH, tags="ruler"
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                fill="#FF5252",
+                width=2,
+                arrow=tk.BOTH,
+                tags="ruler",
             )
-            
+
             # Calculate distance
             cell_width_px = width / self.master.grid_settings.cell_size
             dx = (self.master.ruler_end[0] - self.master.ruler_start[0]) / cell_width_px
             dy = (self.master.ruler_end[1] - self.master.ruler_start[1]) / cell_width_px
             distance = math.sqrt(dx**2 + dy**2) * 5
-            
+
             # Draw distance text
             self.canvas.create_text(
                 (start_x + end_x) / 2,
@@ -237,7 +258,7 @@ class PlayerView:
                 text=f"{distance:.1f} ft",
                 fill="#FF5252",
                 font=("Segoe UI", 10, "bold"),
-                tags="ruler"
+                tags="ruler",
             )
 
     def _is_token_visible(self, token):
@@ -375,7 +396,7 @@ class PlayerView:
         text_color = "#212121" if token.is_npc else "#FAFAFA"
         if token.is_dead:
             text_color = "#9E9E9E"
-            
+
         self.canvas.create_text(
             x,
             y - token_size // 2 - 10,
@@ -392,10 +413,10 @@ class DnDMapMaster:
         self.root.title("D&D Map Master - Game Master View")
         self.root.geometry("1200x800")
         self.root.configure(bg=DARK_BG)
-        
+
         # Configure styles
         self._configure_styles()
-        
+
         self.player_view_minimap = None
         self.minimap_size = 300
 
@@ -441,64 +462,77 @@ class DnDMapMaster:
         self._setup_bindings()
         self._create_context_menus()
         self.root.bind("<Configure>", self._on_window_resize)
-        
+
     def _configure_styles(self):
         """Configure ttk styles for a modern look"""
         style = ttk.Style()
-        style.theme_use('clam')
-        
+        style.theme_use("clam")
+
         # Main window styles
         style.configure(".", background=DARK_BG, foreground=TEXT_COLOR)
         style.configure("TFrame", background=DARK_BG)
         style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
-        style.configure("TButton", 
-                      background=BUTTON_BG, 
-                      foreground=TEXT_COLOR,
-                      borderwidth=1,
-                      focusthickness=3,
-                      focuscolor='none',
-                      font=('Segoe UI', 9))
-        style.map("TButton",
-                 background=[('active', BUTTON_HOVER), ('pressed', ACCENT_COLOR)],
-                 foreground=[('active', TEXT_COLOR), ('pressed', TEXT_COLOR)])
-        
+        style.configure(
+            "TButton",
+            background=BUTTON_BG,
+            foreground=TEXT_COLOR,
+            borderwidth=1,
+            focusthickness=3,
+            focuscolor="none",
+            font=("Segoe UI", 9),
+        )
+        style.map(
+            "TButton",
+            background=[("active", BUTTON_HOVER), ("pressed", ACCENT_COLOR)],
+            foreground=[("active", TEXT_COLOR), ("pressed", TEXT_COLOR)],
+        )
+
         # Scrollbar styles
-        style.configure("TScrollbar", 
-                      background=SCROLLBAR_BG, 
-                      troughcolor=DARKER_BG,
-                      arrowcolor=TEXT_COLOR,
-                      bordercolor=DARK_BG)
-        style.map("TScrollbar",
-                 background=[('active', SCROLLBAR_ACTIVE)])
-        
+        style.configure(
+            "TScrollbar",
+            background=SCROLLBAR_BG,
+            troughcolor=DARKER_BG,
+            arrowcolor=TEXT_COLOR,
+            bordercolor=DARK_BG,
+        )
+        style.map("TScrollbar", background=[("active", SCROLLBAR_ACTIVE)])
+
         # Listbox styles (need to configure tkinter directly)
         self.root.option_add("*Listbox*Background", LISTBOX_BG)
         self.root.option_add("*Listbox*Foreground", TEXT_COLOR)
         self.root.option_add("*Listbox*selectBackground", LISTBOX_SELECTION)
         self.root.option_add("*Listbox*selectForeground", TEXT_COLOR)
         self.root.option_add("*Listbox*font", ("Segoe UI", 9))
-        
+
         # Entry and combobox styles
-        style.configure("TEntry", 
-                       fieldbackground=DARKER_BG, 
-                       foreground=TEXT_COLOR,
-                       insertcolor=TEXT_COLOR,
-                       borderwidth=1)
-        style.configure("TCombobox", 
-                      fieldbackground=DARKER_BG, 
-                      foreground=TEXT_COLOR,
-                      selectbackground=ACCENT_COLOR,
-                      selectforeground=TEXT_COLOR)
-        
+        style.configure(
+            "TEntry",
+            fieldbackground=DARKER_BG,
+            foreground=TEXT_COLOR,
+            insertcolor=TEXT_COLOR,
+            borderwidth=1,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=DARKER_BG,
+            foreground=TEXT_COLOR,
+            selectbackground=ACCENT_COLOR,
+            selectforeground=TEXT_COLOR,
+        )
+
         # Notebook style (for potential future tabs)
         style.configure("TNotebook", background=DARK_BG)
-        style.configure("TNotebook.Tab", 
-                       background=DARKER_BG,
-                       foreground=TEXT_COLOR,
-                       padding=[10, 5])
-        style.map("TNotebook.Tab",
-                background=[('selected', ACCENT_COLOR)],
-                foreground=[('selected', TEXT_COLOR)])
+        style.configure(
+            "TNotebook.Tab",
+            background=DARKER_BG,
+            foreground=TEXT_COLOR,
+            padding=[10, 5],
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", ACCENT_COLOR)],
+            foreground=[("selected", TEXT_COLOR)],
+        )
 
     def toggle_grid(self):
         """Toggle grid visibility"""
@@ -544,19 +578,18 @@ class DnDMapMaster:
         """Create modern context menus"""
         # Token context menu
         self.token_context_menu = tk.Menu(
-            self.root, 
-            tearoff=0, 
-            bg=DARKER_BG, 
+            self.root,
+            tearoff=0,
+            bg=DARKER_BG,
             fg=TEXT_COLOR,
             activebackground=ACCENT_COLOR,
             activeforeground=TEXT_COLOR,
             bd=1,
-            relief=tk.FLAT
+            relief=tk.FLAT,
         )
-        
+
         self.token_context_menu.add_command(
-            label="Change Type (Player/NPC/Enemy)", 
-            command=self._change_token_type
+            label="Change Type (Player/NPC/Enemy)", command=self._change_token_type
         )
         self.token_context_menu.add_command(
             label="Change Avatar",
@@ -572,14 +605,14 @@ class DnDMapMaster:
 
         # Zone context menu
         self.zone_context_menu = tk.Menu(
-            self.root, 
-            tearoff=0, 
-            bg=DARKER_BG, 
+            self.root,
+            tearoff=0,
+            bg=DARKER_BG,
             fg=TEXT_COLOR,
             activebackground=ACCENT_COLOR,
             activeforeground=TEXT_COLOR,
             bd=1,
-            relief=tk.FLAT
+            relief=tk.FLAT,
         )
         self.zone_context_menu.add_command(
             label="Rename Zone", command=self._rename_selected_zone
@@ -607,28 +640,28 @@ class DnDMapMaster:
 
         # Create modern popup menu
         type_menu = tk.Menu(
-            self.root, 
-            tearoff=0, 
-            bg=DARKER_BG, 
+            self.root,
+            tearoff=0,
+            bg=DARKER_BG,
             fg=TEXT_COLOR,
             activebackground=ACCENT_COLOR,
-            activeforeground=TEXT_COLOR
+            activeforeground=TEXT_COLOR,
         )
-        
+
         type_menu.add_command(
-            label="Player", 
+            label="Player",
             command=lambda: self._set_token_type("player"),
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         type_menu.add_command(
-            label="NPC", 
+            label="NPC",
             command=lambda: self._set_token_type("npc"),
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         type_menu.add_command(
-            label="Enemy", 
+            label="Enemy",
             command=lambda: self._set_token_type("enemy"),
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
 
         # Show menu near cursor
@@ -763,7 +796,8 @@ class DnDMapMaster:
 
         # Create minimized player view
         minimap_img = Image.new(
-            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0))
+            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
+        )
         draw = ImageDraw.Draw(minimap_img)
 
         # Scale main map
@@ -817,15 +851,15 @@ class DnDMapMaster:
                         fill = (76, 175, 80)  # Green
                         outline = (56, 142, 60)  # Dark green
                     elif token.is_npc:
-                        fill = (255, 193, 7)   # Yellow
-                        outline = (230, 174, 0) # Dark yellow
+                        fill = (255, 193, 7)  # Yellow
+                        outline = (230, 174, 0)  # Dark yellow
                     else:
-                        fill = (244, 67, 54)   # Red
-                        outline = (198, 40, 40) # Dark red
+                        fill = (244, 67, 54)  # Red
+                        outline = (198, 40, 40)  # Dark red
 
                     # Dead tokens
                     if token.is_dead:
-                        fill = (97, 97, 97)    # Gray
+                        fill = (97, 97, 97)  # Gray
                         outline = (66, 66, 66)  # Dark gray
 
                     # Draw outline
@@ -868,11 +902,7 @@ class DnDMapMaster:
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Control panel - modern dark sidebar
-        self.control_panel = ttk.Frame(
-            self.main_frame, 
-            width=220,
-            style="TFrame"
-        )
+        self.control_panel = ttk.Frame(self.main_frame, width=220, style="TFrame")
         self.control_panel.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
 
         # Canvas with scrollbars
@@ -881,16 +911,12 @@ class DnDMapMaster:
 
         # Modern scrollbars
         self.h_scroll = ttk.Scrollbar(
-            self.canvas_frame, 
-            orient=tk.HORIZONTAL,
-            style="TScrollbar"
+            self.canvas_frame, orient=tk.HORIZONTAL, style="TScrollbar"
         )
         self.v_scroll = ttk.Scrollbar(
-            self.canvas_frame, 
-            orient=tk.VERTICAL,
-            style="TScrollbar"
+            self.canvas_frame, orient=tk.VERTICAL, style="TScrollbar"
         )
-        
+
         self.canvas = tk.Canvas(
             self.canvas_frame,
             bg=DARKER_BG,
@@ -908,20 +934,17 @@ class DnDMapMaster:
 
         # Control buttons with modern styling
         controls = [
-            ("Load Map", self.load_map),
-            ("Add Player", lambda: self.add_token(is_player=True)),
-            ("Add Enemy", lambda: self.add_token(is_player=False)),
-            ("Add NPC", lambda: self.add_token(is_npc=True)),
-            ("Add Zone", self.start_zone_creation),
-            ("Open Player View", self.open_player_view),
+            ("Загрузить карту", self.load_map),
+            ("Добавить игрока", lambda: self.add_token(is_player=True)),
+            ("Добавить врага", lambda: self.add_token(is_player=False)),
+            ("Добавить НПС", lambda: self.add_token(is_npc=True)),
+            ("Добавить зону", self.start_zone_creation),
+            ("Открыть окно игрока", self.open_player_view),
         ]
 
         for text, command in controls:
             btn = ttk.Button(
-                self.control_panel,
-                text=text,
-                command=command,
-                style="TButton"
+                self.control_panel, text=text, command=command, style="TButton"
             )
             btn.pack(pady=5, padx=5, fill=tk.X)
 
@@ -930,18 +953,15 @@ class DnDMapMaster:
 
         # Grid controls
         grid_controls = [
-            ("Toggle Grid", self.toggle_grid),
-            ("Toggle Grid for Players", self.toggle_grid_for_players),
-            ("Set Cell Count", self.set_grid_cell_count),
-            ("Toggle Ruler", self.toggle_ruler),
+            ("Показать/Скрыть сетку", self.toggle_grid),
+            ("Показать/Скрыть сетку для игроков", self.toggle_grid_for_players),
+            ("Задать размер сетки", self.set_grid_cell_count),
+            ("Линейка", self.toggle_ruler),
         ]
 
         for text, command in grid_controls:
             btn = ttk.Button(
-                self.control_panel,
-                text=text,
-                command=command,
-                style="TButton"
+                self.control_panel, text=text, command=command, style="TButton"
             )
             btn.pack(pady=5, padx=5, fill=tk.X)
 
@@ -950,40 +970,36 @@ class DnDMapMaster:
 
         # Tokens list with modern styling
         self.tokens_frame = ttk.LabelFrame(
-            self.control_panel, 
-            text="Tokens",
-            style="TFrame"
+            self.control_panel, text="Tokens", style="TFrame"
         )
         self.tokens_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
 
         self.tokens_list = tk.Listbox(
-            self.tokens_frame, 
+            self.tokens_frame,
             bg=LISTBOX_BG,
             fg=TEXT_COLOR,
             selectbackground=LISTBOX_SELECTION,
             selectforeground=TEXT_COLOR,
             highlightthickness=0,
-            relief=tk.FLAT
+            relief=tk.FLAT,
         )
         self.tokens_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self.tokens_list.bind("<<ListboxSelect>>", self.on_token_select)
 
         # Zones list
         self.zones_frame = ttk.LabelFrame(
-            self.control_panel, 
-            text="Zones",
-            style="TFrame"
+            self.control_panel, text="Zones", style="TFrame"
         )
         self.zones_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
 
         self.zones_list = tk.Listbox(
-            self.zones_frame, 
+            self.zones_frame,
             bg=LISTBOX_BG,
             fg=TEXT_COLOR,
             selectbackground=LISTBOX_SELECTION,
             selectforeground=TEXT_COLOR,
             highlightthickness=0,
-            relief=tk.FLAT
+            relief=tk.FLAT,
         )
         self.zones_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self.zones_list.bind("<Double-Button-1>", self.toggle_zone_visibility)
@@ -991,20 +1007,18 @@ class DnDMapMaster:
         # Modern status bar
         self.status_var = tk.StringVar()
         self.status_bar = ttk.Label(
-            self.root, 
-            textvariable=self.status_var, 
-            relief=tk.SUNKEN, 
+            self.root,
+            textvariable=self.status_var,
+            relief=tk.SUNKEN,
             anchor=tk.W,
             style="TLabel",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Minimap frame with modern styling
         self.minimap_frame = ttk.Frame(
-            self.canvas_frame, 
-            relief=tk.SUNKEN,
-            style="TFrame"
+            self.canvas_frame, relief=tk.SUNKEN, style="TFrame"
         )
         self.minimap_frame.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor=tk.SE)
 
@@ -1018,10 +1032,10 @@ class DnDMapMaster:
         self.minimap_canvas.pack(padx=1, pady=1)
 
         self.minimap_label = ttk.Label(
-            self.minimap_frame, 
-            text="Player View Preview",
+            self.minimap_frame,
+            text="Превью окна игрока",
             style="TLabel",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
         )
         self.minimap_label.pack(fill=tk.X)
 
@@ -1031,16 +1045,16 @@ class DnDMapMaster:
         # Import/Export buttons
         ttk.Button(
             self.control_panel,
-            text="Export Map Settings",
+            text="Экспорт настроек карты",
             command=self.export_settings,
-            style="TButton"
+            style="TButton",
         ).pack(pady=5, padx=5, fill=tk.X)
 
         ttk.Button(
             self.control_panel,
-            text="Import Map Settings",
+            text="Импорт настроек карты",
             command=self.import_settings,
-            style="TButton"
+            style="TButton",
         ).pack(pady=5, padx=5, fill=tk.X)
 
         self.update_status("Ready")
@@ -1072,8 +1086,7 @@ class DnDMapMaster:
         }
 
         file_path = filedialog.asksaveasfilename(
-            defaultextension=".dndmap", 
-            filetypes=[("D&D Map Files", "*.dndmap")]
+            defaultextension=".dndmap", filetypes=[("D&D Map Files", "*.dndmap")]
         )
 
         if file_path:
@@ -1163,11 +1176,13 @@ class DnDMapMaster:
                 self.scale = data["view_settings"]["scale"]
                 self.offset_x = data["view_settings"]["offset_x"]
                 self.offset_y = data["view_settings"]["offset_y"]
-            
+
             if "grid_settings" in data:
                 grid_data = data["grid_settings"]
                 self.grid_settings.visible = grid_data.get("visible", False)
-                self.grid_settings.visible_to_players = grid_data.get("visible_to_players", False)
+                self.grid_settings.visible_to_players = grid_data.get(
+                    "visible_to_players", False
+                )
                 self.grid_settings.cell_size = grid_data.get("cell_size", 50)
                 self.grid_settings.color = grid_data.get("color", "#888888")
                 self.grid_settings.opacity = grid_data.get("opacity", 100)
@@ -1577,7 +1592,7 @@ class DnDMapMaster:
         text_color = "#212121" if token.is_npc else "#FAFAFA"
         if token.is_dead:
             text_color = "#9E9E9E"
-            
+
         self.canvas.create_text(
             x,
             y - token_size // 2 - 10,
@@ -1700,7 +1715,7 @@ class DnDMapMaster:
         if self.ruler_active:
             x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
             y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
-            
+
             if not self.ruler_start:
                 self.ruler_start = (x, y)
             else:
@@ -2053,7 +2068,7 @@ class DnDMapMaster:
 
         if hasattr(self, "minimap_frame"):
             self._update_minimap()
-    
+
     def _draw_grid(self):
         """Draw grid on canvas"""
         if not self.map_image or not self.grid_settings.visible:
@@ -2094,7 +2109,7 @@ class DnDMapMaster:
                 width=1,
                 tags="grid",
             )
-    
+
     def _draw_ruler(self):
         """Draw the ruler measurement on the canvas"""
         if not self.ruler_start or not self.ruler_end:
@@ -2107,20 +2122,25 @@ class DnDMapMaster:
 
         # Draw ruler line
         self.canvas.create_line(
-            start_x, start_y, end_x, end_y,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
             fill="#FF5252",  # Bright red
-            width=2, 
-            arrow=tk.BOTH, 
-            tags="ruler"
+            width=2,
+            arrow=tk.BOTH,
+            tags="ruler",
         )
-        
+
         # Calculate distance in feet (assuming 5ft per cell)
-        if self.map_image and hasattr(self, 'grid_settings'):
-            cell_width_px = (self.map_image.width * self.scale) / self.grid_settings.cell_size
+        if self.map_image and hasattr(self, "grid_settings"):
+            cell_width_px = (
+                self.map_image.width * self.scale
+            ) / self.grid_settings.cell_size
             dx = (end_x - start_x) / cell_width_px
             dy = (end_y - start_y) / cell_width_px
             distance = math.sqrt(dx**2 + dy**2) * 5  # 5 feet per cell
-            
+
             # Draw distance text
             self.canvas.create_text(
                 (start_x + end_x) / 2,
@@ -2128,7 +2148,7 @@ class DnDMapMaster:
                 text=f"{distance:.1f} ft",
                 fill="#FF5252",
                 font=("Segoe UI", 10, "bold"),
-                tags="ruler"
+                tags="ruler",
             )
 
 
