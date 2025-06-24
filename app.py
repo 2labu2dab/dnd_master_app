@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 from dataclasses import dataclass
 from typing import Dict, Tuple, List
@@ -10,6 +10,19 @@ import json
 import base64
 from io import BytesIO
 
+# Modern color scheme
+DARK_BG = "#2d2d2d"
+DARKER_BG = "#1e1e1e"
+ACCENT_COLOR = "#4e7cff"
+HIGHLIGHT_COLOR = "#6a9aff"
+TEXT_COLOR = "#ffffff"
+SECONDARY_TEXT = "#b0b0b0"
+BUTTON_BG = "#3a3a3a"
+BUTTON_HOVER = "#4a4a4a"
+LISTBOX_BG = "#252525"
+LISTBOX_SELECTION = "#4e7cff"
+SCROLLBAR_BG = "#3a3a3a"
+SCROLLBAR_ACTIVE = "#5a5a5a"
 
 @dataclass
 class Token:
@@ -20,7 +33,7 @@ class Token:
     size: int = 50
     is_player: bool = False
     is_npc: bool = False
-    is_dead: bool = False  # Новое поле для статуса "мертв"
+    is_dead: bool = False
     avatar_path: str = None
     avatar_image: ImageTk.PhotoImage = None
 
@@ -29,7 +42,7 @@ class Token:
 class GridSettings:
     visible: bool = False
     visible_to_players: bool = False
-    cell_size: int = 50  # Количество клеток по ширине
+    cell_size: int = 50
     color: str = "#888888"
     opacity: int = 100
 
@@ -46,12 +59,29 @@ class PlayerView:
     def __init__(self, root, master_app):
         self.root = root
         self.master = master_app
-        self.canvas = tk.Canvas(root, bg="black")
+        self.root.configure(bg=DARK_BG)
+        
+        # Configure window style
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TFrame", background=DARK_BG)
+        style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
+        style.configure("TButton", 
+                       background=BUTTON_BG, 
+                       foreground=TEXT_COLOR,
+                       borderwidth=1,
+                       focusthickness=3,
+                       focuscolor='none')
+        style.map("TButton",
+                  background=[('active', BUTTON_HOVER), ('pressed', ACCENT_COLOR)],
+                  foreground=[('active', TEXT_COLOR), ('pressed', TEXT_COLOR)])
+        
+        self.canvas = tk.Canvas(root, bg=DARKER_BG, highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # Scrollbars
-        self.h_scroll = tk.Scrollbar(root, orient=tk.HORIZONTAL)
-        self.v_scroll = tk.Scrollbar(root, orient=tk.VERTICAL)
+        # Modern scrollbars
+        self.h_scroll = ttk.Scrollbar(root, orient=tk.HORIZONTAL)
+        self.v_scroll = ttk.Scrollbar(root, orient=tk.VERTICAL)
         self.h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.config(
@@ -61,15 +91,16 @@ class PlayerView:
         self.v_scroll.config(command=self.canvas.yview)
 
         # Settings
-        self.fog_color = (0, 0, 0, 200)  # RGBA
-        self.fog_opacity = 0.8  # For GM view
-        self.player_outline = "gold"
-        self.enemy_outline = "darkred"
+        self.fog_color = (0, 0, 0, 200)
+        self.fog_opacity = 0.8
+        self.player_outline = "#4CAF50"  # Green
+        self.npc_outline = "#FFC107"     # Yellow
+        self.enemy_outline = "#F44336"   # Red
 
         self.redraw_map()
 
     def _draw_hexagon(self, x, y, size, **kwargs):
-        """Нарисовать шестиугольник с центром в (x, y)"""
+        """Draw hexagon with center at (x, y)"""
         points = []
         for i in range(6):
             angle_deg = 60 * i - 30
@@ -77,7 +108,6 @@ class PlayerView:
             points.append(x + size * math.cos(angle_rad))
             points.append(y + size * math.sin(angle_rad))
         return self.canvas.create_polygon(points, **kwargs)
-
 
     def redraw_map(self):
         self.canvas.delete("all")
@@ -118,7 +148,7 @@ class PlayerView:
                         (x * self.master.scale, y * self.master.scale)
                         for x, y in zone.vertices
                     ]
-                    if len(scaled_vertices) >= 3:  # Need at least 3 points for polygon
+                    if len(scaled_vertices) >= 3:
                         draw.polygon(scaled_vertices, fill=0)
 
         # Apply visibility to map
@@ -130,7 +160,7 @@ class PlayerView:
             Image.eval(visibility_mask, lambda x: 255 - int(x * self.fog_opacity))
         )
 
-        # Combine images - это наша базовая карта с туманом
+        # Combine images
         combined = Image.alpha_composite(map_img.convert("RGBA"), fog)
         
         # Draw grid if enabled and visible to players
@@ -138,7 +168,6 @@ class PlayerView:
            self.master.grid_settings.visible and \
            self.master.grid_settings.visible_to_players):
             
-            # Create grid image
             grid_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
             draw_grid = ImageDraw.Draw(grid_img)
             
@@ -192,7 +221,7 @@ class PlayerView:
             # Draw ruler line
             self.canvas.create_line(
                 start_x, start_y, end_x, end_y,
-                fill="red", width=2, arrow=tk.BOTH, tags="ruler"
+                fill="#FF5252", width=2, arrow=tk.BOTH, tags="ruler"
             )
             
             # Calculate distance
@@ -205,37 +234,28 @@ class PlayerView:
             self.canvas.create_text(
                 (start_x + end_x) / 2,
                 (start_y + end_y) / 2 - 15,
-                text=f"{distance:.1f} футов",
-                fill="red",
-                font=("Arial", 10, "bold"),
+                text=f"{distance:.1f} ft",
+                fill="#FF5252",
+                font=("Segoe UI", 10, "bold"),
                 tags="ruler"
             )
 
     def _is_token_visible(self, token):
         """Check if token should be visible to players"""
-        # Игроки всегда видны
         if token.is_player:
             return True
 
-        # Если нет зон - NPC и враги видны
         if not hasattr(self.master, "zones") or not self.master.zones:
             return True
 
-        # Проверяем, находится ли токен в какой-либо зоне
         in_any_zone = False
         for zone in self.master.zones.values():
             if self._point_in_polygon(token.position, zone.vertices):
                 in_any_zone = True
-                # Если зона видима - показываем токен
                 if zone.is_visible:
                     return True
 
-        # Если токен не в зоне - NPC и враги видны
-        if not in_any_zone:
-            return True
-
-        # Иначе - скрываем (для NPC и врагов в невидимых зонах)
-        return False
+        return not in_any_zone
 
     @staticmethod
     def _point_in_polygon(point, polygon):
@@ -262,50 +282,50 @@ class PlayerView:
         return inside
 
     def _draw_token(self, token):
-        """Отрисовка токена в PlayerView с обводкой"""
+        """Draw token with modern styling"""
         x = token.position[0] * self.master.scale + self.master.offset_x
         y = token.position[1] * self.master.scale + self.master.offset_y
         token_size = token.size
 
-        # Определяем цвет обводки
+        # Determine colors based on token type
         if token.is_player:
-            outline_color = "green"
-            fill_color = "green"
+            outline_color = self.player_outline
+            fill_color = "#4CAF50"  # Green
         elif token.is_npc:
-            outline_color = "yellow"
-            fill_color = "yellow"
-        else:  # Враг
-            outline_color = "red"
-            fill_color = "red"
+            outline_color = self.npc_outline
+            fill_color = "#FFC107"  # Yellow
+        else:  # Enemy
+            outline_color = self.enemy_outline
+            fill_color = "#F44336"  # Red
 
-        # Если токен мертв - делаем его серым
+        # Dead tokens are gray
         if token.is_dead:
-            fill_color = "#888888"
-            outline_color = "#444444"
+            fill_color = "#616161"
+            outline_color = "#424242"
 
-        # Если есть аватарка
+        # If avatar exists
         if hasattr(token, "avatar_image") and token.avatar_image:
-            # Создаём круглую маску
+            # Create circular mask
             mask = Image.new("L", (token_size, token_size), 0)
             draw = ImageDraw.Draw(mask)
             draw.ellipse((0, 0, token_size, token_size), fill=255)
 
-            # Применяем маску
+            # Apply mask
             avatar_img = Image.open(token.avatar_path).resize((token_size, token_size))
             avatar_img.putalpha(mask)
             rounded_avatar = ImageTk.PhotoImage(avatar_img)
 
-            # Сохраняем ссылку
+            # Save reference
             if not hasattr(self, "_rounded_avatars"):
                 self._rounded_avatars = {}
             self._rounded_avatars[token.id] = rounded_avatar
 
-            # Рисуем аватарку
+            # Draw avatar
             self.canvas.create_image(
                 x, y, image=rounded_avatar, tags=("token", f"token_{token.id}")
             )
 
-            # Рисуем обводку в виде шестиугольника для игроков, круга для остальных
+            # Draw outline - hexagon for players, circle for others
             if token.is_player:
                 self._draw_hexagon(
                     x,
@@ -328,7 +348,7 @@ class PlayerView:
                     tags=("token", f"token_{token.id}"),
                 )
         else:
-            # Стандартное отображение - шестиугольник для игроков, круг для остальных
+            # Default token appearance
             if token.is_player:
                 self._draw_hexagon(
                     x,
@@ -351,16 +371,17 @@ class PlayerView:
                     tags=("token", f"token_{token.id}"),
                 )
 
-        # Подпись токена
-        text_color = "black" if token.is_npc else "white"
+        # Token label
+        text_color = "#212121" if token.is_npc else "#FAFAFA"
         if token.is_dead:
-            text_color = "#cccccc"
+            text_color = "#9E9E9E"
+            
         self.canvas.create_text(
             x,
             y - token_size // 2 - 10,
             text=token.name,
             fill=text_color,
-            font=("Arial", 9, "bold"),
+            font=("Segoe UI", 9, "bold"),
             tags=("token", f"token_{token.id}"),
         )
 
@@ -370,8 +391,13 @@ class DnDMapMaster:
         self.root = root
         self.root.title("D&D Map Master - Game Master View")
         self.root.geometry("1200x800")
+        self.root.configure(bg=DARK_BG)
+        
+        # Configure styles
+        self._configure_styles()
+        
         self.player_view_minimap = None
-        self.minimap_size = 300  # Размер мини-карты
+        self.minimap_size = 300
 
         # Game data
         self.map_image = None
@@ -408,37 +434,93 @@ class DnDMapMaster:
         # Context menus
         self.token_context_menu = None
         self.zone_context_menu = None
-        self.current_context_object = (
-            None  # Текущий выбранный объект для контекстного меню
-        )
+        self.current_context_object = None
 
         # Create UI
         self._create_widgets()
         self._setup_bindings()
         self._create_context_menus()
         self.root.bind("<Configure>", self._on_window_resize)
+        
+    def _configure_styles(self):
+        """Configure ttk styles for a modern look"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Main window styles
+        style.configure(".", background=DARK_BG, foreground=TEXT_COLOR)
+        style.configure("TFrame", background=DARK_BG)
+        style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
+        style.configure("TButton", 
+                      background=BUTTON_BG, 
+                      foreground=TEXT_COLOR,
+                      borderwidth=1,
+                      focusthickness=3,
+                      focuscolor='none',
+                      font=('Segoe UI', 9))
+        style.map("TButton",
+                 background=[('active', BUTTON_HOVER), ('pressed', ACCENT_COLOR)],
+                 foreground=[('active', TEXT_COLOR), ('pressed', TEXT_COLOR)])
+        
+        # Scrollbar styles
+        style.configure("TScrollbar", 
+                      background=SCROLLBAR_BG, 
+                      troughcolor=DARKER_BG,
+                      arrowcolor=TEXT_COLOR,
+                      bordercolor=DARK_BG)
+        style.map("TScrollbar",
+                 background=[('active', SCROLLBAR_ACTIVE)])
+        
+        # Listbox styles (need to configure tkinter directly)
+        self.root.option_add("*Listbox*Background", LISTBOX_BG)
+        self.root.option_add("*Listbox*Foreground", TEXT_COLOR)
+        self.root.option_add("*Listbox*selectBackground", LISTBOX_SELECTION)
+        self.root.option_add("*Listbox*selectForeground", TEXT_COLOR)
+        self.root.option_add("*Listbox*font", ("Segoe UI", 9))
+        
+        # Entry and combobox styles
+        style.configure("TEntry", 
+                       fieldbackground=DARKER_BG, 
+                       foreground=TEXT_COLOR,
+                       insertcolor=TEXT_COLOR,
+                       borderwidth=1)
+        style.configure("TCombobox", 
+                      fieldbackground=DARKER_BG, 
+                      foreground=TEXT_COLOR,
+                      selectbackground=ACCENT_COLOR,
+                      selectforeground=TEXT_COLOR)
+        
+        # Notebook style (for potential future tabs)
+        style.configure("TNotebook", background=DARK_BG)
+        style.configure("TNotebook.Tab", 
+                       background=DARKER_BG,
+                       foreground=TEXT_COLOR,
+                       padding=[10, 5])
+        style.map("TNotebook.Tab",
+                background=[('selected', ACCENT_COLOR)],
+                foreground=[('selected', TEXT_COLOR)])
 
     def toggle_grid(self):
-        """Переключение видимости сетки"""
+        """Toggle grid visibility"""
         self.grid_settings.visible = not self.grid_settings.visible
         self.redraw_map()
-        status = "видима" if self.grid_settings.visible else "скрыта"
-        self.update_status(f"Сетка теперь {status}")
+        status = "visible" if self.grid_settings.visible else "hidden"
+        self.update_status(f"Grid is now {status}")
 
     def toggle_grid_for_players(self):
-        """Переключение видимости сетки для игроков"""
+        """Toggle grid visibility for players"""
         self.grid_settings.visible_to_players = (
             not self.grid_settings.visible_to_players
         )
         self.redraw_map()
-        status = "видима" if self.grid_settings.visible_to_players else "скрыта"
-        self.update_status(f"Сетка для игроков теперь {status}")
+        status = "visible" if self.grid_settings.visible_to_players else "hidden"
+        self.update_status(f"Grid for players is now {status}")
 
     def set_grid_cell_count(self):
-        """Установить количество клеток по ширине"""
+        """Set number of grid cells"""
         count = simpledialog.askinteger(
-            "Количество клеток",
-            "Введите количество клеток по ширине:",
+            "Cell Count",
+            "Enter number of grid cells along width:",
             initialvalue=self.grid_settings.cell_size,
             minvalue=1,
             maxvalue=200,
@@ -446,133 +528,75 @@ class DnDMapMaster:
         if count:
             self.grid_settings.cell_size = count
             self.redraw_map()
-            self.update_status(f"Установлено {count} клеток по ширине")
+            self.update_status(f"Set grid to {count} cells wide")
 
     def toggle_ruler(self):
-        """Активировать/деактивировать линейку"""
+        """Toggle ruler tool"""
         self.ruler_active = not self.ruler_active
         if not self.ruler_active:
             self.ruler_start = None
             self.ruler_end = None
         self.redraw_map()
-        status = "активна" if self.ruler_active else "неактивна"
-        self.update_status(f"Линейка теперь {status}")
-
-    def _draw_grid(self):
-        """Отрисовка сетки на холсте"""
-        if not self.map_image or not self.grid_settings.visible:
-            return
-
-        width = self.map_image.width
-        height = self.map_image.height
-
-        # Рассчитываем размер клетки в пикселях
-        cell_width = width / self.grid_settings.cell_size
-        cell_height = cell_width  # Квадратные клетки
-
-        # Рассчитываем количество клеток по высоте
-        cell_count_height = int(height / cell_height)
-
-        # Рисуем вертикальные линии
-        for i in range(self.grid_settings.cell_size + 1):
-            x = i * cell_width
-            self.canvas.create_line(
-                x * self.scale + self.offset_x,
-                self.offset_y,
-                x * self.scale + self.offset_x,
-                height * self.scale + self.offset_y,
-                fill=self.grid_settings.color,
-                width=1,
-                tags="grid",
-            )
-
-        # Рисуем горизонтальные линии
-        for i in range(cell_count_height + 1):
-            y = i * cell_height
-            self.canvas.create_line(
-                self.offset_x,
-                y * self.scale + self.offset_y,
-                width * self.scale + self.offset_x,
-                y * self.scale + self.offset_y,
-                fill=self.grid_settings.color,
-                width=1,
-                tags="grid",
-            )
-
-    def _draw_ruler(self):
-        """Отрисовка линейки на холсте"""
-        if not self.ruler_start or not self.ruler_end:
-            return
-
-        start_x = self.ruler_start[0] * self.scale + self.offset_x
-        start_y = self.ruler_start[1] * self.scale + self.offset_y
-        end_x = self.ruler_end[0] * self.scale + self.offset_x
-        end_y = self.ruler_end[1] * self.scale + self.offset_y
-
-        # Рисуем линию линейки
-        self.canvas.create_line(
-            start_x,
-            start_y,
-            end_x,
-            end_y,
-            fill="red",
-            width=2,
-            arrow=tk.BOTH,
-            tags="ruler",
-        )
-
-        # Рассчитываем расстояние в футах
-        width = self.map_image.width
-        cell_width = width / self.grid_settings.cell_size
-        dx = (self.ruler_end[0] - self.ruler_start[0]) / cell_width
-        dy = (self.ruler_end[1] - self.ruler_start[1]) / cell_width
-        distance = math.sqrt(dx**2 + dy**2) * 5  # 5 футов на клетку
-
-        # Рисуем текст с расстоянием
-        self.canvas.create_text(
-            (start_x + end_x) / 2,
-            (start_y + end_y) / 2 - 15,
-            text=f"{distance:.1f} футов",
-            fill="red",
-            font=("Arial", 10, "bold"),
-            tags="ruler",
-        )
+        status = "active" if self.ruler_active else "inactive"
+        self.update_status(f"Ruler is now {status}")
 
     def _create_context_menus(self):
-        """Создать контекстные меню для токенов и зон"""
-        # Меню для токенов
-        self.token_context_menu = tk.Menu(self.root, tearoff=0)
+        """Create modern context menus"""
+        # Token context menu
+        self.token_context_menu = tk.Menu(
+            self.root, 
+            tearoff=0, 
+            bg=DARKER_BG, 
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_COLOR,
+            activeforeground=TEXT_COLOR,
+            bd=1,
+            relief=tk.FLAT
+        )
+        
         self.token_context_menu.add_command(
-            label="Сменить тип (Игрок/NPC/Враг)", command=self._change_token_type
+            label="Change Type (Player/NPC/Enemy)", 
+            command=self._change_token_type
         )
         self.token_context_menu.add_command(
-            label="Сменить аватарку",
+            label="Change Avatar",
             command=lambda: self._load_avatar(self.current_context_object),
         )
         self.token_context_menu.add_command(
-            label="Удалить токен", command=self._delete_selected_token
+            label="Toggle Alive/Dead", command=self._toggle_token_dead_status
         )
+        self.token_context_menu.add_separator()
         self.token_context_menu.add_command(
-            label="Жив/Мертв", command=self._toggle_token_dead_status
+            label="Delete Token", command=self._delete_selected_token
         )
 
-        # Меню для зон
-        self.zone_context_menu = tk.Menu(self.root, tearoff=0)
-        self.zone_context_menu.add_command(
-            label="Удалить зону", command=self._delete_selected_zone
+        # Zone context menu
+        self.zone_context_menu = tk.Menu(
+            self.root, 
+            tearoff=0, 
+            bg=DARKER_BG, 
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_COLOR,
+            activeforeground=TEXT_COLOR,
+            bd=1,
+            relief=tk.FLAT
         )
         self.zone_context_menu.add_command(
-            label="Переименовать зону", command=self._rename_selected_zone
+            label="Rename Zone", command=self._rename_selected_zone
         )
         self.zone_context_menu.add_command(
-            label="Открыть зону", command=lambda: self._toggle_zone_visibility(True)
+            label="Reveal Zone", command=lambda: self._toggle_zone_visibility(True)
         )
         self.zone_context_menu.add_command(
-            label="Закрыть зону", command=lambda: self._toggle_zone_visibility(False)
+            label="Hide Zone", command=lambda: self._toggle_zone_visibility(False)
+        )
+        self.zone_context_menu.add_separator()
+        self.zone_context_menu.add_command(
+            label="Delete Zone", command=self._delete_selected_zone
         )
 
     def _change_token_type(self):
-        """Изменить тип токена (игрок/NPC/враг)"""
+        """Change token type (player/NPC/enemy)"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.tokens
@@ -581,24 +605,40 @@ class DnDMapMaster:
 
         token = self.tokens[self.current_context_object]
 
-        # Создаем меню выбора типа
-        type_menu = tk.Menu(self.root, tearoff=0)
-        type_menu.add_command(
-            label="Игрок", command=lambda: self._set_token_type("player")
+        # Create modern popup menu
+        type_menu = tk.Menu(
+            self.root, 
+            tearoff=0, 
+            bg=DARKER_BG, 
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_COLOR,
+            activeforeground=TEXT_COLOR
         )
-        type_menu.add_command(label="NPC", command=lambda: self._set_token_type("npc"))
+        
         type_menu.add_command(
-            label="Враг", command=lambda: self._set_token_type("enemy")
+            label="Player", 
+            command=lambda: self._set_token_type("player"),
+            font=("Segoe UI", 9)
+        )
+        type_menu.add_command(
+            label="NPC", 
+            command=lambda: self._set_token_type("npc"),
+            font=("Segoe UI", 9)
+        )
+        type_menu.add_command(
+            label="Enemy", 
+            command=lambda: self._set_token_type("enemy"),
+            font=("Segoe UI", 9)
         )
 
-        # Показываем меню рядом с курсором
+        # Show menu near cursor
         try:
             type_menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
         finally:
             type_menu.grab_release()
 
     def _set_token_type(self, token_type):
-        """Установить тип токена"""
+        """Set token type"""
         if not self.current_context_object:
             return
 
@@ -616,10 +656,10 @@ class DnDMapMaster:
 
         self.redraw_map()
         self._update_tokens_list()
-        self.update_status(f"Тип токена {token.name} изменен на {token_type}")
+        self.update_status(f"Token {token.name} changed to {token_type}")
 
     def _toggle_token_dead_status(self):
-        """Переключить статус токена (жив/мертв)"""
+        """Toggle token dead/alive status"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.tokens
@@ -629,11 +669,11 @@ class DnDMapMaster:
         token = self.tokens[self.current_context_object]
         token.is_dead = not token.is_dead
         self.redraw_map()
-        status = "мертв" if token.is_dead else "жив"
-        self.update_status(f"Токен {token.name} теперь {status}")
+        status = "dead" if token.is_dead else "alive"
+        self.update_status(f"Token {token.name} is now {status}")
 
     def _delete_selected_token(self):
-        """Удалить выбранный токен"""
+        """Delete selected token"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.tokens
@@ -641,14 +681,14 @@ class DnDMapMaster:
             return
 
         token = self.tokens[self.current_context_object]
-        if messagebox.askyesno("Подтверждение", f"Удалить токен {token.name}?"):
+        if messagebox.askyesno("Confirm", f"Delete token {token.name}?"):
             del self.tokens[self.current_context_object]
             self._update_tokens_list()
             self.redraw_map()
-            self.update_status(f"Токен {token.name} удален")
+            self.update_status(f"Token {token.name} deleted")
 
     def _delete_selected_zone(self):
-        """Удалить выбранную зону"""
+        """Delete selected zone"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.zones
@@ -656,14 +696,14 @@ class DnDMapMaster:
             return
 
         zone = self.zones[self.current_context_object]
-        if messagebox.askyesno("Подтверждение", f"Удалить зону {zone.name}?"):
+        if messagebox.askyesno("Confirm", f"Delete zone {zone.name}?"):
             del self.zones[self.current_context_object]
             self._update_zones_list()
             self.redraw_map()
-            self.update_status(f"Зона {zone.name} удалена")
+            self.update_status(f"Zone {zone.name} deleted")
 
     def _rename_selected_zone(self):
-        """Переименовать выбранную зону"""
+        """Rename selected zone"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.zones
@@ -672,16 +712,16 @@ class DnDMapMaster:
 
         zone = self.zones[self.current_context_object]
         new_name = simpledialog.askstring(
-            "Переименование", "Новое имя зоны:", initialvalue=zone.name
+            "Rename Zone", "New zone name:", initialvalue=zone.name
         )
         if new_name and new_name != zone.name:
             zone.name = new_name
             self._update_zones_list()
             self.redraw_map()
-            self.update_status(f"Зона переименована в {new_name}")
+            self.update_status(f"Zone renamed to {new_name}")
 
     def _toggle_zone_visibility(self, visible):
-        """Изменить видимость зоны"""
+        """Change zone visibility"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.zones
@@ -691,49 +731,48 @@ class DnDMapMaster:
         zone = self.zones[self.current_context_object]
         zone.is_visible = visible
         self.redraw_map()
-        status = "открыта" if visible else "закрыта"
-        self.update_status(f"Зона {zone.name} теперь {status}")
+        status = "revealed" if visible else "hidden"
+        self.update_status(f"Zone {zone.name} is now {status}")
 
     def _update_tokens_list(self):
-        """Обновить список токенов"""
+        """Update tokens list"""
         self.tokens_list.delete(0, tk.END)
         for token in self.tokens.values():
             prefix = "[P] " if token.is_player else "[N] " if token.is_npc else "[E] "
-            status = " (мертв)" if token.is_dead else ""
+            status = " (dead)" if token.is_dead else ""
             self.tokens_list.insert(tk.END, f"{prefix}{token.name}{status}")
 
     def _update_zones_list(self):
-        """Обновить список зон"""
+        """Update zones list"""
         self.zones_list.delete(0, tk.END)
         for zone in self.zones.values():
-            status = " (открыта)" if zone.is_visible else " (закрыта)"
+            status = " (visible)" if zone.is_visible else " (hidden)"
             self.zones_list.insert(tk.END, f"{zone.name}{status}")
 
     def _on_window_resize(self, event):
-        """При изменении размера окна обновляем позицию мини-карты и масштабируем карту"""
+        """Handle window resize"""
         self._update_ui_layout()
         if self.map_image:
             self._fit_map_to_canvas()
             self.redraw_map()
 
     def _update_minimap(self):
-        """Обновить мини-карту игрока"""
+        """Update player view minimap"""
         if not self.map_image:
             return
 
-        # Создаем уменьшенную копию карты игрока
+        # Create minimized player view
         minimap_img = Image.new(
-            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
-        )
+            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(minimap_img)
 
-        # Масштабируем основную карту
+        # Scale main map
         map_width, map_height = self.map_image.size
         scale = min(self.minimap_size / map_width, self.minimap_size / map_height)
         scaled_width = int(map_width * scale)
         scaled_height = int(map_height * scale)
 
-        # Рисуем карту
+        # Draw map
         map_img = self.map_image.resize(
             (scaled_width, scaled_height), Image.Resampling.LANCZOS
         )
@@ -745,23 +784,21 @@ class DnDMapMaster:
             ),
         )
 
-        # Рисуем зоны (только невидимые)
+        # Draw zones (only hidden ones)
         if hasattr(self, "zones"):
             for zone in self.zones.values():
                 if not zone.is_visible:
                     scaled_vertices = [
                         (
-                            (
-                                x * scale + (self.minimap_size - scaled_width) // 2,
-                                y * scale + (self.minimap_size - scaled_height) // 2,
-                            )
+                            x * scale + (self.minimap_size - scaled_width) // 2,
+                            y * scale + (self.minimap_size - scaled_height) // 2,
                         )
                         for x, y in zone.vertices
                     ]
                     if len(scaled_vertices) >= 3:
                         draw.polygon(scaled_vertices, fill=(0, 0, 0, 160))
 
-        # Рисуем токены
+        # Draw tokens
         if hasattr(self, "tokens"):
             for token in self.tokens.values():
                 if self._is_token_visible_in_minimap(token):
@@ -777,34 +814,39 @@ class DnDMapMaster:
                     size = max(4, int(token.size * scale / 2))
 
                     if token.is_player:
-                        fill = (0, 255, 0)  # Зеленый
-                        outline = (0, 200, 0)  # Темно-зеленый
+                        fill = (76, 175, 80)  # Green
+                        outline = (56, 142, 60)  # Dark green
                     elif token.is_npc:
-                        fill = (255, 255, 0)  # Желтый
-                        outline = (200, 200, 0)  # Темно-желтый
+                        fill = (255, 193, 7)   # Yellow
+                        outline = (230, 174, 0) # Dark yellow
                     else:
-                        fill = (255, 0, 0)  # Красный
-                        outline = (200, 0, 0)  # Темно-красный
+                        fill = (244, 67, 54)   # Red
+                        outline = (198, 40, 40) # Dark red
 
-                    # Рисуем контур
+                    # Dead tokens
+                    if token.is_dead:
+                        fill = (97, 97, 97)    # Gray
+                        outline = (66, 66, 66)  # Dark gray
+
+                    # Draw outline
                     draw.ellipse(
                         [x - size - 1, y - size - 1, x + size + 1, y + size + 1],
                         fill=outline,
                     )
-                    # Рисуем основной круг
+                    # Draw main circle
                     draw.ellipse([x - size, y - size, x + size, y + size], fill=fill)
 
-        # Конвертируем в PhotoImage
+        # Convert to PhotoImage
         self.player_view_minimap = ImageTk.PhotoImage(minimap_img)
 
-        # Обновляем на холсте
+        # Update canvas
         self.minimap_canvas.create_image(
             0, 0, image=self.player_view_minimap, anchor=tk.NW
         )
-        self.minimap_canvas.image = self.player_view_minimap  # Сохраняем ссылку
+        self.minimap_canvas.image = self.player_view_minimap  # Keep reference
 
     def _is_token_visible_in_minimap(self, token):
-        """Проверка видимости токена на мини-карте (по правилам игрока)"""
+        """Check if token should be visible in minimap"""
         if token.is_player:
             return True
 
@@ -821,23 +863,38 @@ class DnDMapMaster:
         return not in_any_zone
 
     def _create_widgets(self):
-        """Create all UI widgets"""
-        self.main_frame = tk.Frame(self.root)
+        """Create all UI widgets with modern styling"""
+        self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Control panel
-        self.control_panel = tk.Frame(self.main_frame, width=200, bg="#333333")
-        self.control_panel.pack(side=tk.LEFT, fill=tk.Y)
+        # Control panel - modern dark sidebar
+        self.control_panel = ttk.Frame(
+            self.main_frame, 
+            width=220,
+            style="TFrame"
+        )
+        self.control_panel.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
 
         # Canvas with scrollbars
-        self.canvas_frame = tk.Frame(self.main_frame)
+        self.canvas_frame = ttk.Frame(self.main_frame)
         self.canvas_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        self.h_scroll = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL)
-        self.v_scroll = tk.Scrollbar(self.canvas_frame, orient=tk.VERTICAL)
+        # Modern scrollbars
+        self.h_scroll = ttk.Scrollbar(
+            self.canvas_frame, 
+            orient=tk.HORIZONTAL,
+            style="TScrollbar"
+        )
+        self.v_scroll = ttk.Scrollbar(
+            self.canvas_frame, 
+            orient=tk.VERTICAL,
+            style="TScrollbar"
+        )
+        
         self.canvas = tk.Canvas(
             self.canvas_frame,
-            bg="#555555",
+            bg=DARKER_BG,
+            highlightthickness=0,
             xscrollcommand=self.h_scroll.set,
             yscrollcommand=self.v_scroll.set,
         )
@@ -849,70 +906,105 @@ class DnDMapMaster:
         self.h_scroll.config(command=self.canvas.xview)
         self.v_scroll.config(command=self.canvas.yview)
 
-        # Control buttons
+        # Control buttons with modern styling
         controls = [
-            ("Загрузить карту", self.load_map),
-            ("Добавить игрока", lambda: self.add_token(is_player=True)),
-            ("Добавить врага", lambda: self.add_token(is_player=False)),
-            ("Добавить НПС", lambda: self.add_token(is_npc=True)),
-            ("Добавить зону", self.start_zone_creation),
-            ("Открыть окно игрока", self.open_player_view),
+            ("Load Map", self.load_map),
+            ("Add Player", lambda: self.add_token(is_player=True)),
+            ("Add Enemy", lambda: self.add_token(is_player=False)),
+            ("Add NPC", lambda: self.add_token(is_npc=True)),
+            ("Add Zone", self.start_zone_creation),
+            ("Open Player View", self.open_player_view),
         ]
 
         for text, command in controls:
-            tk.Button(
+            btn = ttk.Button(
                 self.control_panel,
                 text=text,
                 command=command,
-                bg="#444444",
-                fg="white",
-            ).pack(pady=5, padx=10, fill=tk.X)
+                style="TButton"
+            )
+            btn.pack(pady=5, padx=5, fill=tk.X)
 
+        # Separator
+        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
+        # Grid controls
         grid_controls = [
-            ("Сетка (вкл/выкл)", self.toggle_grid),
-            ("Сетка игрокам", self.toggle_grid_for_players),
-            ("Количество клеток", self.set_grid_cell_count),
-            ("Линейка", self.toggle_ruler),
+            ("Toggle Grid", self.toggle_grid),
+            ("Toggle Grid for Players", self.toggle_grid_for_players),
+            ("Set Cell Count", self.set_grid_cell_count),
+            ("Toggle Ruler", self.toggle_ruler),
         ]
 
         for text, command in grid_controls:
-            tk.Button(
+            btn = ttk.Button(
                 self.control_panel,
                 text=text,
                 command=command,
-                bg="#444444",
-                fg="white",
-            ).pack(pady=5, padx=10, fill=tk.X)
+                style="TButton"
+            )
+            btn.pack(pady=5, padx=5, fill=tk.X)
 
-        # Tokens list
-        self.tokens_frame = tk.LabelFrame(
-            self.control_panel, text="Персонажи", bg="#333333", fg="white"
+        # Separator
+        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
+        # Tokens list with modern styling
+        self.tokens_frame = ttk.LabelFrame(
+            self.control_panel, 
+            text="Tokens",
+            style="TFrame"
         )
-        self.tokens_frame.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+        self.tokens_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
 
-        self.tokens_list = tk.Listbox(self.tokens_frame, bg="#444444", fg="white")
-        self.tokens_list.pack(fill=tk.BOTH, expand=True)
+        self.tokens_list = tk.Listbox(
+            self.tokens_frame, 
+            bg=LISTBOX_BG,
+            fg=TEXT_COLOR,
+            selectbackground=LISTBOX_SELECTION,
+            selectforeground=TEXT_COLOR,
+            highlightthickness=0,
+            relief=tk.FLAT
+        )
+        self.tokens_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self.tokens_list.bind("<<ListboxSelect>>", self.on_token_select)
 
         # Zones list
-        self.zones_frame = tk.LabelFrame(
-            self.control_panel, text="Зоны", bg="#333333", fg="white"
+        self.zones_frame = ttk.LabelFrame(
+            self.control_panel, 
+            text="Zones",
+            style="TFrame"
         )
-        self.zones_frame.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+        self.zones_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
 
-        self.zones_list = tk.Listbox(self.zones_frame, bg="#444444", fg="white")
-        self.zones_list.pack(fill=tk.BOTH, expand=True)
+        self.zones_list = tk.Listbox(
+            self.zones_frame, 
+            bg=LISTBOX_BG,
+            fg=TEXT_COLOR,
+            selectbackground=LISTBOX_SELECTION,
+            selectforeground=TEXT_COLOR,
+            highlightthickness=0,
+            relief=tk.FLAT
+        )
+        self.zones_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self.zones_list.bind("<Double-Button-1>", self.toggle_zone_visibility)
 
-        # Status bar
+        # Modern status bar
         self.status_var = tk.StringVar()
-        self.status_bar = tk.Label(
-            self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W
+        self.status_bar = ttk.Label(
+            self.root, 
+            textvariable=self.status_var, 
+            relief=tk.SUNKEN, 
+            anchor=tk.W,
+            style="TLabel",
+            font=("Segoe UI", 9)
         )
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.minimap_frame = tk.Frame(
-            self.canvas_frame, bd=2, relief=tk.SUNKEN, bg="#555555"
+        # Minimap frame with modern styling
+        self.minimap_frame = ttk.Frame(
+            self.canvas_frame, 
+            relief=tk.SUNKEN,
+            style="TFrame"
         )
         self.minimap_frame.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor=tk.SE)
 
@@ -920,39 +1012,41 @@ class DnDMapMaster:
             self.minimap_frame,
             width=self.minimap_size,
             height=self.minimap_size,
-            bg="#222222",
+            bg=DARKER_BG,
             highlightthickness=0,
         )
         self.minimap_canvas.pack(padx=1, pady=1)
 
-        self.minimap_label = tk.Label(
-            self.minimap_frame, text="Превью окна игрока", bg="#555555", fg="white"
+        self.minimap_label = ttk.Label(
+            self.minimap_frame, 
+            text="Player View Preview",
+            style="TLabel",
+            font=("Segoe UI", 9)
         )
         self.minimap_label.pack(fill=tk.X)
 
-        # Перемещаем canvas под подпись
+        # Move canvas under label
         self.minimap_canvas.pack(padx=1, pady=(0, 1))
 
-        tk.Button(
+        # Import/Export buttons
+        ttk.Button(
             self.control_panel,
-            text="Экспортировать настройки карты",
+            text="Export Map Settings",
             command=self.export_settings,
-            bg="#444444",
-            fg="white",
-        ).pack(pady=5, padx=10, fill=tk.X)
+            style="TButton"
+        ).pack(pady=5, padx=5, fill=tk.X)
 
-        tk.Button(
+        ttk.Button(
             self.control_panel,
-            text="Импортировать настройки карты",
+            text="Import Map Settings",
             command=self.import_settings,
-            bg="#444444",
-            fg="white",
-        ).pack(pady=5, padx=10, fill=tk.X)
+            style="TButton"
+        ).pack(pady=5, padx=5, fill=tk.X)
 
         self.update_status("Ready")
 
     def export_settings(self):
-        """Экспортировать все настройки в файл"""
+        """Export all settings to file"""
         if not self.map_image:
             messagebox.showwarning("Warning", "No map loaded to export!")
             return
@@ -978,7 +1072,8 @@ class DnDMapMaster:
         }
 
         file_path = filedialog.asksaveasfilename(
-            defaultextension=".dndmap", filetypes=[("D&D Map Files", "*.dndmap")]
+            defaultextension=".dndmap", 
+            filetypes=[("D&D Map Files", "*.dndmap")]
         )
 
         if file_path:
@@ -987,7 +1082,7 @@ class DnDMapMaster:
             self.update_status(f"Settings exported to {file_path}")
 
     def _export_map_data(self):
-        """Экспортировать данные карты"""
+        """Export map data"""
         buffered = BytesIO()
         self.map_image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -998,7 +1093,7 @@ class DnDMapMaster:
         }
 
     def _export_tokens_data(self):
-        """Экспортировать данные токенов"""
+        """Export tokens data"""
         tokens_data = []
         for token in self.tokens.values():
             token_data = {
@@ -1023,7 +1118,7 @@ class DnDMapMaster:
         return tokens_data
 
     def _export_zones_data(self):
-        """Экспортировать данные зон"""
+        """Export zones data"""
         return [
             {
                 "id": zone.id,
@@ -1035,7 +1130,7 @@ class DnDMapMaster:
         ]
 
     def import_settings(self):
-        """Импортировать настройки из файла"""
+        """Import settings from file"""
         file_path = filedialog.askopenfilename(
             filetypes=[("D&D Map Files", "*.dndmap")]
         )
@@ -1047,23 +1142,23 @@ class DnDMapMaster:
             with open(file_path, "r") as f:
                 data = json.load(f)
 
-            # Очищаем текущие данные
+            # Clear current data
             self.map_image = None
             self.tokens = {}
             self.zones = {}
             self.next_token_id = 1
             self.next_zone_id = 1
 
-            # Импортируем карту
+            # Import map
             self._import_map_data(data["map"])
 
-            # Импортируем токены
+            # Import tokens
             self._import_tokens_data(data["tokens"])
 
-            # Импортируем зоны
+            # Import zones
             self._import_zones_data(data["zones"])
 
-            # Восстанавливаем настройки вида
+            # Restore view settings
             if "view_settings" in data:
                 self.scale = data["view_settings"]["scale"]
                 self.offset_x = data["view_settings"]["offset_x"]
@@ -1087,33 +1182,33 @@ class DnDMapMaster:
             messagebox.showerror("Import Error", f"Failed to import settings: {str(e)}")
 
     def _import_map_data(self, map_data):
-        """Импортировать данные карты"""
+        """Import map data"""
         img_data = base64.b64decode(map_data["image_data"])
         self.map_image = Image.open(BytesIO(img_data))
         self.map_photo = ImageTk.PhotoImage(self.map_image)
 
     def _import_tokens_data(self, tokens_data):
-        """Импортировать данные токенов"""
+        """Import tokens data"""
         for token_data in tokens_data:
             token_id = f"token_{self.next_token_id}"
             self.next_token_id += 1
 
-            # Создаем базовое изображение токена
+            # Create base token image
             size = token_data.get("size", 50)
             img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
 
             if token_data["is_player"]:
-                color = (0, 255, 0)  # Зеленый
+                color = (76, 175, 80)  # Green
             elif token_data["is_npc"]:
-                color = (255, 255, 0)  # Желтый
+                color = (255, 193, 7)  # Yellow
             else:
-                color = (255, 0, 0)  # Красный
+                color = (244, 67, 54)  # Red
 
             draw.ellipse((0, 0, size, size), fill=color)
             token_photo = ImageTk.PhotoImage(img)
 
-            # Создаем токен
+            # Create token
             token = Token(
                 id=token_id,
                 name=token_data["name"],
@@ -1125,18 +1220,18 @@ class DnDMapMaster:
                 is_dead=token_data.get("is_dead", False),
             )
 
-            # Восстанавливаем аватарку если есть
+            # Restore avatar if exists
             if "avatar" in token_data:
                 try:
                     avatar_data = base64.b64decode(token_data["avatar"]["data"])
                     extension = token_data["avatar"]["extension"]
 
-                    # Сохраняем временный файл
+                    # Save temp file
                     temp_path = f"temp_avatar_{token_id}.{extension}"
                     with open(temp_path, "wb") as f:
                         f.write(avatar_data)
 
-                    # Загружаем аватар
+                    # Load avatar
                     img = Image.open(temp_path)
                     img.thumbnail((size, size))
 
@@ -1148,7 +1243,7 @@ class DnDMapMaster:
                     token.avatar_path = temp_path
                     token.avatar_image = avatar_img
 
-                    # Сохраняем ссылку
+                    # Save reference
                     if not hasattr(self, "_avatar_images"):
                         self._avatar_images = {}
                     self._avatar_images[token_id] = avatar_img
@@ -1159,7 +1254,7 @@ class DnDMapMaster:
             self.tokens[token_id] = token
 
     def _import_zones_data(self, zones_data):
-        """Импортировать данные зон"""
+        """Import zones data"""
         for zone_data in zones_data:
             zone_id = f"zone_{self.next_zone_id}"
             self.next_zone_id += 1
@@ -1192,7 +1287,7 @@ class DnDMapMaster:
             return
 
         # Get canvas size (subtract control panel width)
-        canvas_width = self.canvas.winfo_width() - 200  # Subtract control panel width
+        canvas_width = self.canvas.winfo_width() - 220  # Subtract control panel width
         canvas_height = self.canvas.winfo_height()
 
         if canvas_width <= 0 or canvas_height <= 0:
@@ -1207,7 +1302,7 @@ class DnDMapMaster:
         # Center the map
         self.offset_x = (
             canvas_width - img_width * self.scale
-        ) / 2 + 100  # Add half of control panel
+        ) / 2 + 110  # Add half of control panel
         self.offset_y = (canvas_height - img_height * self.scale) / 2
 
         self.update_status(f"Auto scale: {self.scale:.2f}x")
@@ -1229,7 +1324,7 @@ class DnDMapMaster:
                 self.update_status(f"Error: {e}")
 
     def _load_avatar(self, token_id):
-        """Загрузить и подготовить аватарку для токена"""
+        """Load and prepare avatar for token"""
         file_path = filedialog.askopenfilename(
             filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")]
         )
@@ -1238,10 +1333,10 @@ class DnDMapMaster:
                 token = self.tokens[token_id]
                 img = Image.open(file_path)
 
-                # Масштабируем с сохранением пропорций
+                # Scale while maintaining aspect ratio
                 img.thumbnail((token.size, token.size))
 
-                # Создаём квадратное изображение
+                # Create square image
                 squared_img = Image.new("RGBA", (token.size, token.size), (0, 0, 0, 0))
                 offset = ((token.size - img.width) // 2, (token.size - img.height) // 2)
                 squared_img.paste(img, offset)
@@ -1250,15 +1345,15 @@ class DnDMapMaster:
                 token.avatar_path = file_path
                 token.avatar_image = avatar_img
 
-                # Сохраняем ссылку
+                # Save reference
                 if not hasattr(self, "_avatar_images"):
                     self._avatar_images = {}
                 self._avatar_images[token_id] = avatar_img
 
                 self.redraw_map()
-                self.update_status(f"Аватар обновлён для {token.name}")
+                self.update_status(f"Avatar updated for {token.name}")
             except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось загрузить изображение: {e}")
+                messagebox.showerror("Error", f"Failed to load image: {e}")
 
     def reset_view(self):
         """Reset zoom and position"""
@@ -1266,7 +1361,7 @@ class DnDMapMaster:
         self.redraw_map()
 
     def _draw_hexagon(self, x, y, size, **kwargs):
-        """Нарисовать шестиугольник с центром в (x, y)"""
+        """Draw hexagon with center at (x, y)"""
         points = []
         for i in range(6):
             angle_deg = 60 * i - 30
@@ -1315,7 +1410,7 @@ class DnDMapMaster:
             for point in self.snap_points:
                 self._draw_snap_point(point)
 
-            # Рисуем сетку
+            # Draw grid
             self._draw_grid()
             self._draw_ruler()
 
@@ -1338,20 +1433,20 @@ class DnDMapMaster:
         self._update_minimap()
 
     def _update_ui_layout(self):
-        """Обновить расположение элементов интерфейса"""
+        """Update UI element positions"""
         if hasattr(self, "minimap_frame"):
             self.minimap_frame.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor=tk.SE)
 
     def _draw_zone(self, zone):
         """Draw a zone on canvas"""
-        fill_color = "#88ff88" if zone.is_visible else "#ff8888"
+        fill_color = "#81C784" if zone.is_visible else "#E57373"  # Light green/red
         self.canvas.create_polygon(
             [
                 (x * self.scale + self.offset_x, y * self.scale + self.offset_y)
                 for x, y in zone.vertices
             ],
             fill=fill_color,
-            outline="black",
+            outline="#424242",
             stipple="gray50" if not zone.is_visible else "",
             width=2,
             tags=("zone", f"zone_{zone.id}"),
@@ -1365,8 +1460,8 @@ class DnDMapMaster:
                 center_x * self.scale + self.offset_x,
                 center_y * self.scale + self.offset_y,
                 text=zone.name,
-                fill="black",
-                font=("Arial", 12, "bold"),
+                fill="#212121",
+                font=("Segoe UI", 10, "bold"),
                 tags=("zone", f"zone_{zone.id}"),
             )
 
@@ -1378,7 +1473,7 @@ class DnDMapMaster:
                     (x * self.scale + self.offset_x, y * self.scale + self.offset_y)
                     for x, y in self.current_zone_vertices
                 ],
-                outline="blue",
+                outline=ACCENT_COLOR,
                 fill="",
                 width=2,
                 dash=(5, 1),
@@ -1386,45 +1481,45 @@ class DnDMapMaster:
             )
 
     def _draw_token(self, token):
-        """Отрисовка токена с аватаркой и цветной обводкой"""
+        """Draw token with modern styling"""
         x = token.position[0] * self.scale + self.offset_x
         y = token.position[1] * self.scale + self.offset_y
         token_size = token.size
 
-        # Определяем цвет обводки по типу токена
+        # Determine colors based on token type
         if token.is_player:
-            outline_color = "green"
-            fill_color = "green"
+            outline_color = "#4CAF50"  # Green
+            fill_color = "#4CAF50"
         elif token.is_npc:
-            outline_color = "yellow"
-            fill_color = "yellow"
-        else:  # Враг
-            outline_color = "red"
-            fill_color = "red"
+            outline_color = "#FFC107"  # Yellow
+            fill_color = "#FFC107"
+        else:  # Enemy
+            outline_color = "#F44336"  # Red
+            fill_color = "#F44336"
 
-        # Если токен мертв - делаем его серым
+        # Dead tokens are gray
         if token.is_dead:
-            fill_color = "#888888"
-            outline_color = "#444444"
+            fill_color = "#616161"
+            outline_color = "#424242"
 
-        # Если есть аватарка - рисуем её с обводкой
+        # If avatar exists
         if token.avatar_image:
-            # Создаём круглую маску для аватарки
+            # Create circular mask
             mask = Image.new("L", (token_size, token_size), 0)
             draw = ImageDraw.Draw(mask)
             draw.ellipse((0, 0, token_size, token_size), fill=255)
 
-            # Применяем маску к аватарке
+            # Apply mask
             avatar_img = Image.open(token.avatar_path).resize((token_size, token_size))
             avatar_img.putalpha(mask)
             rounded_avatar = ImageTk.PhotoImage(avatar_img)
 
-            # Сохраняем ссылку
+            # Save reference
             if not hasattr(self, "_rounded_avatars"):
                 self._rounded_avatars = {}
             self._rounded_avatars[token.id] = rounded_avatar
 
-            # Рисуем аватарку
+            # Draw avatar
             self.canvas.create_image(
                 x,
                 y,
@@ -1432,7 +1527,7 @@ class DnDMapMaster:
                 tags=("token", f"token_{token.id}"),
             )
 
-            # Рисуем обводку в виде шестиугольника для игроков
+            # Draw outline - hexagon for players, circle for others
             if token.is_player:
                 self._draw_hexagon(
                     x,
@@ -1444,7 +1539,6 @@ class DnDMapMaster:
                     tags=("token", f"token_{token.id}"),
                 )
             else:
-                # Для остальных - круглую обводку
                 self.canvas.create_oval(
                     x - token_size // 2,
                     y - token_size // 2,
@@ -1456,9 +1550,8 @@ class DnDMapMaster:
                     tags=("token", f"token_{token.id}"),
                 )
         else:
-            # Стандартное отображение без аватарки
+            # Default token appearance
             if token.is_player:
-                # Для игроков - шестиугольник
                 self._draw_hexagon(
                     x,
                     y,
@@ -1469,7 +1562,6 @@ class DnDMapMaster:
                     tags=("token", f"token_{token.id}"),
                 )
             else:
-                # Для остальных - круг
                 self.canvas.create_oval(
                     x - token_size // 2,
                     y - token_size // 2,
@@ -1481,27 +1573,28 @@ class DnDMapMaster:
                     tags=("token", f"token_{token.id}"),
                 )
 
-        # Подпись токена
-        text_color = "black" if token.is_npc else "white"
+        # Token label
+        text_color = "#212121" if token.is_npc else "#FAFAFA"
         if token.is_dead:
-            text_color = "#cccccc"
+            text_color = "#9E9E9E"
+            
         self.canvas.create_text(
             x,
             y - token_size // 2 - 10,
             text=token.name,
             fill=text_color,
-            font=("Arial", 10),
+            font=("Segoe UI", 9),
             tags=("token", f"token_{token.id}"),
         )
 
-        # Выделение выбранного токена
+        # Highlight selected token
         if token.id == self.selected_token:
             self.canvas.create_oval(
                 x - token_size // 2 - 4,
                 y - token_size // 2 - 4,
                 x + token_size // 2 + 4,
                 y + token_size // 2 + 4,
-                outline="cyan",
+                outline=HIGHLIGHT_COLOR,
                 width=2,
                 tags=("token", f"token_{token.id}"),
             )
@@ -1514,33 +1607,33 @@ class DnDMapMaster:
             y * self.scale + self.offset_y - 3,
             x * self.scale + self.offset_x + 3,
             y * self.scale + self.offset_y + 3,
-            fill="blue",
-            outline="blue",
+            fill=ACCENT_COLOR,
+            outline=ACCENT_COLOR,
             tags="snap_point",
         )
 
     def add_token(self, is_player=False, is_npc=False):
-        """Добавить новый токен"""
+        """Add new token"""
         if not self.map_image:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите карту!")
+            messagebox.showwarning("Warning", "Please load map first!")
             return
 
-        token_type = "игрока" if is_player else "NPC" if is_npc else "врага"
-        token_name = simpledialog.askstring("Имя токена", f"Введите имя {token_type}:")
+        token_type = "player" if is_player else "NPC" if is_npc else "enemy"
+        token_name = simpledialog.askstring("Token Name", f"Enter {token_type} name:")
         if not token_name:
             return
 
-        # Создаем стандартное изображение токена
+        # Create default token image
         size = 50
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         if is_player:
-            color = (0, 255, 0)  # Зеленый
+            color = (76, 175, 80)  # Green
         elif is_npc:
-            color = (255, 255, 0)  # Желтый
+            color = (255, 193, 7)  # Yellow
         else:
-            color = (255, 0, 0)  # Красный
+            color = (244, 67, 54)  # Red
 
         draw.ellipse((0, 0, size, size), fill=color)
         token_photo = ImageTk.PhotoImage(img)
@@ -1548,11 +1641,11 @@ class DnDMapMaster:
         token_id = f"token_{self.next_token_id}"
         self.next_token_id += 1
 
-        # Позиция по центру карты
+        # Position at center of map
         center_x = self.map_image.width / 2
         center_y = self.map_image.height / 2
 
-        # Создаем токен
+        # Create token
         self.tokens[token_id] = Token(
             id=token_id,
             name=token_name,
@@ -1563,11 +1656,11 @@ class DnDMapMaster:
             is_dead=False,
         )
 
-        # Предлагаем добавить аватарку
-        if messagebox.askyesno("Аватар", "Добавить аватарку для этого токена?"):
+        # Offer to add avatar
+        if messagebox.askyesno("Avatar", "Add avatar for this token?"):
             self._load_avatar(token_id)
 
-        # Добавляем в список
+        # Add to list
         prefix = "[P] " if is_player else "[N] " if is_npc else "[E] "
         self.tokens_list.insert(tk.END, f"{prefix}{token_name}")
         self.tokens_list.selection_clear(0, tk.END)
@@ -1575,7 +1668,7 @@ class DnDMapMaster:
         self.selected_token = token_id
 
         self.redraw_map()
-        self.update_status(f"Добавлен токен {token_type}: {token_name}")
+        self.update_status(f"Added {token_type} token: {token_name}")
 
     def start_zone_creation(self):
         """Start creating new zone"""
@@ -1667,7 +1760,7 @@ class DnDMapMaster:
                     snap_point[1] * self.scale + self.offset_y - 5,
                     snap_point[0] * self.scale + self.offset_x + 5,
                     snap_point[1] * self.scale + self.offset_y + 5,
-                    outline="yellow",
+                    outline="#FFEB3B",  # Yellow highlight
                     width=2,
                     tags="snap_highlight",
                 )
@@ -1943,6 +2036,7 @@ class DnDMapMaster:
 
         self.player_window = tk.Toplevel(self.root)
         self.player_window.title("D&D Map Master - Player View")
+        self.player_window.configure(bg=DARK_BG)
         self.player_view = PlayerView(self.player_window, self)
 
         def on_close():
@@ -1959,6 +2053,83 @@ class DnDMapMaster:
 
         if hasattr(self, "minimap_frame"):
             self._update_minimap()
+    
+    def _draw_grid(self):
+        """Draw grid on canvas"""
+        if not self.map_image or not self.grid_settings.visible:
+            return
+
+        width = self.map_image.width
+        height = self.map_image.height
+
+        # Calculate cell size in pixels
+        cell_width = width / self.grid_settings.cell_size
+        cell_height = cell_width  # Square cells
+
+        # Calculate number of cells along height
+        cell_count_height = int(height / cell_height)
+
+        # Draw vertical lines
+        for i in range(self.grid_settings.cell_size + 1):
+            x = i * cell_width
+            self.canvas.create_line(
+                x * self.scale + self.offset_x,
+                self.offset_y,
+                x * self.scale + self.offset_x,
+                height * self.scale + self.offset_y,
+                fill=self.grid_settings.color,
+                width=1,
+                tags="grid",
+            )
+
+        # Draw horizontal lines
+        for i in range(cell_count_height + 1):
+            y = i * cell_height
+            self.canvas.create_line(
+                self.offset_x,
+                y * self.scale + self.offset_y,
+                width * self.scale + self.offset_x,
+                y * self.scale + self.offset_y,
+                fill=self.grid_settings.color,
+                width=1,
+                tags="grid",
+            )
+    
+    def _draw_ruler(self):
+        """Draw the ruler measurement on the canvas"""
+        if not self.ruler_start or not self.ruler_end:
+            return
+
+        start_x = self.ruler_start[0] * self.scale + self.offset_x
+        start_y = self.ruler_start[1] * self.scale + self.offset_y
+        end_x = self.ruler_end[0] * self.scale + self.offset_x
+        end_y = self.ruler_end[1] * self.scale + self.offset_y
+
+        # Draw ruler line
+        self.canvas.create_line(
+            start_x, start_y, end_x, end_y,
+            fill="#FF5252",  # Bright red
+            width=2, 
+            arrow=tk.BOTH, 
+            tags="ruler"
+        )
+        
+        # Calculate distance in feet (assuming 5ft per cell)
+        if self.map_image and hasattr(self, 'grid_settings'):
+            cell_width_px = (self.map_image.width * self.scale) / self.grid_settings.cell_size
+            dx = (end_x - start_x) / cell_width_px
+            dy = (end_y - start_y) / cell_width_px
+            distance = math.sqrt(dx**2 + dy**2) * 5  # 5 feet per cell
+            
+            # Draw distance text
+            self.canvas.create_text(
+                (start_x + end_x) / 2,
+                (start_y + end_y) / 2 - 15,
+                text=f"{distance:.1f} ft",
+                fill="#FF5252",
+                font=("Segoe UI", 10, "bold"),
+                tags="ruler"
+            )
 
 
 if __name__ == "__main__":
