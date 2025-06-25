@@ -47,9 +47,69 @@ class Find:
     name: str
     image: ImageTk.PhotoImage
     position: Tuple[float, float]
-    size: int = 25
+    size: int = 50
     status: bool = False
     description: str = None
+
+
+class FindDescriptionDialog(tk.Toplevel):
+    def __init__(self, parent, title, initialtext=""):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("500x700")
+        self.resizable(True, True)
+        self.configure(bg=DARK_BG)
+
+        self.result = None
+
+        # Текст описания
+        ttk.Label(self, text="Описание находки:", style="TLabel").pack(pady=5)
+
+        # Большое текстовое поле с прокруткой
+        self.text_frame = ttk.Frame(self)
+        self.text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.text_scroll = ttk.Scrollbar(self.text_frame)
+        self.text_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.text_area = tk.Text(
+            self.text_frame,
+            wrap=tk.WORD,
+            yscrollcommand=self.text_scroll.set,
+            bg=DARKER_BG,
+            fg=TEXT_COLOR,
+            insertbackground=TEXT_COLOR,
+            font=("Segoe UI", 10),
+            padx=5,
+            pady=5,
+        )
+        self.text_area.pack(fill=tk.BOTH, expand=True)
+        self.text_scroll.config(command=self.text_area.yview)
+
+        self.text_area.insert("1.0", initialtext)
+
+        # Кнопки
+        button_frame = ttk.Frame(self)
+        button_frame.pack(pady=5)
+
+        ttk.Button(button_frame, text="OK", command=self.on_ok, style="TButton").pack(
+            side=tk.LEFT, padx=5
+        )
+
+        ttk.Button(
+            button_frame, text="Отмена", command=self.on_cancel, style="TButton"
+        ).pack(side=tk.LEFT, padx=5)
+
+        self.transient(parent)
+        self.grab_set()
+        self.wait_window(self)
+
+    def on_ok(self):
+        self.result = self.text_area.get("1.0", tk.END).strip()
+        self.destroy()
+
+    def on_cancel(self):
+        self.destroy()
 
 
 @dataclass
@@ -674,9 +734,22 @@ class DnDMapMaster:
         self.find_context_menu.add_command(
             label="Изменить описание", command=self._edit_find_description
         )
+        self.find_context_menu.add_command(
+            label="Просмотреть описание", command=self._view_find_description
+        )
         self.find_context_menu.add_separator()
         self.find_context_menu.add_command(
             label="Удалить находку", command=self._delete_find
+        )
+
+    def _view_find_description(self):
+        """Просмотр описания находки"""
+        if not hasattr(self, "selected_find"):
+            return
+
+        find = self.finds[self.selected_find]
+        FindDescriptionDialog(
+            self.root, f"Описание находки: {find.name}", find.description or ""
         )
 
     def _toggle_find_status(self):
@@ -696,12 +769,16 @@ class DnDMapMaster:
             return
 
         find = self.finds[self.selected_find]
-        new_desc = simpledialog.askstring(
-            "Описание находки", "Введите новое описание:", initialvalue=find.description
+
+        # Используем новый диалог с текущим описанием
+        desc_dialog = FindDescriptionDialog(
+            self.root, f"Описание находки: {find.name}", find.description or ""
         )
-        if new_desc is not None:
-            find.description = new_desc
+
+        if desc_dialog.result is not None:
+            find.description = desc_dialog.result
             self.update_status(f"Обновлено описание для {find.name}")
+            self.redraw_map()
 
     def _delete_find(self):
         """Удалить выбранную находку"""
@@ -1165,6 +1242,7 @@ class DnDMapMaster:
             "map": self._export_map_data(),
             "tokens": self._export_tokens_data(),
             "zones": self._export_zones_data(),
+            "finds": self._export_finds_data(),
             "view_settings": {
                 "scale": self.scale,
                 "offset_x": self.offset_x,
@@ -1225,6 +1303,22 @@ class DnDMapMaster:
             tokens_data.append(token_data)
         return tokens_data
 
+    def _export_finds_data(self):
+        """Export tokens data"""
+        finds_data = []
+        for find in self.finds.values():
+            find_data = {
+                "id": find.id,
+                "name": find.name,
+                "position": find.position,
+                "size": find.size,
+                "status": find.status,
+                "description": find.description,
+            }
+
+            finds_data.append(find_data)
+        return finds_data
+
     def _export_zones_data(self):
         """Export zones data"""
         return [
@@ -1253,8 +1347,10 @@ class DnDMapMaster:
             # Clear current data
             self.map_image = None
             self.tokens = {}
+            self.finds = {}
             self.zones = {}
             self.next_token_id = 1
+            self.next_find_id = 1
             self.next_zone_id = 1
 
             # Import map
@@ -1262,6 +1358,9 @@ class DnDMapMaster:
 
             # Import tokens
             self._import_tokens_data(data["tokens"])
+
+            # Import finds
+            self._import_finds_data(data["finds"])
 
             # Import zones
             self._import_zones_data(data["zones"])
@@ -1362,6 +1461,34 @@ class DnDMapMaster:
                     print(f"Failed to load avatar for token {token_id}: {str(e)}")
 
             self.tokens[token_id] = token
+
+    def _import_finds_data(self, finds_data):
+        """Import tokens data"""
+        for find_data in finds_data:
+            find_id = f"find_{self.next_find_id}"
+            self.next_find_id += 1
+
+            # Create base token image
+            size = find_data.get("size", 50)
+            img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            draw.ellipse((0, 0, size, size), fill="white")
+            find_photo = ImageTk.PhotoImage(img)
+
+            # Create token
+            self.finds[find_id] = Find(
+                id=find_id,
+                name=find_data["name"],
+                image=find_photo,
+                position=tuple(find_data["position"]),
+                size=size,
+                status=find_data.get("status", False),
+                description=find_data["description"],
+            )
+
+            if not hasattr(self, "_find_images"):
+                self._find_images = {}
+            self._find_images[find_id] = find_photo
 
     def _import_zones_data(self, zones_data):
         """Import zones data"""
@@ -1790,7 +1917,9 @@ class DnDMapMaster:
         if not find_name:
             return
 
-        find_desc = simpledialog.askstring("Находка", "Введите описание находки:")
+        # Используем новый диалог для описания
+        desc_dialog = FindDescriptionDialog(self.root, "Описание находки")
+        find_desc = desc_dialog.result if desc_dialog.result else ""
 
         # Размер находки - половина от размера токена
         find_size = self.get_token_size()
@@ -1814,7 +1943,7 @@ class DnDMapMaster:
             name=find_name,
             image=find_photo,
             position=(center_x, center_y),
-            size=find_size,  # Устанавливаем вычисленный размер
+            size=find_size,
             description=find_desc,
         )
 
@@ -1965,6 +2094,24 @@ class DnDMapMaster:
                 self.drag_start = (canvas_x, canvas_y)
                 self.find_start_pos = find.position
                 break
+
+        if event.num == 1 and hasattr(event, "click_count") and event.click_count == 2:
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+
+            for find_id, find in self.finds.items():
+                fx = find.position[0] * self.scale + self.offset_x
+                fy = find.position[1] * self.scale + self.offset_y
+                distance = math.sqrt((fx - canvas_x) ** 2 + (fy - canvas_y) ** 2)
+
+                if distance <= find.size // 2:
+                    # Показываем полное описание в диалоге
+                    FindDescriptionDialog(
+                        self.root,
+                        f"Описание находки: {find.name}",
+                        find.description or "",
+                    )
+                    break
 
     def on_canvas_motion(self, event):
         """Handle mouse motion (for snap point highlighting)"""
