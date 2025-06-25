@@ -37,6 +37,19 @@ class Token:
     is_dead: bool = False
     avatar_path: str = None
     avatar_image: ImageTk.PhotoImage = None
+    health: int = None
+    effects: str = None
+
+
+@dataclass
+class Find:
+    id: str
+    name: str
+    image: ImageTk.PhotoImage
+    position: Tuple[float, float]
+    size: int = 25
+    status: bool = False
+    description: str = None
 
 
 @dataclass
@@ -430,6 +443,8 @@ class DnDMapMaster:
         self.zones: Dict[str, Zone] = {}
         self.next_token_id = 1
         self.next_zone_id = 1
+        self.finds = {}
+        self.next_find_id = 1
 
         # Grid and ruler settings
         self.grid_settings = GridSettings()
@@ -465,12 +480,12 @@ class DnDMapMaster:
         self._setup_bindings()
         self._create_context_menus()
         self.root.bind("<Configure>", self._on_window_resize)
-    
+
     def get_token_size(self):
         """Calculate token size based on grid cell size"""
-        if not self.map_image or not hasattr(self, 'grid_settings'):
+        if not self.map_image or not hasattr(self, "grid_settings"):
             return 50  # Default size if no grid
-        
+
         # Calculate cell size in pixels at current scale
         return int((self.map_image.width / self.grid_settings.cell_size) * self.scale)
 
@@ -574,6 +589,8 @@ class DnDMapMaster:
             self.grid_settings.cell_size = count
             for token in self.tokens.values():
                 token.size = self.get_token_size()
+            for find in self.finds.values():
+                find.size = self.get_token_size()
             self.redraw_map()
             self.update_status(f"Set grid to {count} cells wide")
 
@@ -640,6 +657,63 @@ class DnDMapMaster:
         self.zone_context_menu.add_command(
             label="Удалить зону", command=self._delete_selected_zone
         )
+
+        self.find_context_menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=DARKER_BG,
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_COLOR,
+            activeforeground=TEXT_COLOR,
+            bd=1,
+            relief=tk.FLAT,
+        )
+        self.find_context_menu.add_command(
+            label="Найдена/Не найдена", command=self._toggle_find_status
+        )
+        self.find_context_menu.add_command(
+            label="Изменить описание", command=self._edit_find_description
+        )
+        self.find_context_menu.add_separator()
+        self.find_context_menu.add_command(
+            label="Удалить находку", command=self._delete_find
+        )
+
+    def _toggle_find_status(self):
+        """Переключить статус находки (найдена/не найдена)"""
+        if not hasattr(self, "selected_find"):
+            return
+
+        find = self.finds[self.selected_find]
+        find.status = not find.status
+        self.redraw_map()
+        status = "найдена" if find.status else "не найдена"
+        self.update_status(f"Находка {find.name} теперь {status}")
+
+    def _edit_find_description(self):
+        """Изменить описание находки"""
+        if not hasattr(self, "selected_find"):
+            return
+
+        find = self.finds[self.selected_find]
+        new_desc = simpledialog.askstring(
+            "Описание находки", "Введите новое описание:", initialvalue=find.description
+        )
+        if new_desc is not None:
+            find.description = new_desc
+            self.update_status(f"Обновлено описание для {find.name}")
+
+    def _delete_find(self):
+        """Удалить выбранную находку"""
+        if not hasattr(self, "selected_find"):
+            return
+
+        find = self.finds[self.selected_find]
+        if messagebox.askyesno("Подтверждение", f"Удалить находку {find.name}?"):
+            del self.finds[self.selected_find]
+            del self.selected_find
+            self.redraw_map()
+            self.update_status(f"Находка {find.name} удалена")
 
     def _change_token_type(self):
         """Change token type (player/NPC/enemy)"""
@@ -715,7 +789,7 @@ class DnDMapMaster:
         token = self.tokens[self.current_context_object]
         token.is_dead = not token.is_dead
         self.redraw_map()
-        status = "dead" if token.is_dead else "alive"
+        status = "мертв" if token.is_dead else "жив"
         self.update_status(f"Token {token.name} is now {status}")
 
     def _delete_selected_token(self):
@@ -784,8 +858,8 @@ class DnDMapMaster:
         """Update tokens list"""
         self.tokens_list.delete(0, tk.END)
         for token in self.tokens.values():
-            prefix = "[P] " if token.is_player else "[N] " if token.is_npc else "[E] "
-            status = " (dead)" if token.is_dead else ""
+            prefix = "[И] " if token.is_player else "[Н] " if token.is_npc else "[В] "
+            status = " (мертв)" if token.is_dead else ""
             self.tokens_list.insert(tk.END, f"{prefix}{token.name}{status}")
 
     def _update_zones_list(self):
@@ -808,7 +882,9 @@ class DnDMapMaster:
             return
 
         # Create minimized player view
-        minimap_img = Image.new("RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0))
+        minimap_img = Image.new(
+            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
+        )
         draw = ImageDraw.Draw(minimap_img)
 
         # Scale main map
@@ -819,7 +895,8 @@ class DnDMapMaster:
 
         # Draw map
         map_img = self.map_image.resize(
-            (scaled_width, scaled_height), Image.Resampling.LANCZOS)
+            (scaled_width, scaled_height), Image.Resampling.LANCZOS
+        )
         minimap_img.paste(
             map_img,
             (
@@ -829,7 +906,7 @@ class DnDMapMaster:
         )
 
         # Calculate cell size in minimap pixels
-        if hasattr(self, 'grid_settings'):
+        if hasattr(self, "grid_settings"):
             cell_size_minimap = int(scaled_width / self.grid_settings.cell_size)
         else:
             cell_size_minimap = 5  # Default size if no grid
@@ -892,7 +969,8 @@ class DnDMapMaster:
 
         # Update canvas
         self.minimap_canvas.create_image(
-            0, 0, image=self.player_view_minimap, anchor=tk.NW)
+            0, 0, image=self.player_view_minimap, anchor=tk.NW
+        )
         self.minimap_canvas.image = self.player_view_minimap  # Keep reference
 
     def _is_token_visible_in_minimap(self, token):
@@ -955,6 +1033,7 @@ class DnDMapMaster:
             ("Добавить врага", lambda: self.add_token(is_player=False)),
             ("Добавить НПС", lambda: self.add_token(is_npc=True)),
             ("Добавить зону", self.start_zone_creation),
+            ("Добавить находку", lambda: self.add_find()),
             ("Открыть окно игрока", self.open_player_view),
         ]
 
@@ -1441,6 +1520,10 @@ class DnDMapMaster:
             for point in self.snap_points:
                 self._draw_snap_point(point)
 
+            # Рисуем находки (только в GM view)
+            for find in self.finds.values():
+                self._draw_find(find)
+
             # Draw grid
             self._draw_grid()
             self._draw_ruler()
@@ -1467,6 +1550,60 @@ class DnDMapMaster:
         """Update UI element positions"""
         if hasattr(self, "minimap_frame"):
             self.minimap_frame.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor=tk.SE)
+
+    def _draw_find(self, find):
+        """Отрисовать находку на карте"""
+        # Если размер не задан, вычисляем его
+        if find.size is None:
+            find.size = self.get_token_size()
+
+        x = find.position[0] * self.scale + self.offset_x
+        y = find.position[1] * self.scale + self.offset_y
+
+        # Основной круг
+        self.canvas.create_oval(
+            x - find.size // 2,
+            y - find.size // 2,
+            x + find.size // 2,
+            y + find.size // 2,
+            fill="white",
+            outline="#888888",
+            width=2,
+            tags=("find", f"find_{find.id}"),
+        )
+
+        # Иконка "?" или "!" в зависимости от статуса
+        symbol = "!" if find.status else "?"
+        self.canvas.create_text(
+            x,
+            y,
+            text=symbol,
+            fill="#333333",
+            font=("Segoe UI", 10, "bold"),
+            tags=("find", f"find_{find.id}"),
+        )
+
+        # Название находки
+        self.canvas.create_text(
+            x,
+            y - find.size // 2 - 10,
+            text=find.name,
+            fill="#333333",
+            font=("Segoe UI", 8),
+            tags=("find", f"find_{find.id}"),
+        )
+
+        # Подсветка если выбрана
+        if hasattr(self, "selected_find") and self.selected_find == find.id:
+            self.canvas.create_oval(
+                x - find.size // 2 - 4,
+                y - find.size // 2 - 4,
+                x + find.size // 2 + 4,
+                y + find.size // 2 + 4,
+                outline=HIGHLIGHT_COLOR,
+                width=2,
+                tags=("find", f"find_{find.id}"),
+            )
 
     def _draw_zone(self, zone):
         """Draw a zone on canvas"""
@@ -1605,9 +1742,9 @@ class DnDMapMaster:
                 )
 
         # Token label
-        text_color = "#212121" if token.is_npc else "#FAFAFA"
+        text_color = "#212121"
         if token.is_dead:
-            text_color = "#9E9E9E"
+            text_color = "#757575"
 
         self.canvas.create_text(
             x,
@@ -1642,6 +1779,47 @@ class DnDMapMaster:
             outline=ACCENT_COLOR,
             tags="snap_point",
         )
+
+    def add_find(self):
+        """Добавить новую находку на карту"""
+        if not self.map_image:
+            messagebox.showwarning("Warning", "Пожалуйста, сначала загрузите карту!")
+            return
+
+        find_name = simpledialog.askstring("Находка", "Введите название находки:")
+        if not find_name:
+            return
+
+        find_desc = simpledialog.askstring("Находка", "Введите описание находки:")
+
+        # Размер находки - половина от размера токена
+        find_size = self.get_token_size()
+
+        # Создаем изображение для находки (белый круг)
+        img = Image.new("RGBA", (find_size, find_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((0, 0, find_size, find_size), fill="white")
+        find_photo = ImageTk.PhotoImage(img)
+
+        find_id = f"find_{self.next_find_id}"
+        self.next_find_id += 1
+
+        # Позиция по центру карты
+        center_x = self.map_image.width / 2
+        center_y = self.map_image.height / 2
+
+        # Создаем находку
+        self.finds[find_id] = Find(
+            id=find_id,
+            name=find_name,
+            image=find_photo,
+            position=(center_x, center_y),
+            size=find_size,  # Устанавливаем вычисленный размер
+            description=find_desc,
+        )
+
+        self.update_status(f"Добавлена находка: {find_name}")
+        self.redraw_map()
 
     def add_token(self, is_player=False, is_npc=False):
         """Add new token"""
@@ -1692,7 +1870,7 @@ class DnDMapMaster:
             self._load_avatar(token_id)
 
         # Add to list
-        prefix = "[P] " if is_player else "[N] " if is_npc else "[E] "
+        prefix = "[И] " if is_player else "[Н] " if is_npc else "[В] "
         self.tokens_list.insert(tk.END, f"{prefix}{token_name}")
         self.tokens_list.selection_clear(0, tk.END)
         self.tokens_list.selection_set(tk.END)
@@ -1776,6 +1954,18 @@ class DnDMapMaster:
                         break
                 break
 
+        self.selected_find = None
+        for find_id, find in self.finds.items():
+            fx = find.position[0] * self.scale + self.offset_x
+            fy = find.position[1] * self.scale + self.offset_y
+            distance = math.sqrt((fx - canvas_x) ** 2 + (fy - canvas_y) ** 2)
+
+            if distance <= find.size // 2:
+                self.selected_find = find_id
+                self.drag_start = (canvas_x, canvas_y)
+                self.find_start_pos = find.position
+                break
+
     def on_canvas_motion(self, event):
         """Handle mouse motion (for snap point highlighting)"""
         if self.creating_zone and self.current_zone_vertices:
@@ -1824,6 +2014,19 @@ class DnDMapMaster:
             self.tokens[self.selected_token].position = (
                 self.token_start_pos[0] + dx,
                 self.token_start_pos[1] + dy,
+            )
+        elif self.selected_find:
+            if not hasattr(self, "drag_start"):
+                self.drag_start = (canvas_x, canvas_y)
+            if not hasattr(self, "find_start_pos"):
+                self.find_start_pos = self.finds[self.selected_find].position
+
+            dx = (canvas_x - self.drag_start[0]) / self.scale
+            dy = (canvas_y - self.drag_start[1]) / self.scale
+
+            self.finds[self.selected_find].position = (
+                self.find_start_pos[0] + dx,
+                self.find_start_pos[1] + dy,
             )
         else:
             # Pan the map
@@ -1890,6 +2093,20 @@ class DnDMapMaster:
                     clicked_zone = zone_id
                     break
 
+        clicked_find = None
+        if not clicked_token and not clicked_zone:
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+
+            for find_id, find in self.finds.items():
+                fx = find.position[0] * self.scale + self.offset_x
+                fy = find.position[1] * self.scale + self.offset_y
+                distance = math.sqrt((fx - canvas_x) ** 2 + (fy - canvas_y) ** 2)
+
+                if distance <= find.size // 2:
+                    clicked_find = find_id
+                    break
+
         # Show appropriate context menu
         if clicked_token:
             self.current_context_object = clicked_token
@@ -1904,6 +2121,13 @@ class DnDMapMaster:
                 self.zone_context_menu.tk_popup(event.x_root, event.y_root)
             finally:
                 self.zone_context_menu.grab_release()
+        elif clicked_find:
+            self.current_context_object = clicked_find
+            self.selected_find = clicked_find
+            try:
+                self.find_context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.find_context_menu.grab_release()
 
     def finish_zone_creation(self):
         """Finish creating zone"""
@@ -2025,6 +2249,9 @@ class DnDMapMaster:
 
         for token in self.tokens.values():
             token.size = self.get_token_size()
+
+        for find in self.finds.values():
+            find.size = self.get_token_size()
 
         self.redraw_map()
         self.update_status(f"Масштаб: {self.scale:.2f}x")
