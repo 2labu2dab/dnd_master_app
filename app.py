@@ -681,8 +681,12 @@ class PlayerView:
             and self.master.ruler_start
             and self.master.ruler_end
         ):
-            start_x = self.master.ruler_start[0] * self.master.scale + self.offset_x
-            start_y = self.master.ruler_start[1] * self.master.scale + self.offset_y
+            start_x = (
+                self.master.ruler_start[0] * self.master.scale + self.offset_x
+            )
+            start_y = (
+                self.master.ruler_start[1] * self.master.scale + self.offset_y
+            )
             end_x = self.master.ruler_end[0] * self.master.scale + self.offset_x
             end_y = self.master.ruler_end[1] * self.master.scale + self.offset_y
 
@@ -760,14 +764,7 @@ class PlayerView:
                     self._draw_token(token)
 
         # Обновляем scrollregion для прокрутки
-        self.canvas.config(
-            scrollregion=(
-                0,
-                0,
-                max(window_width, map_width),
-                max(window_height, map_height),
-            )
-        )
+        self.canvas.config(scrollregion=(0, 0, max(window_width, map_width), max(window_height, map_height)))
 
     def _is_token_visible(self, token):
         """Проверка видимости токена для игроков"""
@@ -1248,7 +1245,7 @@ class DnDMapMaster:
         self.redraw_map()
         status = "active" if self.ruler_active else "inactive"
         self.update_status(f"Ruler is now {status}")
-
+    
     def _create_styled_menu(self):
         return tk.Menu(
             self.root,
@@ -1261,7 +1258,6 @@ class DnDMapMaster:
             relief=tk.FLAT,
             font=FONT_MENU,  # зададим шрифт, как везде
         )
-
     def _create_context_menus(self):
         """Create modern context menus"""
         # Token context menu
@@ -1336,16 +1332,15 @@ class DnDMapMaster:
         self.find_context_menu.add_command(
             label="Удалить находку", command=self._delete_find
         )
-
+    
     def _show_zone_context_menu(self, event, zone_id):
         self.current_context_object = zone_id
         zone = self.zones.get(zone_id)
         if zone:
             label = "Спрятать зону" if zone.is_visible else "Открыть зону"
-            self.zone_context_menu.entryconfig(
-                1, label=label
-            )  # индекс 1 — пункт со статусом
+            self.zone_context_menu.entryconfig(1, label=label)  # индекс 1 — пункт со статусом
             self.zone_context_menu.tk_popup(event.x_root, event.y_root)
+
 
     def _view_find_description(self):
         """Просмотр описания находки"""
@@ -2407,48 +2402,13 @@ class DnDMapMaster:
         shadow_color = "#000000"  # черный буфер
 
         # Рисуем тень (чёрный текст с небольшим смещением)
-        self.canvas.create_text(
-            x_text + 1,
-            y_text + 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("find", f"find_{find.id}"),
-        )
-        self.canvas.create_text(
-            x_text - 1,
-            y_text + 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("find", f"find_{find.id}"),
-        )
-        self.canvas.create_text(
-            x_text + 1,
-            y_text - 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("find", f"find_{find.id}"),
-        )
-        self.canvas.create_text(
-            x_text - 1,
-            y_text - 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("find", f"find_{find.id}"),
-        )
+        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
 
         # Рисуем основной текст поверх
-        self.canvas.create_text(
-            x_text,
-            y_text,
-            text=text,
-            fill=main_color,
-            font=font,
-            tags=("find", f"find_{find.id}"),
-        )
+        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("find", f"find_{find.id}"))
 
         # Подсветка если выбрана
         if hasattr(self, "selected_find") and self.selected_find == find.id:
@@ -2616,48 +2576,13 @@ class DnDMapMaster:
         shadow_color = "#000000"  # черный буфер
 
         # Рисуем тень (чёрный текст с небольшим смещением)
-        self.canvas.create_text(
-            x_text + 1,
-            y_text + 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("token", f"token_{token.id}"),
-        )
-        self.canvas.create_text(
-            x_text - 1,
-            y_text + 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("token", f"token_{token.id}"),
-        )
-        self.canvas.create_text(
-            x_text + 1,
-            y_text - 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("token", f"token_{token.id}"),
-        )
-        self.canvas.create_text(
-            x_text - 1,
-            y_text - 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            tags=("token", f"token_{token.id}"),
-        )
+        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
 
         # Рисуем основной текст поверх
-        self.canvas.create_text(
-            x_text,
-            y_text,
-            text=text,
-            fill=main_color,
-            font=font,
-            tags=("token", f"token_{token.id}"),
-        )
+        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("token", f"token_{token.id}"))
 
         # Highlight selected token
         if token.id == self.selected_token:
@@ -3131,32 +3056,29 @@ class DnDMapMaster:
     @staticmethod
     def _segments_intersect(p1, p2, p3, p4):
         """Return True if segments (p1,p2) and (p3,p4) intersect strictly inside (no endpoints)."""
-
         def ccw(a, b, c):
             return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
         # Проверка, пересекаются ли отрезки (включая касания)
-        intersect = (ccw(p1, p3, p4) != ccw(p2, p3, p4)) and (
-            ccw(p1, p2, p3) != ccw(p1, p2, p4)
-        )
+        intersect = (ccw(p1, p3, p4) != ccw(p2, p3, p4)) and (ccw(p1, p2, p3) != ccw(p1, p2, p4))
         if not intersect:
             return False
 
         # Проверяем, не совпадает ли точка пересечения с концами отрезков
         # Для этого вычислим точку пересечения и проверим равенство с концами
-
+        
         # Векторное представление
         x1, y1 = p1
         x2, y2 = p2
         x3, y3 = p3
         x4, y4 = p4
 
-        denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1)
+        denom = (y4 - y3)*(x2 - x1) - (x4 - x3)*(y2 - y1)
         if denom == 0:
             return False  # параллельны или совпадают
 
-        ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denom
-        ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denom
+        ua = ((x4 - x3)*(y1 - y3) - (y4 - y3)*(x1 - x3)) / denom
+        ub = ((x2 - x1)*(y1 - y3) - (y2 - y1)*(x1 - x3)) / denom
 
         # Точка пересечения
         xi = x1 + ua * (x2 - x1)
@@ -3166,7 +3088,7 @@ class DnDMapMaster:
 
         # Функция для проверки совпадения точек с допуском
         def points_are_close(a, b, tol=1e-9):
-            return abs(a[0] - b[0]) < tol and abs(a[1] - b[1]) < tol
+            return abs(a[0]-b[0]) < tol and abs(a[1]-b[1]) < tol
 
         # Если точка пересечения совпадает с любым концом — не считать пересечением
         endpoints = [p1, p2, p3, p4]
