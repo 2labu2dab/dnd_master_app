@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageTk, ImageDraw, ImageFilter
 from dataclasses import dataclass
 from typing import Dict, Tuple, List
 import math
@@ -11,18 +11,405 @@ import base64
 from io import BytesIO
 
 # Modern color scheme
-DARK_BG = "#2d2d2d"
-DARKER_BG = "#1e1e1e"
-ACCENT_COLOR = "#4e7cff"
+DARK_BG = "#1E1E2F"  # Темно-синий графит
+DARKER_BG = "#161622"  # Ещё темнее для контрастных элементов
+TEXT_COLOR = "#E0E0E0"  # Светло-серый текст
+ACCENT_COLOR = "#4F8EF7"  # Яркий голубой акцент
+BUTTON_BG = "#2A2E4A"  # Темно-синий фон кнопок
+BUTTON_HOVER = "#3F499D"  # Светлый синий при наведении
+SCROLLBAR_BG = "#2A2E4A"
+SCROLLBAR_ACTIVE = "#4F8EF7"
+LISTBOX_BG = "#222538"
+LISTBOX_SELECTION = "#4F8EF7"
 HIGHLIGHT_COLOR = "#6a9aff"
-TEXT_COLOR = "#ffffff"
-SECONDARY_TEXT = "#b0b0b0"
-BUTTON_BG = "#3a3a3a"
-BUTTON_HOVER = "#4a4a4a"
-LISTBOX_BG = "#252525"
-LISTBOX_SELECTION = "#4e7cff"
-SCROLLBAR_BG = "#3a3a3a"
-SCROLLBAR_ACTIVE = "#5a5a5a"
+FONT = ("Segoe UI Semibold", 11)
+FONT_MENU = ("Segoe UI Semibold", 10)
+
+
+class YesNoDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        title,
+        message,
+        bg_color=LISTBOX_BG,
+        fg_color="white",
+        font=("Segoe UI", 12),
+        button_style="Modern.TButton",
+    ):
+        super().__init__(parent)
+        self.parent = parent
+        self.result = None
+        self.configure(bg=bg_color)
+        self.title(title)
+        self.resizable(False, False)
+        self.grab_set()
+
+        self.geometry(self._center_window(350, 130))
+
+        lbl = tk.Label(
+            self, text=message, bg=bg_color, fg=fg_color, font=font, wraplength=300
+        )
+        lbl.pack(padx=20, pady=20)
+
+        btn_frame = tk.Frame(self, bg=bg_color)
+        btn_frame.pack(pady=10)
+
+        yes_btn = ttk.Button(
+            btn_frame, text="Да", command=self._on_yes, style=button_style, width=10
+        )
+        yes_btn.pack(side=tk.LEFT, padx=10)
+
+        no_btn = ttk.Button(
+            btn_frame, text="Нет", command=self._on_no, style=button_style, width=10
+        )
+        no_btn.pack(side=tk.LEFT, padx=10)
+
+    def _center_window(self, width, height):
+        self.update_idletasks()
+        x = self.parent.winfo_rootx() + (self.parent.winfo_width() // 2) - (width // 2)
+        y = (
+            self.parent.winfo_rooty()
+            + (self.parent.winfo_height() // 2)
+            - (height // 2)
+        )
+        return f"{width}x{height}+{x}+{y}"
+
+    def _on_yes(self):
+        self.result = True
+        self.destroy()
+
+    def _on_no(self):
+        self.result = False
+        self.destroy()
+
+    def show(self):
+        self.wait_window()
+        return self.result
+
+
+class AvatarLoadDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        token_size,
+        on_avatar_loaded,
+        bg_color=LISTBOX_BG,
+        fg_color="white",
+        font=FONT,
+        button_style="Modern.TButton",
+    ):
+        super().__init__(parent)
+        self.parent = parent
+        self.token_size = token_size
+        self.on_avatar_loaded = on_avatar_loaded  # callback с путем к файлу
+        self.configure(bg=bg_color)
+        self.title("Загрузка аватара")
+        self.resizable(False, False)
+        self.grab_set()
+
+        self.geometry(self._center_window(400, 150))
+
+        self.label = tk.Label(
+            self,
+            text="Выберите файл с изображением аватара:",
+            bg=bg_color,
+            fg=fg_color,
+            font=font,
+        )
+        self.label.pack(padx=20, pady=15)
+
+        buttons_frame = tk.Frame(self, bg=bg_color)
+        buttons_frame.pack(pady=10)
+
+        self.load_button = ttk.Button(
+            buttons_frame,
+            text="Выбрать файл",
+            command=self.select_file,
+            style=button_style,
+            width=15,
+        )
+        self.load_button.pack(side=tk.LEFT, padx=10)
+
+        self.cancel_button = ttk.Button(
+            buttons_frame,
+            text="Отмена",
+            command=self.on_cancel,
+            style=button_style,
+            width=15,
+        )
+        self.cancel_button.pack(side=tk.LEFT, padx=10)
+
+        self.selected_file = None
+
+    def _center_window(self, width, height):
+        self.update_idletasks()
+        x = self.parent.winfo_rootx() + (self.parent.winfo_width() // 2) - (width // 2)
+        y = (
+            self.parent.winfo_rooty()
+            + (self.parent.winfo_height() // 2)
+            - (height // 2)
+        )
+        return f"{width}x{height}+{x}+{y}"
+
+    def select_file(self):
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Выберите изображение",
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")],
+        )
+        if file_path:
+            self.selected_file = file_path
+            self.on_avatar_loaded(file_path)
+            self.destroy()
+
+    def on_cancel(self):
+        self.selected_file = None
+        self.destroy()
+
+    def show(self):
+        self.wait_window()
+        return self.selected_file
+
+
+class TextInputDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        title,
+        prompt,
+        initialvalue="",
+        bg_color=LISTBOX_BG,
+        fg_color="white",
+        font=FONT,
+        button_style="Modern.TButton",
+    ):
+        super().__init__(parent)
+        self.parent = parent
+        self.title(title)
+        self.configure(bg=bg_color)
+        self.resizable(False, False)
+        self.grab_set()
+
+        self.result = None
+        self.button_style = button_style
+
+        # Центрируем окно
+        self.transient(parent)
+        self.geometry(self._center_window(350, 200))
+
+        # Метка с вопросом
+        self.label = tk.Label(self, text=prompt, bg=bg_color, fg=fg_color, font=font)
+        self.label.pack(padx=20, pady=(20, 10))
+
+        # Поле ввода
+        self.entry_var = tk.StringVar(value=initialvalue)
+        self.entry = tk.Entry(
+            self, textvariable=self.entry_var, font=font, justify="left"
+        )
+        self.entry.pack(padx=20, pady=(0, 10), fill=tk.X)
+        self.entry.focus_set()
+
+        # Ошибка (если нужна)
+        self.error_label = tk.Label(
+            self, text="", bg=bg_color, fg="red", font=(font[0], 10)
+        )
+        self.error_label.pack(pady=(0, 10))
+
+        # Кнопки
+        buttons_frame = tk.Frame(self, bg=bg_color)
+        buttons_frame.pack(pady=(0, 20))
+
+        self.ok_button = ttk.Button(
+            buttons_frame,
+            text="OK",
+            command=self.on_ok,
+            style=self.button_style,
+            width=10,
+        )
+        self.ok_button.pack(side=tk.LEFT, padx=10)
+
+        self.cancel_button = ttk.Button(
+            buttons_frame,
+            text="Отмена",
+            command=self.on_cancel,
+            style=self.button_style,
+            width=10,
+        )
+        self.cancel_button.pack(side=tk.LEFT, padx=10)
+
+        # Горячие клавиши
+        self.bind("<Return>", lambda event: self.on_ok())
+        self.bind("<Escape>", lambda event: self.on_cancel())
+
+    def _center_window(self, width, height):
+        self.update_idletasks()
+        x = self.parent.winfo_rootx() + (self.parent.winfo_width() // 2) - (width // 2)
+        y = (
+            self.parent.winfo_rooty()
+            + (self.parent.winfo_height() // 2)
+            - (height // 2)
+        )
+        return f"{width}x{height}+{x}+{y}"
+
+    def on_ok(self):
+        val = self.entry_var.get().strip()
+        if not val:
+            self.error_label.config(text="Пожалуйста, введите имя")
+            return
+        self.result = val
+        self.destroy()
+
+    def on_cancel(self):
+        self.result = None
+        self.destroy()
+
+    def show(self):
+        self.wait_window()
+        return self.result
+
+
+class IntegerInputDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        title,
+        prompt,
+        initialvalue=10,
+        minvalue=1,
+        maxvalue=200,
+        bg_color="#222222",
+        fg_color="white",
+        font=FONT,
+        button_style="Modern.TButton",
+    ):
+        super().__init__(parent)
+        self.parent = parent
+        self.title(title)
+        self.configure(bg=bg_color)
+        self.resizable(False, False)
+        self.grab_set()  # Модальность
+
+        self.minvalue = minvalue
+        self.maxvalue = maxvalue
+        self.result = None
+        self.button_style = button_style
+
+        # Центрирование окна
+        self.transient(parent)
+        self.geometry(self._center_window(300, 200))
+
+        # Метка с вопросом
+        self.label = tk.Label(self, text=prompt, bg=bg_color, fg=fg_color, font=font)
+        self.label.pack(padx=20, pady=(20, 10))
+
+        # Поле ввода
+        self.entry_var = tk.StringVar(value=str(initialvalue))
+        self.entry = tk.Entry(
+            self, textvariable=self.entry_var, font=font, justify="center"
+        )
+        self.entry.pack(padx=20, pady=(0, 10))
+        self.entry.focus_set()
+
+        # Метка для ошибок
+        self.error_label = tk.Label(
+            self, text="", bg=bg_color, fg="red", font=(font[0], 10)
+        )
+        self.error_label.pack(pady=(0, 10))
+
+        # Кнопки
+        buttons_frame = tk.Frame(self, bg=bg_color)
+        buttons_frame.pack(pady=(0, 20))
+
+        self.ok_button = ttk.Button(
+            buttons_frame,
+            text="OK",
+            command=self.on_ok,
+            style=self.button_style,
+            width=10,
+        )
+        self.ok_button.pack(side=tk.LEFT, padx=10)
+
+        self.cancel_button = ttk.Button(
+            buttons_frame,
+            text="Отмена",
+            command=self.on_cancel,
+            style=self.button_style,
+            width=10,
+        )
+        self.cancel_button.pack(side=tk.LEFT, padx=10)
+
+        # Горячие клавиши
+        self.bind("<Return>", lambda event: self.on_ok())
+        self.bind("<Escape>", lambda event: self.on_cancel())
+
+    def _center_window(self, width, height):
+        self.update_idletasks()
+        x = self.parent.winfo_rootx() + (self.parent.winfo_width() // 2) - (width // 2)
+        y = (
+            self.parent.winfo_rooty()
+            + (self.parent.winfo_height() // 2)
+            - (height // 2)
+        )
+        return f"{width}x{height}+{x}+{y}"
+
+    def on_ok(self):
+        try:
+            val = int(self.entry_var.get())
+            if val < self.minvalue or val > self.maxvalue:
+                self.error_label.config(
+                    text=f"Введите число от {self.minvalue} до {self.maxvalue}"
+                )
+                return
+            self.result = val
+            self.destroy()
+        except ValueError:
+            self.error_label.config(text="Пожалуйста, введите целое число")
+
+    def on_cancel(self):
+        self.result = None
+        self.destroy()
+
+    def show(self):
+        self.wait_window()
+        return self.result
+
+
+class CustomCheckbutton(tk.Frame):
+    def __init__(self, master, text="", variable=None, command=None, **kwargs):
+        super().__init__(master, bg=DARK_BG, **kwargs)
+        self.variable = variable or tk.BooleanVar()
+        self.text = text
+        self.command = command
+
+        self.canvas = tk.Canvas(
+            self, width=20, height=20, bg=DARK_BG, highlightthickness=0
+        )
+        self.label = tk.Label(
+            self, text=self.text, bg=DARK_BG, fg=TEXT_COLOR, font=FONT
+        )
+
+        self.canvas.grid(row=0, column=0, sticky="ns")
+        self.label.grid(row=0, column=1, sticky="w", padx=(10, 0))
+
+        # Обработчик клика только на квадрате
+        self.canvas.bind("<Button-1>", self.toggle)
+
+        self.variable.trace_add("write", self.redraw)
+        self.redraw()
+
+    def toggle(self, event=None):
+        current = self.variable.get()
+        self.variable.set(not current)
+        if self.command:
+            self.command()
+
+    def redraw(self, *args):
+        self.canvas.delete("all")
+        color = ACCENT_COLOR if self.variable.get() else "white"
+        self.canvas.create_rectangle(
+            2, 2, 18, 18, fill=color, outline=TEXT_COLOR, width=1
+        )
 
 
 @dataclass
@@ -37,8 +424,6 @@ class Token:
     is_dead: bool = False
     avatar_path: str = None
     avatar_image: ImageTk.PhotoImage = None
-    health: int = None
-    effects: str = None
 
 
 @dataclass
@@ -56,9 +441,11 @@ class FindDescriptionDialog(tk.Toplevel):
     def __init__(self, parent, title, initialtext=""):
         super().__init__(parent)
         self.title(title)
+        self.initialtext = initialtext
         self.geometry("500x700")
         self.resizable(True, True)
         self.configure(bg=DARK_BG)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.result = None
 
@@ -69,7 +456,9 @@ class FindDescriptionDialog(tk.Toplevel):
         self.text_frame = ttk.Frame(self)
         self.text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.text_scroll = ttk.Scrollbar(self.text_frame)
+        self.text_scroll = ttk.Scrollbar(
+            self.text_frame, orient=tk.VERTICAL, style="Modern.Vertical.TScrollbar"
+        )
         self.text_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.text_area = tk.Text(
@@ -79,7 +468,7 @@ class FindDescriptionDialog(tk.Toplevel):
             bg=DARKER_BG,
             fg=TEXT_COLOR,
             insertbackground=TEXT_COLOR,
-            font=("Segoe UI", 10),
+            font=FONT,
             padx=5,
             pady=5,
         )
@@ -92,12 +481,12 @@ class FindDescriptionDialog(tk.Toplevel):
         button_frame = ttk.Frame(self)
         button_frame.pack(pady=5)
 
-        ttk.Button(button_frame, text="OK", command=self.on_ok, style="TButton").pack(
-            side=tk.LEFT, padx=5
-        )
+        ttk.Button(
+            button_frame, text="OK", command=self.on_ok, style="Modern.TButton"
+        ).pack(side=tk.LEFT, padx=5)
 
         ttk.Button(
-            button_frame, text="Отмена", command=self.on_cancel, style="TButton"
+            button_frame, text="Отмена", command=self.on_cancel, style="Modern.TButton"
         ).pack(side=tk.LEFT, padx=5)
 
         self.transient(parent)
@@ -107,6 +496,13 @@ class FindDescriptionDialog(tk.Toplevel):
     def on_ok(self):
         self.result = self.text_area.get("1.0", tk.END).strip()
         self.destroy()
+
+    def on_close(self):
+        """Handle window close"""
+        if self.text_area.get("1.0", tk.END).strip() != self.initialtext:
+            self.on_ok()
+        else:
+            self.destroy()
 
     def on_cancel(self):
         self.destroy()
@@ -136,46 +532,52 @@ class PlayerView:
         self.root.configure(bg=DARK_BG)
         self.get_token_size = master_app.get_token_size
 
-        # Configure window style
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("TFrame", background=DARK_BG)
-        style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
-        style.configure(
-            "TButton",
-            background=BUTTON_BG,
-            foreground=TEXT_COLOR,
-            borderwidth=1,
-            focusthickness=3,
-            focuscolor="none",
+        # Canvas с современным стилем
+        self.canvas = tk.Canvas(
+            root,
+            bg=DARKER_BG,
+            highlightthickness=0,
+            borderwidth=0,
+            relief=tk.FLAT,
         )
-        style.map(
-            "TButton",
-            background=[("active", BUTTON_HOVER), ("pressed", ACCENT_COLOR)],
-            foreground=[("active", TEXT_COLOR), ("pressed", TEXT_COLOR)],
-        )
-
-        self.canvas = tk.Canvas(root, bg=DARKER_BG, highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # Modern scrollbars
-        self.h_scroll = ttk.Scrollbar(root, orient=tk.HORIZONTAL)
-        self.v_scroll = ttk.Scrollbar(root, orient=tk.VERTICAL)
+        # Современные скроллбары
+        self.h_scroll = ttk.Scrollbar(
+            root, orient=tk.HORIZONTAL, style="Modern.Horizontal.TScrollbar"
+        )
+        self.v_scroll = ttk.Scrollbar(
+            root, orient=tk.VERTICAL, style="Modern.Vertical.TScrollbar"
+        )
+
         self.h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
         self.canvas.config(
-            xscrollcommand=self.h_scroll.set, yscrollcommand=self.v_scroll.set
+            xscrollcommand=self.h_scroll.set,
+            yscrollcommand=self.v_scroll.set,
         )
         self.h_scroll.config(command=self.canvas.xview)
         self.v_scroll.config(command=self.canvas.yview)
 
-        # Settings
+        # Цвета и стили для токенов
         self.fog_color = (0, 0, 0, 200)
         self.fog_opacity = 0.8
         self.player_outline = "#4CAF50"  # Green
         self.npc_outline = "#FFC107"  # Yellow
         self.enemy_outline = "#F44336"  # Red
 
+        # Смещение для центрирования (пересчитывается динамически)
+        self.offset_x = 0
+        self.offset_y = 0
+
+        # Привязка к изменению размера окна
+        self.root.bind("<Configure>", self._on_root_resize)
+
+        self.redraw_map()
+
+    def _on_root_resize(self, event):
+        # При изменении размера окна перерисовываем карту с новым центрированием
         self.redraw_map()
 
     def _draw_hexagon(self, x, y, size, **kwargs):
@@ -191,103 +593,84 @@ class PlayerView:
     def redraw_map(self):
         self.canvas.delete("all")
 
-        if not hasattr(self.master, "map_photo") or not self.master.map_photo:
+        if not hasattr(self.master, "map_image") or not self.master.map_image:
             return
 
-        # Draw visible parts of the map
-        self._draw_visible_map()
+        # Вычисляем размеры карты с учётом масштаба
+        map_width = int(self.master.map_image.width * self.master.scale)
+        map_height = int(self.master.map_image.height * self.master.scale)
 
-        # Draw tokens
-        if hasattr(self.master, "tokens"):
-            for token in self.master.tokens.values():
-                if self._is_token_visible(token):
-                    self._draw_token(token)
+        # Получаем размеры окна
+        window_width = self.root.winfo_width()
+        window_height = self.root.winfo_height()
 
-        self.canvas.config(scrollregion=self.canvas.bbox("all"))
+        # Центрируем карту в окне (смещение)
+        self.offset_x = max((window_width - map_width) // 2, 0)
+        self.offset_y = max((window_height - map_height) // 2, 0)
 
-    def _draw_visible_map(self):
-        """Draw only visible parts of the map with fog overlay"""
-        width = int(self.master.map_image.width * self.master.scale)
-        height = int(self.master.map_image.height * self.master.scale)
-
-        # Create base map image
-        map_img = self.master.map_image.resize(
-            (width, height), Image.Resampling.LANCZOS
+        # Создаем масштабированное изображение карты
+        base_map = self.master.map_image.resize(
+            (map_width, map_height), Image.Resampling.LANCZOS
         )
 
-        # Create visibility mask (255 = visible, 0 = hidden)
-        visibility_mask = Image.new("L", (width, height), 255)
-        draw = ImageDraw.Draw(visibility_mask)
+        # Размытая копия карты для закрытых зон
+        blurred_map = base_map.filter(ImageFilter.GaussianBlur(radius=20))
 
-        # Mark invisible zones
+        # Маска закрытых зон
+        closed_zones_mask = Image.new("L", (map_width, map_height), 0)
+        draw = ImageDraw.Draw(closed_zones_mask)
+
         if hasattr(self.master, "zones") and self.master.zones:
             for zone in self.master.zones.values():
-                if not zone.is_visible:
+                if not zone.is_visible:  # закрытая зона
                     scaled_vertices = [
                         (x * self.master.scale, y * self.master.scale)
                         for x, y in zone.vertices
                     ]
                     if len(scaled_vertices) >= 3:
-                        draw.polygon(scaled_vertices, fill=0)
+                        draw.polygon(scaled_vertices, fill=255)
 
-        # Apply visibility to map
-        map_img.putalpha(visibility_mask)
+        # Комбинируем размытый фон и чёткий с маской
+        combined = Image.composite(blurred_map, base_map, closed_zones_mask)
 
-        # Create fog layer
-        fog = Image.new("RGBA", (width, height), self.fog_color)
-        fog.putalpha(
-            Image.eval(visibility_mask, lambda x: 255 - int(x * self.fog_opacity))
-        )
-
-        # Combine images
-        combined = Image.alpha_composite(map_img.convert("RGBA"), fog)
-
-        # Draw grid if enabled and visible to players
+        # Добавляем сетку, если включена и видна игрокам
         if (
             hasattr(self.master, "grid_settings")
-            and self.master.grid_settings.visible
             and self.master.grid_settings.visible_to_players
         ):
-            grid_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            grid_img = Image.new("RGBA", (map_width, map_height), (0, 0, 0, 0))
             draw_grid = ImageDraw.Draw(grid_img)
 
-            cell_width = width / self.master.grid_settings.cell_size
-            cell_count_height = int(height / cell_width)
+            cell_width = map_width / self.master.grid_settings.cell_size
+            cell_count_height = int(map_height / cell_width)
 
-            # Draw vertical lines
             for i in range(self.master.grid_settings.cell_size + 1):
                 x = i * cell_width
                 draw_grid.line(
-                    [(x, 0), (x, height)], fill=self.master.grid_settings.color
+                    [(x, 0), (x, map_height)], fill=self.master.grid_settings.color
                 )
 
-            # Draw horizontal lines
             for i in range(cell_count_height + 1):
                 y = i * cell_width
                 draw_grid.line(
-                    [(0, y), (width, y)], fill=self.master.grid_settings.color
+                    [(0, y), (map_width, y)], fill=self.master.grid_settings.color
                 )
 
-            # Apply opacity
             grid_img.putalpha(self.master.grid_settings.opacity)
+            combined = Image.alpha_composite(combined.convert("RGBA"), grid_img)
 
-            # Combine with map
-            combined = Image.alpha_composite(combined, grid_img)
-
-        # Convert to PhotoImage
+        # Отображение карты на холсте
         photo = ImageTk.PhotoImage(combined)
-
-        # Draw on canvas
         self.canvas.create_image(
-            self.master.offset_x,
-            self.master.offset_y,
+            self.offset_x,
+            self.offset_y,
             image=photo,
             anchor=tk.NW,
             tags="map",
         )
-        self.canvas.image = photo  # Keep reference
+        self.canvas.image = photo  # Чтобы избежать сборки мусора
 
-        # Draw ruler if active and visible to players
+        # Рисуем линейку, если активна и видна игрокам
         if (
             hasattr(self.master, "ruler_active")
             and self.master.ruler_active
@@ -299,44 +682,92 @@ class PlayerView:
             and self.master.ruler_end
         ):
             start_x = (
-                self.master.ruler_start[0] * self.master.scale + self.master.offset_x
+                self.master.ruler_start[0] * self.master.scale + self.offset_x
             )
             start_y = (
-                self.master.ruler_start[1] * self.master.scale + self.master.offset_y
+                self.master.ruler_start[1] * self.master.scale + self.offset_y
             )
-            end_x = self.master.ruler_end[0] * self.master.scale + self.master.offset_x
-            end_y = self.master.ruler_end[1] * self.master.scale + self.master.offset_y
+            end_x = self.master.ruler_end[0] * self.master.scale + self.offset_x
+            end_y = self.master.ruler_end[1] * self.master.scale + self.offset_y
 
-            # Draw ruler line
+            self.canvas.delete("ruler")
+
             self.canvas.create_line(
                 start_x,
                 start_y,
                 end_x,
                 end_y,
                 fill="#FF5252",
-                width=2,
-                arrow=tk.BOTH,
+                width=4,
+                dash=(5, 3),
+                arrow="last",
                 tags="ruler",
             )
 
-            # Calculate distance
-            cell_width_px = width / self.master.grid_settings.cell_size
-            dx = (self.master.ruler_end[0] - self.master.ruler_start[0]) / cell_width_px
-            dy = (self.master.ruler_end[1] - self.master.ruler_start[1]) / cell_width_px
+            cell_width_px = (
+                self.master.map_image.width * self.master.scale
+            ) / self.master.grid_settings.cell_size
+            dx = (end_x - start_x) / cell_width_px
+            dy = (end_y - start_y) / cell_width_px
             distance = math.sqrt(dx**2 + dy**2) * 5
 
-            # Draw distance text
-            self.canvas.create_text(
-                (start_x + end_x) / 2,
-                (start_y + end_y) / 2 - 15,
-                text=f"{distance:.1f} ft",
-                fill="#FF5252",
-                font=("Segoe UI", 10, "bold"),
+            distance_text = f"{distance:.1f} ft"
+            text_x = (start_x + end_x) / 2
+            text_y = (start_y + end_y) / 2 - 15
+            font = FONT
+
+            temp_text = self.canvas.create_text(
+                text_x, text_y, text=distance_text, font=font
+            )
+            bbox = self.canvas.bbox(temp_text)
+            self.canvas.delete(temp_text)
+
+            padding = 4
+            rect_x1 = bbox[0] - padding
+            rect_y1 = bbox[1] - padding
+            rect_x2 = bbox[2] + padding
+            rect_y2 = bbox[3] + padding
+
+            self.canvas.create_rectangle(
+                rect_x1,
+                rect_y1,
+                rect_x2,
+                rect_y2,
+                fill="#222222",
+                outline="",
                 tags="ruler",
             )
 
+            offset = 1
+            self.canvas.create_text(
+                text_x + offset,
+                text_y + offset,
+                text=distance_text,
+                fill="#000000",
+                font=font,
+                tags="ruler",
+            )
+
+            self.canvas.create_text(
+                text_x,
+                text_y,
+                text=distance_text,
+                fill="#FF5252",
+                font=font,
+                tags="ruler",
+            )
+
+        # Рисуем токены
+        if hasattr(self.master, "tokens"):
+            for token in self.master.tokens.values():
+                if self._is_token_visible(token):
+                    self._draw_token(token)
+
+        # Обновляем scrollregion для прокрутки
+        self.canvas.config(scrollregion=(0, 0, max(window_width, map_width), max(window_height, map_height)))
+
     def _is_token_visible(self, token):
-        """Check if token should be visible to players"""
+        """Проверка видимости токена для игроков"""
         if token.is_player:
             return True
 
@@ -354,7 +785,7 @@ class PlayerView:
 
     @staticmethod
     def _point_in_polygon(point, polygon):
-        """Robust point-in-polygon check"""
+        """Проверка, находится ли точка внутри многоугольника"""
         if not polygon or len(polygon) < 3:
             return False
 
@@ -377,52 +808,44 @@ class PlayerView:
         return inside
 
     def _draw_token(self, token):
-        """Draw token with modern styling"""
-        x = token.position[0] * self.master.scale + self.master.offset_x
-        y = token.position[1] * self.master.scale + self.master.offset_y
-        token_size = self.get_token_size()  # Используем новый метод
+        """Рисуем токен с современным стилем"""
+        x = token.position[0] * self.master.scale + self.offset_x
+        y = token.position[1] * self.master.scale + self.offset_y
+        token_size = self.get_token_size()
 
-        # Определяем цвета в зависимости от типа токена
         if token.is_player:
             outline_color = self.player_outline
-            fill_color = "#4CAF50"  # Green
+            fill_color = "#4CAF50"
         elif token.is_npc:
             outline_color = self.npc_outline
-            fill_color = "#FFC107"  # Yellow
-        else:  # Enemy
+            fill_color = "#FFC107"
+        else:
             outline_color = self.enemy_outline
-            fill_color = "#F44336"  # Red
+            fill_color = "#F44336"
 
-        # Мертвые токены серые
         if token.is_dead:
             fill_color = "#616161"
             outline_color = "#424242"
 
-        # Если есть аватар
         if hasattr(token, "avatar_image") and token.avatar_image:
-            # Создаем круглую маску
             mask = Image.new("L", (int(token_size), int(token_size)), 0)
             draw = ImageDraw.Draw(mask)
             draw.ellipse((0, 0, token_size, token_size), fill=255)
 
-            # Применяем маску
             avatar_img = Image.open(token.avatar_path).resize(
                 (int(token_size), int(token_size)), Image.Resampling.LANCZOS
             )
             avatar_img.putalpha(mask)
             rounded_avatar = ImageTk.PhotoImage(avatar_img)
 
-            # Сохраняем ссылку
             if not hasattr(self, "_rounded_avatars"):
                 self._rounded_avatars = {}
             self._rounded_avatars[token.id] = rounded_avatar
 
-            # Рисуем аватар
             self.canvas.create_image(
                 x, y, image=rounded_avatar, tags=("token", f"token_{token.id}")
             )
 
-            # Рисуем обводку - шестиугольник для игроков, круг для остальных
             if token.is_player:
                 self._draw_hexagon(
                     x,
@@ -445,7 +868,6 @@ class PlayerView:
                     tags=("token", f"token_{token.id}"),
                 )
         else:
-            # Стандартный вид токена
             if token.is_player:
                 self._draw_hexagon(
                     x,
@@ -468,17 +890,57 @@ class PlayerView:
                     tags=("token", f"token_{token.id}"),
                 )
 
-        # Метка токена
-        text_color = "#212121" if token.is_npc else "#FAFAFA"
+        text_color = TEXT_COLOR
         if token.is_dead:
             text_color = "#9E9E9E"
 
+        x_text = x
+        y_text = y + token_size // 2 + 10
+        text = token.name
+        font = FONT
+        main_color = text_color
+        shadow_color = "#000000"
+
+        # Черная тень текста (буфер)
         self.canvas.create_text(
-            x,
-            y - token_size // 2 - 10,
-            text=token.name,
-            fill=text_color,
-            font=("Segoe UI", 9, "bold"),
+            x_text + 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text + 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+
+        self.canvas.create_text(
+            x_text,
+            y_text,
+            text=text,
+            fill=main_color,
+            font=font,
             tags=("token", f"token_{token.id}"),
         )
 
@@ -489,7 +951,7 @@ class DnDMapMaster:
         self.root.title("D&D Map Master - Game Master View")
         self.root.geometry("1200x800")
         self.root.configure(bg=DARK_BG)
-
+        self.image_cache = {}
         # Configure styles
         self._configure_styles()
 
@@ -550,53 +1012,139 @@ class DnDMapMaster:
         return int((self.map_image.width / self.grid_settings.cell_size) * self.scale)
 
     def _configure_styles(self):
-        """Configure ttk styles for a modern look"""
+        """Configure ttk styles for a modern stylish look"""
         style = ttk.Style()
         style.theme_use("clam")
 
-        # Main window styles
-        style.configure(".", background=DARK_BG, foreground=TEXT_COLOR)
+        # Общий фон и цвет текста
+        style.configure(".", background=DARK_BG, foreground=TEXT_COLOR, font=FONT)
+
+        # Frame
         style.configure("TFrame", background=DARK_BG)
-        style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR)
+
+        # Labels
+        style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR, font=FONT)
+
+        # Buttons с акцентом и плавным изменением цвета
         style.configure(
-            "TButton",
+            "Modern.TButton",
             background=BUTTON_BG,
             foreground=TEXT_COLOR,
-            borderwidth=1,
+            borderwidth=0,
             focusthickness=3,
-            focuscolor="none",
-            font=("Segoe UI", 9),
+            focuscolor="",
+            font=FONT,
+            padding=8,
+            relief=tk.FLAT,
         )
         style.map(
-            "TButton",
+            "Modern.TButton",
             background=[("active", BUTTON_HOVER), ("pressed", ACCENT_COLOR)],
             foreground=[("active", TEXT_COLOR), ("pressed", TEXT_COLOR)],
         )
 
-        # Scrollbar styles
-        style.configure(
-            "TScrollbar",
-            background=SCROLLBAR_BG,
-            troughcolor=DARKER_BG,
-            arrowcolor=TEXT_COLOR,
-            bordercolor=DARK_BG,
-        )
-        style.map("TScrollbar", background=[("active", SCROLLBAR_ACTIVE)])
+        # Scrollbars
+        style.element_create("Custom.Vertical.Scrollbar.trough", "from", "clam")
+        style.element_create("Custom.Vertical.Scrollbar.thumb", "from", "clam")
 
-        # Listbox styles (need to configure tkinter directly)
+        style.layout(
+            "Modern.Vertical.TScrollbar",
+            [
+                (
+                    "Vertical.Scrollbar.trough",
+                    {
+                        "children": [
+                            (
+                                "Vertical.Scrollbar.thumb",
+                                {"unit": "1", "sticky": "nswe"},
+                            )
+                        ],
+                        "sticky": "ns",
+                    },
+                )
+            ],
+        )
+        style.layout(
+            "Modern.Horizontal.TScrollbar",
+            [
+                (
+                    "Horizontal.Scrollbar.trough",
+                    {
+                        "children": [
+                            (
+                                "Horizontal.Scrollbar.thumb",
+                                {"unit": "1", "sticky": "nswe"},
+                            )
+                        ],
+                        "sticky": "we",
+                    },
+                )
+            ],
+        )
+
+        # Цвет thumb — чуть светлее трека, для контраста
+        def lighten_color(hex_color, amount=0.15):
+            # простая функция для осветления цвета
+            hex_color = hex_color.lstrip("#")
+            rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+            lightened = tuple(min(255, int(c + (255 - c) * amount)) for c in rgb)
+            return "#{:02x}{:02x}{:02x}".format(*lightened)
+
+        thumb_color = lighten_color(SCROLLBAR_BG, 0.2)  # светлее на 20%
+
+        style.configure(
+            "Modern.Vertical.TScrollbar",
+            background=thumb_color,  # Thumb
+            troughcolor=SCROLLBAR_BG,  # Track
+            bordercolor=SCROLLBAR_BG,
+            arrowcolor=SCROLLBAR_BG,  # Скрываем стрелки
+            lightcolor=SCROLLBAR_BG,
+            darkcolor=SCROLLBAR_BG,
+            width=6,
+            relief="flat",
+        )
+
+        style.configure(
+            "Modern.Horizontal.TScrollbar",
+            background=thumb_color,
+            troughcolor=SCROLLBAR_BG,
+            bordercolor=SCROLLBAR_BG,
+            arrowcolor=SCROLLBAR_BG,
+            lightcolor=SCROLLBAR_BG,
+            darkcolor=SCROLLBAR_BG,
+            width=6,
+            relief="flat",
+        )
+
+        style.map(
+            "Modern.Vertical.TScrollbar",
+            background=[
+                ("active", BUTTON_HOVER),  # При активности акцентный цвет
+                ("!active", thumb_color),
+            ],
+        )
+        style.map(
+            "Modern.Horizontal.TScrollbar",
+            background=[("active", BUTTON_HOVER), ("!active", thumb_color)],
+        )
+
+        # Listbox (через option_add)
         self.root.option_add("*Listbox*Background", LISTBOX_BG)
         self.root.option_add("*Listbox*Foreground", TEXT_COLOR)
         self.root.option_add("*Listbox*selectBackground", LISTBOX_SELECTION)
         self.root.option_add("*Listbox*selectForeground", TEXT_COLOR)
-        self.root.option_add("*Listbox*font", ("Segoe UI", 9))
+        self.root.option_add("*Listbox*font", ("Segoe UI Semibold", 10))
 
-        # Entry and combobox styles
+        # Entry и Combobox
         style.configure(
             "TEntry",
             fieldbackground=DARKER_BG,
             foreground=TEXT_COLOR,
             insertcolor=TEXT_COLOR,
             borderwidth=1,
+            relief=tk.FLAT,
+            padding=5,
+            font=FONT,
         )
         style.configure(
             "TCombobox",
@@ -604,20 +1152,51 @@ class DnDMapMaster:
             foreground=TEXT_COLOR,
             selectbackground=ACCENT_COLOR,
             selectforeground=TEXT_COLOR,
+            font=FONT,
         )
 
-        # Notebook style (for potential future tabs)
+        # Notebook (если понадобится)
         style.configure("TNotebook", background=DARK_BG)
         style.configure(
             "TNotebook.Tab",
             background=DARKER_BG,
             foreground=TEXT_COLOR,
-            padding=[10, 5],
+            padding=[12, 6],
+            font=FONT,
+            borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
             background=[("selected", ACCENT_COLOR)],
             foreground=[("selected", TEXT_COLOR)],
+        )
+
+        # Checkbutton как переключатель с акцентом и плавным фоном
+        style.configure(
+            "Modern.TCheckbutton",
+            background=DARK_BG,
+            foreground=TEXT_COLOR,
+            font=FONT,
+            padding=(10, 5, 5, 5),
+            indicatorbackground="white",
+            indicatorcolor="white",  # совпадает с фоном квадрата, чтобы скрыть крестик
+            indicatorsize=18,
+            relief=tk.FLAT,
+        )
+
+        style.map(
+            "Modern.TCheckbutton",
+            background=[
+                ("active", BUTTON_HOVER),
+                ("!selected", DARK_BG),
+                ("selected", DARK_BG),
+            ],
+            indicatorbackground=[("selected", ACCENT_COLOR), ("!selected", "white")],
+            indicatorcolor=[
+                ("selected", ACCENT_COLOR),
+                ("!selected", "white"),
+            ],  # совпадает с фоном квадрата
+            foreground=[("active", TEXT_COLOR), ("selected", TEXT_COLOR)],
         )
 
     def toggle_grid(self):
@@ -637,15 +1216,18 @@ class DnDMapMaster:
         self.update_status(f"Grid for players is now {status}")
 
     def set_grid_cell_count(self):
-        """Set number of grid cells"""
-        count = simpledialog.askinteger(
-            "Настройки сетки",
-            "Введите размер сетки:",
+        dialog = IntegerInputDialog(
+            self.root,
+            title="Настройки сетки",
+            prompt="Введите размер сетки:",
             initialvalue=self.grid_settings.cell_size,
             minvalue=1,
             maxvalue=200,
+            bg_color=DARK_BG,
+            fg_color=TEXT_COLOR,
         )
-        if count:
+        count = dialog.show()
+        if count is not None:
             self.grid_settings.cell_size = count
             for token in self.tokens.values():
                 token.size = self.get_token_size()
@@ -663,7 +1245,19 @@ class DnDMapMaster:
         self.redraw_map()
         status = "active" if self.ruler_active else "inactive"
         self.update_status(f"Ruler is now {status}")
-
+    
+    def _create_styled_menu(self):
+        return tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=DARKER_BG,
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_COLOR,
+            activeforeground=TEXT_COLOR,
+            bd=1,
+            relief=tk.FLAT,
+            font=FONT_MENU,  # зададим шрифт, как везде
+        )
     def _create_context_menus(self):
         """Create modern context menus"""
         # Token context menu
@@ -677,7 +1271,6 @@ class DnDMapMaster:
             bd=1,
             relief=tk.FLAT,
         )
-
         self.token_context_menu.add_command(
             label="Сменить тип персонажа", command=self._change_token_type
         )
@@ -708,16 +1301,14 @@ class DnDMapMaster:
             label="Переименовать зону", command=self._rename_selected_zone
         )
         self.zone_context_menu.add_command(
-            label="Открыть зону", command=lambda: self._toggle_zone_visibility(True)
-        )
-        self.zone_context_menu.add_command(
-            label="Спрятать зону", command=lambda: self._toggle_zone_visibility(False)
+            label="Скрыть/Показать зону", command=self._toggle_zone_visibility
         )
         self.zone_context_menu.add_separator()
         self.zone_context_menu.add_command(
             label="Удалить зону", command=self._delete_selected_zone
         )
 
+        # Find context menu
         self.find_context_menu = tk.Menu(
             self.root,
             tearoff=0,
@@ -741,6 +1332,15 @@ class DnDMapMaster:
         self.find_context_menu.add_command(
             label="Удалить находку", command=self._delete_find
         )
+    
+    def _show_zone_context_menu(self, event, zone_id):
+        self.current_context_object = zone_id
+        zone = self.zones.get(zone_id)
+        if zone:
+            label = "Спрятать зону" if zone.is_visible else "Открыть зону"
+            self.zone_context_menu.entryconfig(1, label=label)  # индекс 1 — пункт со статусом
+            self.zone_context_menu.tk_popup(event.x_root, event.y_root)
+
 
     def _view_find_description(self):
         """Просмотр описания находки"""
@@ -786,7 +1386,10 @@ class DnDMapMaster:
             return
 
         find = self.finds[self.selected_find]
-        if messagebox.askyesno("Подтверждение", f"Удалить находку {find.name}?"):
+        dialog = YesNoDialog(
+            self.root, "Подтверждение", f"Удалить находку {find.name}?"
+        )
+        if dialog.show():
             del self.finds[self.selected_find]
             del self.selected_find
             self.redraw_map()
@@ -878,7 +1481,8 @@ class DnDMapMaster:
             return
 
         token = self.tokens[self.current_context_object]
-        if messagebox.askyesno("Confirm", f"Удалить токен {token.name}?"):
+        dialog = YesNoDialog(self.root, "Confirm", f"Удалить токен {token.name}?")
+        if dialog.show():
             del self.tokens[self.current_context_object]
             self._update_tokens_list()
             self.redraw_map()
@@ -893,7 +1497,8 @@ class DnDMapMaster:
             return
 
         zone = self.zones[self.current_context_object]
-        if messagebox.askyesno("Confirm", f"Удалить зону {zone.name}?"):
+        dialog = YesNoDialog(self.root, "Confirm", f"Удалить зону {zone.name}?")
+        if dialog.show():
             del self.zones[self.current_context_object]
             self._update_zones_list()
             self.redraw_map()
@@ -908,17 +1513,16 @@ class DnDMapMaster:
             return
 
         zone = self.zones[self.current_context_object]
-        new_name = simpledialog.askstring(
-            "Rename Zone", "New zone name:", initialvalue=zone.name
-        )
+        dialog = TextInputDialog(self.root, "Зона", "Введите новое имя зоны")
+        new_name = dialog.show()
         if new_name and new_name != zone.name:
             zone.name = new_name
             self._update_zones_list()
             self.redraw_map()
             self.update_status(f"Zone renamed to {new_name}")
 
-    def _toggle_zone_visibility(self, visible):
-        """Change zone visibility"""
+    def _toggle_zone_visibility(self):
+        """Toggle visibility of the selected zone"""
         if (
             not self.current_context_object
             or self.current_context_object not in self.zones
@@ -926,10 +1530,11 @@ class DnDMapMaster:
             return
 
         zone = self.zones[self.current_context_object]
-        zone.is_visible = visible
+        zone.is_visible = not zone.is_visible
         self.redraw_map()
-        status = "revealed" if visible else "hidden"
-        self.update_status(f"Zone {zone.name} is now {status}")
+
+        status = "открыта" if zone.is_visible else "спрятана"
+        self.update_status(f"Зона {zone.name} теперь {status}")
 
     def _update_tokens_list(self):
         """Update tokens list"""
@@ -954,101 +1559,102 @@ class DnDMapMaster:
             self.redraw_map()
 
     def _update_minimap(self):
-        """Update player view minimap with grid-scaled tokens"""
         if not self.map_image:
             return
 
-        # Create minimized player view
+        # Размер миникарты
         minimap_img = Image.new(
             "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
         )
-        draw = ImageDraw.Draw(minimap_img)
 
-        # Scale main map
         map_width, map_height = self.map_image.size
         scale = min(self.minimap_size / map_width, self.minimap_size / map_height)
         scaled_width = int(map_width * scale)
         scaled_height = int(map_height * scale)
 
-        # Draw map
+        paste_x = (self.minimap_size - scaled_width) // 2
+        paste_y = (self.minimap_size - scaled_height) // 2
+
+        # Масштабируем карту
         map_img = self.map_image.resize(
             (scaled_width, scaled_height), Image.Resampling.LANCZOS
         )
-        minimap_img.paste(
-            map_img,
-            (
-                (self.minimap_size - scaled_width) // 2,
-                (self.minimap_size - scaled_height) // 2,
-            ),
+        # Убедимся, что в RGBA
+        map_img = map_img.convert("RGBA")
+
+        # Создаем размытое изображение для блюра закрытых зон
+        blurred_map_img = map_img.filter(ImageFilter.GaussianBlur(radius=8))
+
+        # Создаем изображение с прозрачным фоном для full size с размерами minimap
+        full_blurred = Image.new(
+            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
         )
+        # Вставляем размытое изображение в центр
+        full_blurred.paste(blurred_map_img, (paste_x, paste_y))
 
-        # Calculate cell size in minimap pixels
-        if hasattr(self, "grid_settings"):
-            cell_size_minimap = int(scaled_width / self.grid_settings.cell_size)
-        else:
-            cell_size_minimap = 5  # Default size if no grid
+        # Аналогично создаём полный minimap_img с масштабированной картой
+        full_minimap = Image.new(
+            "RGBA", (self.minimap_size, self.minimap_size), (0, 0, 0, 0)
+        )
+        full_minimap.paste(map_img, (paste_x, paste_y))
 
-        # Draw zones (only hidden ones)
+        # Создаём маску в режиме L и нужного размера
+        mask = Image.new("L", (self.minimap_size, self.minimap_size), 0)
+        draw_mask = ImageDraw.Draw(mask)
+
         if hasattr(self, "zones"):
             for zone in self.zones.values():
                 if not zone.is_visible:
                     scaled_vertices = [
-                        (
-                            x * scale + (self.minimap_size - scaled_width) // 2,
-                            y * scale + (self.minimap_size - scaled_height) // 2,
-                        )
+                        (x * scale + paste_x, y * scale + paste_y)
                         for x, y in zone.vertices
                     ]
                     if len(scaled_vertices) >= 3:
-                        draw.polygon(scaled_vertices, fill=(0, 0, 0, 160))
+                        draw_mask.polygon(scaled_vertices, fill=255)
 
-        # Draw tokens with grid-scaled size
+        # Теперь композитим: там, где маска белая — будет блюр, иначе — оригинал
+        minimap_img = Image.composite(full_blurred, full_minimap, mask)
+
+        # Рисуем токены на minimap_img
+        draw = ImageDraw.Draw(minimap_img)
+
+        if hasattr(self, "grid_settings") and self.grid_settings.cell_size > 0:
+            cell_size_minimap = int(scaled_width / self.grid_settings.cell_size)
+        else:
+            cell_size_minimap = 5
+
         if hasattr(self, "tokens"):
             for token in self.tokens.values():
                 if self._is_token_visible_in_minimap(token):
-                    x = (
-                        token.position[0] * scale
-                        + (self.minimap_size - scaled_width) // 2
-                    )
-                    y = (
-                        token.position[1] * scale
-                        + (self.minimap_size - scaled_height) // 2
-                    )
-
-                    # Use grid-based size for tokens
-                    size = max(2, cell_size_minimap / 2)  # Half of cell size
+                    x = token.position[0] * scale + paste_x
+                    y = token.position[1] * scale + paste_y
+                    size = max(2, cell_size_minimap / 2)
 
                     if token.is_player:
-                        fill = (76, 175, 80)  # Green
-                        outline = (56, 142, 60)  # Dark green
+                        fill = (76, 175, 80)
+                        outline = (56, 142, 60)
                     elif token.is_npc:
-                        fill = (255, 193, 7)  # Yellow
-                        outline = (230, 174, 0)  # Dark yellow
+                        fill = (255, 193, 7)
+                        outline = (230, 174, 0)
                     else:
-                        fill = (244, 67, 54)  # Red
-                        outline = (198, 40, 40)  # Dark red
+                        fill = (244, 67, 54)
+                        outline = (198, 40, 40)
 
-                    # Dead tokens
                     if token.is_dead:
-                        fill = (97, 97, 97)  # Gray
-                        outline = (66, 66, 66)  # Dark gray
+                        fill = (97, 97, 97)
+                        outline = (66, 66, 66)
 
-                    # Draw outline
                     draw.ellipse(
                         [x - size - 1, y - size - 1, x + size + 1, y + size + 1],
                         fill=outline,
                     )
-                    # Draw main circle
                     draw.ellipse([x - size, y - size, x + size, y + size], fill=fill)
 
-        # Convert to PhotoImage
         self.player_view_minimap = ImageTk.PhotoImage(minimap_img)
-
-        # Update canvas
         self.minimap_canvas.create_image(
             0, 0, image=self.player_view_minimap, anchor=tk.NW
         )
-        self.minimap_canvas.image = self.player_view_minimap  # Keep reference
+        self.minimap_canvas.image = self.player_view_minimap
 
     def _is_token_visible_in_minimap(self, token):
         """Check if token should be visible in minimap"""
@@ -1068,24 +1674,55 @@ class DnDMapMaster:
         return not in_any_zone
 
     def _create_widgets(self):
-        """Create all UI widgets with modern styling"""
-        self.main_frame = ttk.Frame(self.root)
+        """Create UI widgets with modern stylish design"""
+        self.main_frame = ttk.Frame(self.root, style="TFrame")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Control panel - modern dark sidebar
-        self.control_panel = ttk.Frame(self.main_frame, width=220, style="TFrame")
-        self.control_panel.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        # === Левая панель через Canvas с вертикальным Scrollbar ===
+        self.sidebar_canvas = tk.Canvas(
+            self.main_frame,
+            bg=DARK_BG,
+            highlightthickness=0,
+            bd=0,
+            width=270,  # 🟢 Здесь уменьшаем ширину
+        )
+        self.sidebar_canvas.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 0), pady=10)
 
-        # Canvas with scrollbars
-        self.canvas_frame = ttk.Frame(self.main_frame)
-        self.canvas_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        self.sidebar_scrollbar = ttk.Scrollbar(
+            self.main_frame,
+            orient=tk.VERTICAL,
+            command=self.sidebar_canvas.yview,
+            style="Modern.Vertical.TScrollbar",
+        )
+        self.sidebar_scrollbar.pack(side=tk.LEFT, fill=tk.Y, pady=10)
 
-        # Modern scrollbars
+        self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scrollbar.set)
+
+        # Контейнер внутри Canvas
+        self.control_panel = ttk.Frame(self.sidebar_canvas, style="TFrame", width=270)
+        self.canvas_window = self.sidebar_canvas.create_window(
+            (0, 0), window=self.control_panel, anchor="nw"
+        )
+
+        # Автоматическое обновление scrollregion
+        def _on_frame_configure(event):
+            self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox("all"))
+
+        self.control_panel.bind("<Configure>", _on_frame_configure)
+
+        # === Правая часть — холст с миникартой ===
+        self.canvas_frame = ttk.Frame(self.main_frame, style="TFrame")
+        self.canvas_frame.pack(
+            side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10
+        )
+
         self.h_scroll = ttk.Scrollbar(
-            self.canvas_frame, orient=tk.HORIZONTAL, style="TScrollbar"
+            self.canvas_frame,
+            orient=tk.HORIZONTAL,
+            style="Modern.Horizontal.TScrollbar",
         )
         self.v_scroll = ttk.Scrollbar(
-            self.canvas_frame, orient=tk.VERTICAL, style="TScrollbar"
+            self.canvas_frame, orient=tk.VERTICAL, style="Modern.Vertical.TScrollbar"
         )
 
         self.canvas = tk.Canvas(
@@ -1094,6 +1731,8 @@ class DnDMapMaster:
             highlightthickness=0,
             xscrollcommand=self.h_scroll.set,
             yscrollcommand=self.v_scroll.set,
+            bd=0,
+            relief=tk.FLAT,
         )
 
         self.h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
@@ -1103,7 +1742,8 @@ class DnDMapMaster:
         self.h_scroll.config(command=self.canvas.xview)
         self.v_scroll.config(command=self.canvas.yview)
 
-        # Control buttons with modern styling
+        # === Контент в control_panel ===
+
         controls = [
             ("Загрузить карту", self.load_map),
             ("Добавить игрока", lambda: self.add_token(is_player=True)),
@@ -1116,35 +1756,71 @@ class DnDMapMaster:
 
         for text, command in controls:
             btn = ttk.Button(
-                self.control_panel, text=text, command=command, style="TButton"
+                self.control_panel, text=text, command=command, style="Modern.TButton"
             )
-            btn.pack(pady=5, padx=5, fill=tk.X)
+            btn.pack(pady=8, padx=10, fill=tk.X)
 
-        # Separator
-        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
 
-        # Grid controls
-        grid_controls = [
-            ("Показать/Скрыть сетку", self.toggle_grid),
-            ("Показать/Скрыть сетку для игроков", self.toggle_grid_for_players),
-            ("Задать размер сетки", self.set_grid_cell_count),
-            ("Линейка", self.toggle_ruler),
-        ]
+        btn = ttk.Button(
+            self.control_panel,
+            text="Задать размер сетки",
+            command=self.set_grid_cell_count,
+            style="Modern.TButton",
+        )
+        btn.pack(pady=8, padx=10, fill=tk.X)
 
-        for text, command in grid_controls:
-            btn = ttk.Button(
-                self.control_panel, text=text, command=command, style="TButton"
-            )
-            btn.pack(pady=5, padx=5, fill=tk.X)
+        self.grid_var = tk.BooleanVar(value=self.grid_settings.visible)
+        grid_check = CustomCheckbutton(
+            self.control_panel,
+            text="Показать сетку",
+            variable=self.grid_var,
+            command=self.toggle_grid,
+        )
+        grid_check.pack(pady=8, padx=10, fill=tk.X)
 
-        # Separator
-        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        self.grid_player_var = tk.BooleanVar(
+            value=self.grid_settings.visible_to_players
+        )
+        grid_player_check = CustomCheckbutton(
+            self.control_panel,
+            text="Показать сетку для игроков",
+            variable=self.grid_player_var,
+            command=self.toggle_grid_for_players,
+        )
+        grid_player_check.pack(pady=8, padx=10, fill=tk.X)
 
-        # Tokens list with modern styling
+        self.ruler_var = tk.BooleanVar(value=self.ruler_active)
+        self.ruler_check = CustomCheckbutton(
+            self.control_panel,
+            text="Линейка",
+            variable=self.ruler_var,
+            command=self.toggle_ruler,
+        )
+        self.ruler_check.pack(pady=8, padx=10, fill=tk.X)
+
+        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+
+        ttk.Button(
+            self.control_panel,
+            text="Экспорт настроек карты",
+            command=self.export_settings,
+            style="Modern.TButton",
+        ).pack(pady=8, padx=10, fill=tk.X)
+
+        ttk.Button(
+            self.control_panel,
+            text="Импорт настроек карты",
+            command=self.import_settings,
+            style="Modern.TButton",
+        ).pack(pady=8, padx=10, fill=tk.X)
+
+        ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+
         self.tokens_frame = ttk.LabelFrame(
             self.control_panel, text="Персонажи", style="TFrame"
         )
-        self.tokens_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
+        self.tokens_frame.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
 
         self.tokens_list = tk.Listbox(
             self.tokens_frame,
@@ -1154,15 +1830,15 @@ class DnDMapMaster:
             selectforeground=TEXT_COLOR,
             highlightthickness=0,
             relief=tk.FLAT,
+            font=FONT,
         )
-        self.tokens_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        self.tokens_list.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.tokens_list.bind("<<ListboxSelect>>", self.on_token_select)
 
-        # Zones list
         self.zones_frame = ttk.LabelFrame(
             self.control_panel, text="Зоны", style="TFrame"
         )
-        self.zones_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
+        self.zones_frame.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
 
         self.zones_list = tk.Listbox(
             self.zones_frame,
@@ -1172,27 +1848,26 @@ class DnDMapMaster:
             selectforeground=TEXT_COLOR,
             highlightthickness=0,
             relief=tk.FLAT,
+            font=FONT,
         )
-        self.zones_list.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        self.zones_list.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.zones_list.bind("<Double-Button-1>", self.toggle_zone_visibility)
 
-        # Modern status bar
         self.status_var = tk.StringVar()
         self.status_bar = ttk.Label(
             self.root,
             textvariable=self.status_var,
-            relief=tk.SUNKEN,
+            relief=tk.FLAT,
             anchor=tk.W,
-            style="TLabel",
-            font=("Segoe UI", 9),
+            background=DARKER_BG,
+            foreground=TEXT_COLOR,
+            font=FONT,
+            padding=6,
         )
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Minimap frame with modern styling
-        self.minimap_frame = ttk.Frame(
-            self.canvas_frame, relief=tk.SUNKEN, style="TFrame"
-        )
-        self.minimap_frame.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor=tk.SE)
+        self.minimap_frame = ttk.Frame(self.canvas_frame, style="TFrame")
+        self.minimap_frame.place(relx=1.0, rely=1.0, x=-15, y=-15, anchor=tk.SE)
 
         self.minimap_canvas = tk.Canvas(
             self.minimap_frame,
@@ -1200,34 +1875,22 @@ class DnDMapMaster:
             height=self.minimap_size,
             bg=DARKER_BG,
             highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
         )
-        self.minimap_canvas.pack(padx=1, pady=1)
+        self.minimap_canvas.pack(padx=2, pady=2)
 
         self.minimap_label = ttk.Label(
             self.minimap_frame,
             text="Превью окна игрока",
             style="TLabel",
-            font=("Segoe UI", 9),
+            font=FONT,
+            anchor=tk.CENTER,
+            background=DARK_BG,
+            foreground=TEXT_COLOR,
+            padding=4,
         )
         self.minimap_label.pack(fill=tk.X)
-
-        # Move canvas under label
-        self.minimap_canvas.pack(padx=1, pady=(0, 1))
-
-        # Import/Export buttons
-        ttk.Button(
-            self.control_panel,
-            text="Экспорт настроек карты",
-            command=self.export_settings,
-            style="TButton",
-        ).pack(pady=5, padx=5, fill=tk.X)
-
-        ttk.Button(
-            self.control_panel,
-            text="Импорт настроек карты",
-            command=self.import_settings,
-            style="TButton",
-        ).pack(pady=5, padx=5, fill=tk.X)
 
         self.update_status("Ready")
 
@@ -1268,9 +1931,10 @@ class DnDMapMaster:
             self.update_status(f"Settings exported to {file_path}")
 
     def _export_map_data(self):
-        """Export map data"""
+        """Export map data with compression"""
         buffered = BytesIO()
-        self.map_image.save(buffered, format="PNG")
+        # Сжимаем до 80% качества
+        self.map_image.save(buffered, format="PNG", quality=80, optimize=True)
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return {
             "image_data": img_str,
@@ -1506,13 +2170,40 @@ class DnDMapMaster:
             self.zones[zone_id] = zone
 
     def _setup_bindings(self):
-        """Setup event bindings"""
+        # Привязка мышиного колеса к сайдбару
+        self.sidebar_canvas.bind(
+            "<Enter>",
+            lambda e: self.sidebar_canvas.bind_all(
+                "<MouseWheel>", self.on_sidebar_mouse_wheel
+            ),
+        )
+        self.sidebar_canvas.bind(
+            "<Leave>", lambda e: self.sidebar_canvas.unbind_all("<MouseWheel>")
+        )
+
+        # Привязка колесика к основной canvas — только когда мышь над ней
+        self.canvas.bind(
+            "<Enter>",
+            lambda e: self.canvas.bind_all("<MouseWheel>", self.on_mouse_wheel),
+        )
+        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+
+        # Другие биндинги, например, для canvas
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
-        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Button-3>", self.on_right_click)
         self.canvas.bind("<Motion>", self.on_canvas_motion)
+        self.canvas.bind("<Delete>", self.delete_selected)
+
+    def delete_selected(self, event=None):
+        """Delete selected object"""
+        if hasattr(self, "selected_token") and self.selected_token:
+            self._delete_selected_token()
+        elif hasattr(self, "selected_zone") and self.selected_zone:
+            self._delete_selected_zone()
+        elif hasattr(self, "selected_find") and self.selected_find:
+            self._delete_find()
 
     def update_status(self, message):
         """Update status bar"""
@@ -1569,26 +2260,19 @@ class DnDMapMaster:
             try:
                 token = self.tokens[token_id]
                 img = Image.open(file_path)
-
-                # Scale while maintaining aspect ratio
                 img.thumbnail((token.size, token.size))
 
-                # Create square image
                 squared_img = Image.new("RGBA", (token.size, token.size), (0, 0, 0, 0))
                 offset = ((token.size - img.width) // 2, (token.size - img.height) // 2)
                 squared_img.paste(img, offset)
 
                 avatar_img = ImageTk.PhotoImage(squared_img)
+
+                self.image_cache[file_path] = (img, avatar_img)
+
                 token.avatar_path = file_path
                 token.avatar_image = avatar_img
-
-                # Save reference
-                if not hasattr(self, "_avatar_images"):
-                    self._avatar_images = {}
-                self._avatar_images[token_id] = avatar_img
-
                 self.redraw_map()
-                self.update_status(f"Avatar updated for {token.name}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load image: {e}")
 
@@ -1706,19 +2390,25 @@ class DnDMapMaster:
             y,
             text=symbol,
             fill="#333333",
-            font=("Segoe UI", 10, "bold"),
+            font=FONT,
             tags=("find", f"find_{find.id}"),
         )
 
-        # Название находки
-        self.canvas.create_text(
-            x,
-            y - find.size // 2 - 10,
-            text=find.name,
-            fill="#333333",
-            font=("Segoe UI", 8),
-            tags=("find", f"find_{find.id}"),
-        )
+        x_text = x
+        y_text = y + find.size // 2 + 10
+        text = find.name
+        font = FONT
+        main_color = TEXT_COLOR
+        shadow_color = "#000000"  # черный буфер
+
+        # Рисуем тень (чёрный текст с небольшим смещением)
+        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+
+        # Рисуем основной текст поверх
+        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("find", f"find_{find.id}"))
 
         # Подсветка если выбрана
         if hasattr(self, "selected_find") and self.selected_find == find.id:
@@ -1734,20 +2424,25 @@ class DnDMapMaster:
 
     def _draw_zone(self, zone):
         """Draw a zone on canvas"""
-        fill_color = "#81C784" if zone.is_visible else "#E57373"  # Light green/red
+        fill_color = (
+            "#A5D6A7" if zone.is_visible else "#EF9A9A"
+        )  # Светло-зелёный/красный
+        outline_color = (
+            "#4CAF50" if zone.is_visible else "#F44336"
+        )  # Акцент для границы
+
         self.canvas.create_polygon(
             [
                 (x * self.scale + self.offset_x, y * self.scale + self.offset_y)
                 for x, y in zone.vertices
             ],
             fill=fill_color,
-            outline="#424242",
-            stipple="gray50" if not zone.is_visible else "",
+            outline=outline_color,
+            stipple="gray25" if not zone.is_visible else "gray12",
             width=2,
             tags=("zone", f"zone_{zone.id}"),
         )
 
-        # Draw zone name
         if zone.vertices:
             center_x = sum(x for x, y in zone.vertices) / len(zone.vertices)
             center_y = sum(y for x, y in zone.vertices) / len(zone.vertices)
@@ -1755,8 +2450,8 @@ class DnDMapMaster:
                 center_x * self.scale + self.offset_x,
                 center_y * self.scale + self.offset_y,
                 text=zone.name,
-                fill="#212121",
-                font=("Segoe UI", 10, "bold"),
+                fill="#ECEFF1",  # Светлый, читаемый текст
+                font=("Segoe UI Semibold", int(10 * self.scale)),
                 tags=("zone", f"zone_{zone.id}"),
             )
 
@@ -1771,7 +2466,8 @@ class DnDMapMaster:
                 outline=ACCENT_COLOR,
                 fill="",
                 width=2,
-                dash=(5, 1),
+                dash=(6, 3),
+                stipple="gray25",
                 tags="zone_creation",
             )
 
@@ -1868,19 +2564,25 @@ class DnDMapMaster:
                     tags=("token", f"token_{token.id}"),
                 )
 
-        # Token label
-        text_color = "#212121"
+        text_color = TEXT_COLOR
         if token.is_dead:
-            text_color = "#757575"
+            text_color = "#9E9E9E"
 
-        self.canvas.create_text(
-            x,
-            y - token_size // 2 - 10,
-            text=token.name,
-            fill=text_color,
-            font=("Segoe UI", 9),
-            tags=("token", f"token_{token.id}"),
-        )
+        x_text = x
+        y_text = y + token_size // 2 + 10
+        text = token.name
+        font = FONT
+        main_color = text_color
+        shadow_color = "#000000"  # черный буфер
+
+        # Рисуем тень (чёрный текст с небольшим смещением)
+        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+
+        # Рисуем основной текст поверх
+        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("token", f"token_{token.id}"))
 
         # Highlight selected token
         if token.id == self.selected_token:
@@ -1913,7 +2615,8 @@ class DnDMapMaster:
             messagebox.showwarning("Warning", "Пожалуйста, сначала загрузите карту!")
             return
 
-        find_name = simpledialog.askstring("Находка", "Введите название находки:")
+        dialog = TextInputDialog(self.root, "Находка", "Введите название находки")
+        find_name = dialog.show()
         if not find_name:
             return
 
@@ -1957,7 +2660,9 @@ class DnDMapMaster:
             return
 
         token_type = "Игрок" if is_player else "НПС" if is_npc else "Враг"
-        token_name = simpledialog.askstring("Персонаж", f"Введите имя {token_type}:")
+
+        dialog = TextInputDialog(self.root, "Персонаж", f"Введите имя {token_type}:")
+        token_name = dialog.show()
         if not token_name:
             return
 
@@ -1995,7 +2700,9 @@ class DnDMapMaster:
         )
 
         # Offer to add avatar
-        if messagebox.askyesno("Аватар", "Добавить иконку персонажу?"):
+        dialog = YesNoDialog(self.root, "Аватар", "Добавить иконку персонажу?")
+        answer = dialog.show()
+        if answer:
             self._load_avatar(token_id)
 
         # Add to list
@@ -2282,7 +2989,8 @@ class DnDMapMaster:
             messagebox.showwarning("Warning", "Zone must have at least 3 points!")
             return
 
-        zone_name = simpledialog.askstring("Настройки зоны", "Введите название зоны:")
+        dialog = TextInputDialog(self.root, "Зона", "Введите название зоны")
+        zone_name = dialog.show()
         if not zone_name:
             self.creating_zone = False
             self.current_zone_vertices = []
@@ -2313,28 +3021,25 @@ class DnDMapMaster:
         self.redraw_map()
 
     def _zones_intersect(self, new_vertices):
-        """Check if new zone intersects with existing zones (with area overlap)"""
         if not self.zones:
             return False
 
-        # Create path for new zone
         new_path = Path(np.array(new_vertices))
 
         for zone in self.zones.values():
-            # Create path for existing zone
             existing_path = Path(np.array(zone.vertices))
 
-            # Check if any point from new zone is inside existing zone
+            # Проверяем точки новой зоны — строго внутри (не на границе)
             for point in new_vertices:
-                if existing_path.contains_point(point):
+                if existing_path.contains_point(point, radius=-1e-9):
                     return True
 
-            # Check if any point from existing zone is inside new zone
+            # Проверяем точки существующей зоны внутри новой
             for point in zone.vertices:
-                if new_path.contains_point(point):
+                if new_path.contains_point(point, radius=-1e-9):
                     return True
 
-            # Check if edges intersect
+            # Проверяем пересечение рёбер — исключая касания концами
             for i in range(len(new_vertices)):
                 p1 = new_vertices[i]
                 p2 = new_vertices[(i + 1) % len(new_vertices)]
@@ -2349,13 +3054,49 @@ class DnDMapMaster:
         return False
 
     @staticmethod
-    def _segments_intersect(a1, a2, b1, b2):
-        """Check if two line segments intersect"""
+    def _segments_intersect(p1, p2, p3, p4):
+        """Return True if segments (p1,p2) and (p3,p4) intersect strictly inside (no endpoints)."""
+        def ccw(a, b, c):
+            return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
-        def ccw(A, B, C):
-            return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+        # Проверка, пересекаются ли отрезки (включая касания)
+        intersect = (ccw(p1, p3, p4) != ccw(p2, p3, p4)) and (ccw(p1, p2, p3) != ccw(p1, p2, p4))
+        if not intersect:
+            return False
 
-        return ccw(a1, b1, b2) != ccw(a2, b1, b2) and ccw(a1, a2, b1) != ccw(a1, a2, b2)
+        # Проверяем, не совпадает ли точка пересечения с концами отрезков
+        # Для этого вычислим точку пересечения и проверим равенство с концами
+        
+        # Векторное представление
+        x1, y1 = p1
+        x2, y2 = p2
+        x3, y3 = p3
+        x4, y4 = p4
+
+        denom = (y4 - y3)*(x2 - x1) - (x4 - x3)*(y2 - y1)
+        if denom == 0:
+            return False  # параллельны или совпадают
+
+        ua = ((x4 - x3)*(y1 - y3) - (y4 - y3)*(x1 - x3)) / denom
+        ub = ((x2 - x1)*(y1 - y3) - (y2 - y1)*(x1 - x3)) / denom
+
+        # Точка пересечения
+        xi = x1 + ua * (x2 - x1)
+        yi = y1 + ua * (y2 - y1)
+
+        intersection_point = (xi, yi)
+
+        # Функция для проверки совпадения точек с допуском
+        def points_are_close(a, b, tol=1e-9):
+            return abs(a[0]-b[0]) < tol and abs(a[1]-b[1]) < tol
+
+        # Если точка пересечения совпадает с любым концом — не считать пересечением
+        endpoints = [p1, p2, p3, p4]
+        for ep in endpoints:
+            if points_are_close(intersection_point, ep):
+                return False
+
+        return True
 
     @staticmethod
     def _point_in_polygon(point, polygon):
@@ -2377,7 +3118,7 @@ class DnDMapMaster:
         return inside
 
     def on_mouse_wheel(self, event):
-        """Handle mouse wheel zoom"""
+        # Твой текущий код масштабирования карты
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
 
@@ -2403,6 +3144,11 @@ class DnDMapMaster:
         self.redraw_map()
         self.update_status(f"Масштаб: {self.scale:.2f}x")
         self._update_ui_layout()
+
+    def on_sidebar_mouse_wheel(self, event):
+        delta = -1 * (event.delta // 120) if event.delta else 0
+        self.sidebar_canvas.yview_scroll(delta, "units")
+        return "break"
 
     def on_token_select(self, event):
         """Handle token selection from list"""
@@ -2513,34 +3259,76 @@ class DnDMapMaster:
         end_x = self.ruler_end[0] * self.scale + self.offset_x
         end_y = self.ruler_end[1] * self.scale + self.offset_y
 
-        # Draw ruler line
+        self.canvas.delete("ruler")
+
+        # Пунктирная линия
         self.canvas.create_line(
             start_x,
             start_y,
             end_x,
             end_y,
-            fill="#FF5252",  # Bright red
-            width=2,
-            arrow=tk.BOTH,
+            fill="#FF5252",
+            width=4,
+            dash=(5, 3),
+            arrow="last",
             tags="ruler",
         )
 
-        # Calculate distance in feet (assuming 5ft per cell)
         if self.map_image and hasattr(self, "grid_settings"):
             cell_width_px = (
                 self.map_image.width * self.scale
             ) / self.grid_settings.cell_size
             dx = (end_x - start_x) / cell_width_px
             dy = (end_y - start_y) / cell_width_px
-            distance = math.sqrt(dx**2 + dy**2) * 5  # 5 feet per cell
+            distance = math.sqrt(dx**2 + dy**2) * 5
 
-            # Draw distance text
+            distance_text = f"{distance:.1f} ft"
+            text_x = (start_x + end_x) / 2
+            text_y = (start_y + end_y) / 2 - 15
+            font = FONT
+
+            # Временный текст, чтобы узнать размер
+            temp_text = self.canvas.create_text(
+                text_x, text_y, text=distance_text, font=font
+            )
+            bbox = self.canvas.bbox(temp_text)
+            self.canvas.delete(temp_text)
+
+            padding = 4
+            rect_x1 = bbox[0] - padding
+            rect_y1 = bbox[1] - padding
+            rect_x2 = bbox[2] + padding
+            rect_y2 = bbox[3] + padding
+
+            # Непрозрачный темный фон (например, черный с 80% непрозрачностью - можно имитировать)
+            # Просто возьмём темно-серый (тк прозрачность не работает)
+            self.canvas.create_rectangle(
+                rect_x1,
+                rect_y1,
+                rect_x2,
+                rect_y2,
+                fill="#222222",
+                outline="",
+                tags="ruler",
+            )
+
+            # Тень текста (чуть смещённый черный)
+            offset = 1
             self.canvas.create_text(
-                (start_x + end_x) / 2,
-                (start_y + end_y) / 2 - 15,
-                text=f"{distance:.1f} ft",
+                text_x + offset,
+                text_y + offset,
+                text=distance_text,
+                fill="#000000",
+                font=FONT,
+                tags="ruler",
+            )
+            # Основной текст
+            self.canvas.create_text(
+                text_x,
+                text_y,
+                text=distance_text,
                 fill="#FF5252",
-                font=("Segoe UI", 10, "bold"),
+                font=FONT,
                 tags="ruler",
             )
 
