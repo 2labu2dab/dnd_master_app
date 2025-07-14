@@ -1025,7 +1025,7 @@ class DnDMapMaster:
         # Labels
         style.configure("TLabel", background=DARK_BG, foreground=TEXT_COLOR, font=FONT)
 
-        # Buttons с акцентом и плавным изменением цвета
+        # Кнопки с акцентом и плавным изменением цвета
         style.configure(
             "Modern.TButton",
             background=BUTTON_BG,
@@ -1043,7 +1043,39 @@ class DnDMapMaster:
             foreground=[("active", TEXT_COLOR), ("pressed", TEXT_COLOR)],
         )
 
-        # Scrollbars
+        # === Стили для слайдера ===
+        # Для горизонтального слайдера
+        style.configure(
+            "Modern.Horizontal.TScale",
+            background=DARK_BG,
+            troughcolor=SCROLLBAR_BG,  # Цвет фона слайдера
+            sliderlength=20,  # Длина ползунка
+            sliderrelief="flat",  # Без обводки у ползунка
+            width=15,  # Ширина слайдера
+            orient="horizontal",  # Горизонтальная ориентация
+        )
+
+        # Для вертикального слайдера
+        style.configure(
+            "Modern.Vertical.TScale",
+            background=DARK_BG,
+            troughcolor=SCROLLBAR_BG,  # Цвет фона слайдера
+            sliderlength=20,  # Длина ползунка
+            sliderrelief="flat",  # Без обводки у ползунка
+            width=15,  # Ширина слайдера
+            orient="vertical",  # Вертикальная ориентация
+        )
+
+        # Настройка слайдера: цвета при активации
+        style.map(
+            "Modern.TScale",
+            background=[("active", ACCENT_COLOR), ("!active", BUTTON_BG)],  # Цвет при активации
+            slidercolor=[("active", ACCENT_COLOR), ("!active", "#6a9aff")],  # Цвет ползунка
+        )
+
+        # === Стили для других элементов ===
+
+        # Стили для Scrollbars
         style.element_create("Custom.Vertical.Scrollbar.trough", "from", "clam")
         style.element_create("Custom.Vertical.Scrollbar.thumb", "from", "clam")
 
@@ -1118,10 +1150,8 @@ class DnDMapMaster:
 
         style.map(
             "Modern.Vertical.TScrollbar",
-            background=[
-                ("active", BUTTON_HOVER),  # При активности акцентный цвет
-                ("!active", thumb_color),
-            ],
+            background=[("active", BUTTON_HOVER),  # При активности акцентный цвет
+                        ("!active", thumb_color)],
         )
         style.map(
             "Modern.Horizontal.TScrollbar",
@@ -1192,12 +1222,10 @@ class DnDMapMaster:
                 ("selected", DARK_BG),
             ],
             indicatorbackground=[("selected", ACCENT_COLOR), ("!selected", "white")],
-            indicatorcolor=[
-                ("selected", ACCENT_COLOR),
-                ("!selected", "white"),
-            ],  # совпадает с фоном квадрата
+            indicatorcolor=[("selected", ACCENT_COLOR), ("!selected", "white")],
             foreground=[("active", TEXT_COLOR), ("selected", TEXT_COLOR)],
         )
+
 
     def toggle_grid(self):
         """Toggle grid visibility"""
@@ -1762,13 +1790,29 @@ class DnDMapMaster:
 
         ttk.Separator(self.control_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
 
-        btn = ttk.Button(
+        self.grid_slider = ttk.Scale(
             self.control_panel,
-            text="Задать размер сетки",
-            command=self.set_grid_cell_count,
-            style="Modern.TButton",
+            from_=1,
+            to=200,
+            orient="horizontal",
+            command=self.update_grid_from_slider,
+            style="Modern.Horizontal.TScale",
         )
-        btn.pack(pady=8, padx=10, fill=tk.X)
+        self.grid_slider.set(self.grid_settings.cell_size)  # Устанавливаем начальный размер
+        self.grid_slider.pack(pady=8, padx=10, fill=tk.X)
+
+        # Поле для ввода размера сетки
+        self.grid_entry = ttk.Entry(
+            self.control_panel,
+            validate="key",
+            validatecommand=(self.control_panel.register(self.on_grid_entry_change), "%P"),
+            font=FONT,
+        )
+        self.grid_entry.insert(0, str(self.grid_settings.cell_size))  # Значение по умолчанию
+        self.grid_entry.pack(pady=8, padx=10, fill=tk.X)
+
+        # Рисование сетки и обновление
+        self.update_grid_from_slider(self.grid_slider.get())  # Перерисовываем сетку при старте
 
         self.grid_var = tk.BooleanVar(value=self.grid_settings.visible)
         grid_check = CustomCheckbutton(
@@ -1893,6 +1937,46 @@ class DnDMapMaster:
         self.minimap_label.pack(fill=tk.X)
 
         self.update_status("Ready")
+    
+    def update_grid_from_slider(self, value):
+        """Обновить размер сетки при изменении ползунка"""
+        # Округляем значение до целого числа
+        new_value = round(float(value))
+        
+        # Обновляем размер сетки
+        self.grid_settings.cell_size = new_value
+
+        # Обновляем поле ввода с текущим значением
+        self.grid_entry.delete(0, tk.END)
+        self.grid_entry.insert(0, str(self.grid_settings.cell_size))
+
+        # Обновляем перерисовку карты
+        self.redraw_map()
+
+    def on_grid_entry_change(self, new_value):
+        """Обработчик изменений в поле ввода для размера сетки"""
+        try:
+            # Проверка, что введено целое число в диапазоне от 1 до 200
+            if new_value == '':
+                return True
+
+            new_value = int(new_value)
+
+            if 1 <= new_value <= 200:
+                # Обновляем слайдер
+                self.grid_slider.set(new_value)
+
+                # Обновляем размер сетки
+                self.grid_settings.cell_size = new_value
+
+                # Перерисовываем карту
+                self.redraw_map()
+
+                return True
+            else:
+                return False
+        except ValueError:
+            return False
 
     def export_settings(self):
         """Export all settings to file"""
