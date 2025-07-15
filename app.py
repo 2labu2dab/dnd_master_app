@@ -2472,8 +2472,7 @@ class DnDMapMaster:
     def _draw_find(self, find):
         """Отрисовать находку на карте"""
         # Если размер не задан, вычисляем его
-        if find.size is None:
-            find.size = self.get_token_size()
+        find.size = self.get_token_size()
 
         x = find.position[0] * self.scale + self.offset_x
         y = find.position[1] * self.scale + self.offset_y
