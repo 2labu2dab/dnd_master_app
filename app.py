@@ -681,12 +681,8 @@ class PlayerView:
             and self.master.ruler_start
             and self.master.ruler_end
         ):
-            start_x = (
-                self.master.ruler_start[0] * self.master.scale + self.offset_x
-            )
-            start_y = (
-                self.master.ruler_start[1] * self.master.scale + self.offset_y
-            )
+            start_x = self.master.ruler_start[0] * self.master.scale + self.offset_x
+            start_y = self.master.ruler_start[1] * self.master.scale + self.offset_y
             end_x = self.master.ruler_end[0] * self.master.scale + self.offset_x
             end_y = self.master.ruler_end[1] * self.master.scale + self.offset_y
 
@@ -764,7 +760,14 @@ class PlayerView:
                     self._draw_token(token)
 
         # Обновляем scrollregion для прокрутки
-        self.canvas.config(scrollregion=(0, 0, max(window_width, map_width), max(window_height, map_height)))
+        self.canvas.config(
+            scrollregion=(
+                0,
+                0,
+                max(window_width, map_width),
+                max(window_height, map_height),
+            )
+        )
 
     def _is_token_visible(self, token):
         """Проверка видимости токена для игроков"""
@@ -973,6 +976,7 @@ class DnDMapMaster:
         self.ruler_active = False
         self.ruler_start = None
         self.ruler_end = None
+        self.ruler_line = None  # объект линии, который будет рисоваться
         self.ruler_visible_to_players = True
 
         # Display settings
@@ -1069,8 +1073,14 @@ class DnDMapMaster:
         # Настройка слайдера: цвета при активации
         style.map(
             "Modern.TScale",
-            background=[("active", ACCENT_COLOR), ("!active", BUTTON_BG)],  # Цвет при активации
-            slidercolor=[("active", ACCENT_COLOR), ("!active", "#6a9aff")],  # Цвет ползунка
+            background=[
+                ("active", ACCENT_COLOR),
+                ("!active", BUTTON_BG),
+            ],  # Цвет при активации
+            slidercolor=[
+                ("active", ACCENT_COLOR),
+                ("!active", "#6a9aff"),
+            ],  # Цвет ползунка
         )
 
         # === Стили для других элементов ===
@@ -1150,8 +1160,10 @@ class DnDMapMaster:
 
         style.map(
             "Modern.Vertical.TScrollbar",
-            background=[("active", BUTTON_HOVER),  # При активности акцентный цвет
-                        ("!active", thumb_color)],
+            background=[
+                ("active", BUTTON_HOVER),  # При активности акцентный цвет
+                ("!active", thumb_color),
+            ],
         )
         style.map(
             "Modern.Horizontal.TScrollbar",
@@ -1226,7 +1238,6 @@ class DnDMapMaster:
             foreground=[("active", TEXT_COLOR), ("selected", TEXT_COLOR)],
         )
 
-
     def toggle_grid(self):
         """Toggle grid visibility"""
         self.grid_settings.visible = not self.grid_settings.visible
@@ -1273,7 +1284,7 @@ class DnDMapMaster:
         self.redraw_map()
         status = "active" if self.ruler_active else "inactive"
         self.update_status(f"Ruler is now {status}")
-    
+
     def _create_styled_menu(self):
         return tk.Menu(
             self.root,
@@ -1286,6 +1297,7 @@ class DnDMapMaster:
             relief=tk.FLAT,
             font=FONT_MENU,  # зададим шрифт, как везде
         )
+
     def _create_context_menus(self):
         """Create modern context menus"""
         # Token context menu
@@ -1360,15 +1372,16 @@ class DnDMapMaster:
         self.find_context_menu.add_command(
             label="Удалить находку", command=self._delete_find
         )
-    
+
     def _show_zone_context_menu(self, event, zone_id):
         self.current_context_object = zone_id
         zone = self.zones.get(zone_id)
         if zone:
             label = "Спрятать зону" if zone.is_visible else "Открыть зону"
-            self.zone_context_menu.entryconfig(1, label=label)  # индекс 1 — пункт со статусом
+            self.zone_context_menu.entryconfig(
+                1, label=label
+            )  # индекс 1 — пункт со статусом
             self.zone_context_menu.tk_popup(event.x_root, event.y_root)
-
 
     def _view_find_description(self):
         """Просмотр описания находки"""
@@ -1798,21 +1811,30 @@ class DnDMapMaster:
             command=self.update_grid_from_slider,
             style="Modern.Horizontal.TScale",
         )
-        self.grid_slider.set(self.grid_settings.cell_size)  # Устанавливаем начальный размер
+        self.grid_slider.set(
+            self.grid_settings.cell_size
+        )  # Устанавливаем начальный размер
         self.grid_slider.pack(pady=8, padx=10, fill=tk.X)
 
         # Поле для ввода размера сетки
         self.grid_entry = ttk.Entry(
             self.control_panel,
             validate="key",
-            validatecommand=(self.control_panel.register(self.on_grid_entry_change), "%P"),
+            validatecommand=(
+                self.control_panel.register(self.on_grid_entry_change),
+                "%P",
+            ),
             font=FONT,
         )
-        self.grid_entry.insert(0, str(self.grid_settings.cell_size))  # Значение по умолчанию
+        self.grid_entry.insert(
+            0, str(self.grid_settings.cell_size)
+        )  # Значение по умолчанию
         self.grid_entry.pack(pady=8, padx=10, fill=tk.X)
 
         # Рисование сетки и обновление
-        self.update_grid_from_slider(self.grid_slider.get())  # Перерисовываем сетку при старте
+        self.update_grid_from_slider(
+            self.grid_slider.get()
+        )  # Перерисовываем сетку при старте
 
         self.grid_var = tk.BooleanVar(value=self.grid_settings.visible)
         grid_check = CustomCheckbutton(
@@ -1937,12 +1959,12 @@ class DnDMapMaster:
         self.minimap_label.pack(fill=tk.X)
 
         self.update_status("Ready")
-    
+
     def update_grid_from_slider(self, value):
         """Обновить размер сетки при изменении ползунка"""
         # Округляем значение до целого числа
         new_value = round(float(value))
-        
+
         # Обновляем размер сетки
         self.grid_settings.cell_size = new_value
 
@@ -1957,7 +1979,7 @@ class DnDMapMaster:
         """Обработчик изменений в поле ввода для размера сетки"""
         try:
             # Проверка, что введено целое число в диапазоне от 1 до 200
-            if new_value == '':
+            if new_value == "":
                 return True
 
             new_value = int(new_value)
@@ -2421,7 +2443,6 @@ class DnDMapMaster:
 
             # Draw grid
             self._draw_grid()
-            self._draw_ruler()
 
             # Update scroll region
             self.canvas.config(
@@ -2432,6 +2453,10 @@ class DnDMapMaster:
                     self.offset_y + height,
                 )
             )
+        
+        # Если линейка активна и есть точки A и B, рисуем ее
+        if self.ruler_active and self.ruler_start and self.ruler_end:
+            self._draw_ruler()
 
         # Update player view if exists
         if hasattr(self, "player_view") and self.player_view:
@@ -2486,13 +2511,48 @@ class DnDMapMaster:
         shadow_color = "#000000"  # черный буфер
 
         # Рисуем тень (чёрный текст с небольшим смещением)
-        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
-        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
-        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
-        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(
+            x_text + 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("find", f"find_{find.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("find", f"find_{find.id}"),
+        )
+        self.canvas.create_text(
+            x_text + 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("find", f"find_{find.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("find", f"find_{find.id}"),
+        )
 
         # Рисуем основной текст поверх
-        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("find", f"find_{find.id}"))
+        self.canvas.create_text(
+            x_text,
+            y_text,
+            text=text,
+            fill=main_color,
+            font=font,
+            tags=("find", f"find_{find.id}"),
+        )
 
         # Подсветка если выбрана
         if hasattr(self, "selected_find") and self.selected_find == find.id:
@@ -2660,13 +2720,48 @@ class DnDMapMaster:
         shadow_color = "#000000"  # черный буфер
 
         # Рисуем тень (чёрный текст с небольшим смещением)
-        self.canvas.create_text(x_text + 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
-        self.canvas.create_text(x_text - 1, y_text + 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
-        self.canvas.create_text(x_text + 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
-        self.canvas.create_text(x_text - 1, y_text - 1, text=text, fill=shadow_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(
+            x_text + 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text + 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
+        self.canvas.create_text(
+            x_text - 1,
+            y_text - 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
 
         # Рисуем основной текст поверх
-        self.canvas.create_text(x_text, y_text, text=text, fill=main_color, font=font, tags=("token", f"token_{token.id}"))
+        self.canvas.create_text(
+            x_text,
+            y_text,
+            text=text,
+            fill=main_color,
+            font=font,
+            tags=("token", f"token_{token.id}"),
+        )
 
         # Highlight selected token
         if token.id == self.selected_token:
@@ -2826,16 +2921,18 @@ class DnDMapMaster:
 
     def on_canvas_click(self, event):
         """Handle canvas click"""
-        if self.ruler_active:
-            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
-            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
-
-            if not self.ruler_start:
-                self.ruler_start = (x, y)
-            else:
-                self.ruler_end = (x, y)
-            self.redraw_map()
-            return
+        x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
+        y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+        
+        if not self.ruler_active:
+            # Если линейка не активна, то активируем ее и ставим точку A
+            self.ruler_start = (x, y)
+            self.ruler_end = None  # Очистим точку B
+            self.ruler_active = True
+        else:
+            # Если линейка уже активна, то обновляем точку A и начинаем новую линию
+            self.ruler_start = (x, y)
+            self.ruler_end = None  # Очистим точку B
 
         if self.creating_zone:
             # Convert to map coordinates
@@ -2923,6 +3020,16 @@ class DnDMapMaster:
                     width=2,
                     tags="snap_highlight",
                 )
+        
+        if self.ruler_active and self.ruler_start:
+            # Преобразуем текущие координаты мыши в координаты карты
+            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
+            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+            
+            # Обновляем точку B (местоположение мыши)
+            self.ruler_end = (x, y)
+            self.redraw_map()
+            
 
     def on_canvas_drag(self, event):
         """Handle canvas dragging"""
@@ -2996,6 +3103,13 @@ class DnDMapMaster:
             del self.drag_start
         if hasattr(self, "token_start_pos"):
             del self.token_start_pos
+        
+        if self.ruler_active and self.ruler_start and self.ruler_end:
+            # Завершаем создание линейки, когда отпускаем кнопку
+            self.ruler_active = False
+            self.ruler_start = None
+            self.ruler_end = None
+            self.redraw_map()  # Перерисовываем карту, чтобы удалить линейку
 
         self.redraw_map()
 
@@ -3140,29 +3254,32 @@ class DnDMapMaster:
     @staticmethod
     def _segments_intersect(p1, p2, p3, p4):
         """Return True if segments (p1,p2) and (p3,p4) intersect strictly inside (no endpoints)."""
+
         def ccw(a, b, c):
             return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
         # Проверка, пересекаются ли отрезки (включая касания)
-        intersect = (ccw(p1, p3, p4) != ccw(p2, p3, p4)) and (ccw(p1, p2, p3) != ccw(p1, p2, p4))
+        intersect = (ccw(p1, p3, p4) != ccw(p2, p3, p4)) and (
+            ccw(p1, p2, p3) != ccw(p1, p2, p4)
+        )
         if not intersect:
             return False
 
         # Проверяем, не совпадает ли точка пересечения с концами отрезков
         # Для этого вычислим точку пересечения и проверим равенство с концами
-        
+
         # Векторное представление
         x1, y1 = p1
         x2, y2 = p2
         x3, y3 = p3
         x4, y4 = p4
 
-        denom = (y4 - y3)*(x2 - x1) - (x4 - x3)*(y2 - y1)
+        denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1)
         if denom == 0:
             return False  # параллельны или совпадают
 
-        ua = ((x4 - x3)*(y1 - y3) - (y4 - y3)*(x1 - x3)) / denom
-        ub = ((x2 - x1)*(y1 - y3) - (y2 - y1)*(x1 - x3)) / denom
+        ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denom
+        ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denom
 
         # Точка пересечения
         xi = x1 + ua * (x2 - x1)
@@ -3172,7 +3289,7 @@ class DnDMapMaster:
 
         # Функция для проверки совпадения точек с допуском
         def points_are_close(a, b, tol=1e-9):
-            return abs(a[0]-b[0]) < tol and abs(a[1]-b[1]) < tol
+            return abs(a[0] - b[0]) < tol and abs(a[1] - b[1]) < tol
 
         # Если точка пересечения совпадает с любым концом — не считать пересечением
         endpoints = [p1, p2, p3, p4]
