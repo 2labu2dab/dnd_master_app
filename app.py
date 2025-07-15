@@ -436,6 +436,22 @@ class Find:
     status: bool = False
     description: str = None
 
+@dataclass
+class GridSettings:
+    visible: bool = False
+    visible_to_players: bool = False
+    cell_size: int = 50
+    color: str = "#888888"
+    opacity: int = 100
+
+
+@dataclass
+class Zone:
+    id: str
+    name: str
+    vertices: List[Tuple[float, float]]
+    is_visible: bool = False
+
 
 class FindDescriptionDialog(tk.Toplevel):
     def __init__(self, parent, title, initialtext=""):
@@ -506,23 +522,6 @@ class FindDescriptionDialog(tk.Toplevel):
 
     def on_cancel(self):
         self.destroy()
-
-
-@dataclass
-class GridSettings:
-    visible: bool = False
-    visible_to_players: bool = False
-    cell_size: int = 50
-    color: str = "#888888"
-    opacity: int = 100
-
-
-@dataclass
-class Zone:
-    id: str
-    name: str
-    vertices: List[Tuple[float, float]]
-    is_visible: bool = False
 
 
 class PlayerView:
@@ -1276,14 +1275,13 @@ class DnDMapMaster:
             self.update_status(f"Set grid to {count} cells wide")
 
     def toggle_ruler(self):
-        """Toggle ruler tool"""
-        self.ruler_active = not self.ruler_active
+        """Включить/выключить линейку"""
+        self.ruler_active = self.ruler_var.get()
         if not self.ruler_active:
+            # Если линейка выключена, сбрасываем точки
             self.ruler_start = None
             self.ruler_end = None
-        self.redraw_map()
-        status = "active" if self.ruler_active else "inactive"
-        self.update_status(f"Ruler is now {status}")
+        self.redraw_map()  # Перерисовываем карту для обновления состояния
 
     def _create_styled_menu(self):
         return tk.Menu(
@@ -2920,26 +2918,26 @@ class DnDMapMaster:
         return None
 
     def on_canvas_click(self, event):
-        """Handle canvas click"""
+        """Обработчик клика по канвасу"""
         x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
         y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
-        
-        if not self.ruler_active:
-            # Если линейка не активна, то активируем ее и ставим точку A
-            self.ruler_start = (x, y)
-            self.ruler_end = None  # Очистим точку B
-            self.ruler_active = True
-        else:
-            # Если линейка уже активна, то обновляем точку A и начинаем новую линию
-            self.ruler_start = (x, y)
-            self.ruler_end = None  # Очистим точку B
 
-        if self.creating_zone:
-            # Convert to map coordinates
-            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
-            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+        if self.ruler_active:
+            # Если линейка активна
+            if not self.ruler_start:
+                # Устанавливаем точку A при первом клике
+                self.ruler_start = (x, y)
+                self.ruler_end = None  # Очистим точку B
+            else:
+                # Обновляем точку A при новом клике и начинаем новую линию
+                self.ruler_start = (x, y)
+                self.ruler_end = None  # Очистим точку B
 
-            # Try to snap to existing point
+            # Перерисовываем карту с линейкой
+            self.redraw_map()
+
+        elif self.creating_zone:
+            # Логика создания зоны
             snap_point = self._find_snap_point(x, y)
             if snap_point:
                 x, y = snap_point
@@ -2948,7 +2946,7 @@ class DnDMapMaster:
             self._update_snap_points()
             return
 
-        # Handle token selection
+        # Обработка выбора токенов и находок (по аналогии с твоим кодом)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
 
@@ -2963,7 +2961,7 @@ class DnDMapMaster:
                 self.drag_start = (canvas_x, canvas_y)
                 self.token_start_pos = token.position
 
-                # Select in listbox
+                # Выбираем токен в списке
                 for i in range(self.tokens_list.size()):
                     if self.tokens_list.get(i).endswith(token.name):
                         self.tokens_list.selection_clear(0, tk.END)
@@ -2983,6 +2981,7 @@ class DnDMapMaster:
                 self.find_start_pos = find.position
                 break
 
+        # Если двойной клик на находке — показываем описание
         if event.num == 1 and hasattr(event, "click_count") and event.click_count == 2:
             canvas_x = self.canvas.canvasx(event.x)
             canvas_y = self.canvas.canvasy(event.y)
