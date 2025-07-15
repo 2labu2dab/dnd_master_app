@@ -530,6 +530,13 @@ class PlayerView:
         self.master = master_app
         self.root.configure(bg=DARK_BG)
         self.get_token_size = master_app.get_token_size
+        self.tokens: Dict[str, Token] = master_app.tokens
+        self.zones: Dict[str, Zone] = master_app.zones
+        self.ruler_active = master_app.ruler_active
+        self.ruler_start = master_app.ruler_start
+        self.ruler_end = master_app.ruler_end
+        self.ruler_line = master_app.ruler_line
+        self.ruler_visible_to_players = master_app.ruler_visible_to_players
 
         # Canvas с современным стилем
         self.canvas = tk.Canvas(
@@ -589,7 +596,7 @@ class PlayerView:
             points.append(y + size * math.sin(angle_rad))
         return self.canvas.create_polygon(points, **kwargs)
 
-    def redraw_map(self):
+    def redraw_map(self, delete_objects):
         self.canvas.delete("all")
 
         if not hasattr(self.master, "map_image") or not self.master.map_image:
@@ -598,23 +605,18 @@ class PlayerView:
         # Вычисляем размеры карты с учётом масштаба
         map_width = int(self.master.map_image.width * self.master.scale)
         map_height = int(self.master.map_image.height * self.master.scale)
-
         # Получаем размеры окна
         window_width = self.root.winfo_width()
         window_height = self.root.winfo_height()
-
         # Центрируем карту в окне (смещение)
         self.offset_x = max((window_width - map_width) // 2, 0)
         self.offset_y = max((window_height - map_height) // 2, 0)
-
         # Создаем масштабированное изображение карты
         base_map = self.master.map_image.resize(
             (map_width, map_height), Image.Resampling.LANCZOS
         )
-
         # Размытая копия карты для закрытых зон
         blurred_map = base_map.filter(ImageFilter.GaussianBlur(radius=20))
-
         # Маска закрытых зон
         closed_zones_mask = Image.new("L", (map_width, map_height), 0)
         draw = ImageDraw.Draw(closed_zones_mask)
@@ -1004,7 +1006,7 @@ class DnDMapMaster:
         self._create_widgets()
         self._setup_bindings()
         self._create_context_menus()
-        self.root.bind("<Configure>", self._on_window_resize)
+        # self.root.bind("<Configure>", self._on_window_resize)
 
     def get_token_size(self):
         """Calculate token size based on grid cell size"""
@@ -1240,7 +1242,7 @@ class DnDMapMaster:
     def toggle_grid(self):
         """Toggle grid visibility"""
         self.grid_settings.visible = not self.grid_settings.visible
-        self.redraw_map()
+        self.redraw_map(["grid"])
         status = "visible" if self.grid_settings.visible else "hidden"
         self.update_status(f"Grid is now {status}")
 
@@ -1249,7 +1251,7 @@ class DnDMapMaster:
         self.grid_settings.visible_to_players = (
             not self.grid_settings.visible_to_players
         )
-        self.redraw_map()
+        self.redraw_map(["grid"])
         status = "visible" if self.grid_settings.visible_to_players else "hidden"
         self.update_status(f"Grid for players is now {status}")
 
@@ -1271,7 +1273,7 @@ class DnDMapMaster:
                 token.size = self.get_token_size()
             for find in self.finds.values():
                 find.size = self.get_token_size()
-            self.redraw_map()
+            self.redraw_map(["grid", "token", "find"])
             self.update_status(f"Set grid to {count} cells wide")
 
     def toggle_ruler(self):
@@ -1281,7 +1283,7 @@ class DnDMapMaster:
             # Если линейка выключена, сбрасываем точки
             self.ruler_start = None
             self.ruler_end = None
-        self.redraw_map()  # Перерисовываем карту для обновления состояния
+        self.redraw_map(["ruler"])  # Перерисовываем карту для обновления состояния
 
     def _create_styled_menu(self):
         return tk.Menu(
@@ -1398,7 +1400,7 @@ class DnDMapMaster:
 
         find = self.finds[self.selected_find]
         find.status = not find.status
-        self.redraw_map()
+        self.redraw_map(["find"])
         status = "найдена" if find.status else "не найдена"
         self.update_status(f"Находка {find.name} теперь {status}")
 
@@ -1417,7 +1419,7 @@ class DnDMapMaster:
         if desc_dialog.result is not None:
             find.description = desc_dialog.result
             self.update_status(f"Обновлено описание для {find.name}")
-            self.redraw_map()
+            self.redraw_map(["find"])
 
     def _delete_find(self):
         """Удалить выбранную находку"""
@@ -1431,7 +1433,7 @@ class DnDMapMaster:
         if dialog.show():
             del self.finds[self.selected_find]
             del self.selected_find
-            self.redraw_map()
+            self.redraw_map(["find"])
             self.update_status(f"Находка {find.name} удалена")
 
     def _change_token_type(self):
@@ -1493,7 +1495,7 @@ class DnDMapMaster:
             token.is_player = False
             token.is_npc = False
 
-        self.redraw_map()
+        self.redraw_map(["token"])
         self._update_tokens_list()
         self.update_status(f"Token {token.name} changed to {token_type}")
 
@@ -1507,7 +1509,7 @@ class DnDMapMaster:
 
         token = self.tokens[self.current_context_object]
         token.is_dead = not token.is_dead
-        self.redraw_map()
+        self.redraw_map(["token"])
         status = "мертв" if token.is_dead else "жив"
         self.update_status(f"Token {token.name} is now {status}")
 
@@ -1524,7 +1526,7 @@ class DnDMapMaster:
         if dialog.show():
             del self.tokens[self.current_context_object]
             self._update_tokens_list()
-            self.redraw_map()
+            self.redraw_map(["token"])
             self.update_status(f"Token {token.name} deleted")
 
     def _delete_selected_zone(self):
@@ -1538,9 +1540,10 @@ class DnDMapMaster:
         zone = self.zones[self.current_context_object]
         dialog = YesNoDialog(self.root, "Confirm", f"Удалить зону {zone.name}?")
         if dialog.show():
+            self.snap_points = [point for point in self.snap_points if point not in zone.vertices]
             del self.zones[self.current_context_object]
             self._update_zones_list()
-            self.redraw_map()
+            self.redraw_map(["zone", "snap_point", "zone_creation"])
             self.update_status(f"Zone {zone.name} deleted")
 
     def _rename_selected_zone(self):
@@ -1557,7 +1560,7 @@ class DnDMapMaster:
         if new_name and new_name != zone.name:
             zone.name = new_name
             self._update_zones_list()
-            self.redraw_map()
+            self.redraw_map(["token"])
             self.update_status(f"Zone renamed to {new_name}")
 
     def _toggle_zone_visibility(self):
@@ -1570,7 +1573,7 @@ class DnDMapMaster:
 
         zone = self.zones[self.current_context_object]
         zone.is_visible = not zone.is_visible
-        self.redraw_map()
+        self.redraw_map(["zone"])
 
         status = "открыта" if zone.is_visible else "спрятана"
         self.update_status(f"Зона {zone.name} теперь {status}")
@@ -1595,6 +1598,7 @@ class DnDMapMaster:
         self._update_ui_layout()
         if self.map_image:
             self._fit_map_to_canvas()
+            print("_on_window_resize")
             self.redraw_map()
 
     def _update_minimap(self):
@@ -1971,7 +1975,7 @@ class DnDMapMaster:
         self.grid_entry.insert(0, str(self.grid_settings.cell_size))
 
         # Обновляем перерисовку карты
-        self.redraw_map()
+        self.redraw_map(["grid", "token", "find"])
 
     def on_grid_entry_change(self, new_value):
         """Обработчик изменений в поле ввода для размера сетки"""
@@ -1990,7 +1994,7 @@ class DnDMapMaster:
                 self.grid_settings.cell_size = new_value
 
                 # Перерисовываем карту
-                self.redraw_map()
+                self.redraw_map(["grid", "token", "find"])
 
                 return True
             else:
@@ -2376,13 +2380,14 @@ class DnDMapMaster:
 
                 token.avatar_path = file_path
                 token.avatar_image = avatar_img
-                self.redraw_map()
+                self.redraw_map(["token"])
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load image: {e}")
 
     def reset_view(self):
         """Reset zoom and position"""
         self._fit_map_to_canvas()
+        print("reset_view")
         self.redraw_map()
 
     def _draw_hexagon(self, x, y, size, **kwargs):
@@ -2395,74 +2400,107 @@ class DnDMapMaster:
             points.append(y + size * math.sin(angle_rad))
         return self.canvas.create_polygon(points, **kwargs)
 
-    def redraw_map(self):
+    def redraw_map(self, delete_objects="all"):
         """Redraw everything on canvas"""
-        self.canvas.delete("all")
+        # if delete_objects == "all":
+        #     self.canvas.delete(delete_objects)
 
+        all_items = self.canvas.find_all()
+        # Сохраняем все уникальные теги
+        all_tags = set()
+        # Проходим по всем объектам и добавляем их теги в set
+        for item in all_items:
+            tags = self.canvas.gettags(item)  # Получаем теги для каждого объекта
+            all_tags.update(tags)  # Добавляем теги в set
+        print(all_tags)  # Выводим все уникальные теги
         if self.map_photo:
             # Calculate scaled size
-            width = int(self.map_image.width * self.scale)
-            height = int(self.map_image.height * self.scale)
+            if delete_objects == "all" or "map" in delete_objects:
+                print("Удалили карту")
+                self.canvas.delete("map")
+                width = int(self.map_image.width * self.scale)
+                height = int(self.map_image.height * self.scale)
 
-            # Create scaled image
-            scaled_img = self.map_image.resize(
-                (width, height), Image.Resampling.LANCZOS
-            )
-            self.map_photo = ImageTk.PhotoImage(scaled_img)
+                # Create scaled image
+                scaled_img = self.map_image.resize(
+                    (width, height), Image.Resampling.LANCZOS
+                )
+                self.map_photo = ImageTk.PhotoImage(scaled_img)
 
-            # Draw image
-            self.canvas.create_image(
-                self.offset_x,
-                self.offset_y,
-                image=self.map_photo,
-                anchor=tk.NW,
-                tags="map",
-            )
-
-            # Draw zones
-            for zone in self.zones.values():
-                self._draw_zone(zone)
-
-            # Draw current zone being created
-            if self.current_zone_vertices:
-                self._draw_current_zone()
-
-            # Draw tokens
-            for token in self.tokens.values():
-                self._draw_token(token)
-
-            # Draw snap points
-            for point in self.snap_points:
-                self._draw_snap_point(point)
-
-            # Рисуем находки (только в GM view)
-            for find in self.finds.values():
-                self._draw_find(find)
-
-            # Draw grid
-            self._draw_grid()
-
-            # Update scroll region
-            self.canvas.config(
-                scrollregion=(
+                # Draw image
+                self.canvas.create_image(
                     self.offset_x,
                     self.offset_y,
-                    self.offset_x + width,
-                    self.offset_y + height,
+                    image=self.map_photo,
+                    anchor=tk.NW,
+                    tags="map",
                 )
-            )
+
+                self.canvas.config(
+                    scrollregion=(
+                        self.offset_x,
+                        self.offset_y,
+                        self.offset_x + width,
+                        self.offset_y + height,
+                    )
+                )
+
+            # Draw grid
+            if delete_objects == "all" or "grid" in delete_objects:
+                print("Удалили grid")
+                self.canvas.delete("grid")
+                self._draw_grid()
+
+            if delete_objects == "all" or "zone" in delete_objects:
+                print("Удалили zone")
+                self.canvas.delete("zone")
+                # Draw zones
+                for zone in self.zones.values():
+                    self._draw_zone(zone)
+
+            if delete_objects == "all" or "zone_creation" in delete_objects:
+                print("Удалили zone_creation")
+                self.canvas.delete("zone_creation")
+                # Draw current zone being created
+                if self.current_zone_vertices:
+                    self._draw_current_zone()
+
+            if delete_objects == "all" or "token" in delete_objects:
+                print("Удалили token")
+                self.canvas.delete("token")
+                # Draw tokens
+                for token in self.tokens.values():
+                    self._draw_token(token)
+
+            if delete_objects == "all" or "snap_point" in delete_objects:
+                print("Удалили snap_point")
+                self.canvas.delete("snap_point")
+                # Draw snap points
+                for point in self.snap_points:
+                    self._draw_snap_point(point)
+
+            if delete_objects == "all" or "find" in delete_objects:
+                print("Удалили find")
+                self.canvas.delete("find")
+                # Рисуем находки (только в GM view)
+                for find in self.finds.values():
+                    self._draw_find(find)
+
         
         # Если линейка активна и есть точки A и B, рисуем ее
-        if self.ruler_active and self.ruler_start and self.ruler_end:
+        if delete_objects == "all" or "ruler" in delete_objects:
+            print("Удалили ruler")
+            self.canvas.delete("ruler")
             self._draw_ruler()
 
         # Update player view if exists
         if hasattr(self, "player_view") and self.player_view:
             try:
-                self.player_view.redraw_map()
+                self.player_view.redraw_map(delete_objects)
             except:
                 pass
         self._update_minimap()
+        print("--------")
 
     def _update_ui_layout(self):
         """Update UI element positions"""
@@ -2827,7 +2865,7 @@ class DnDMapMaster:
         )
 
         self.update_status(f"Добавлена находка: {find_name}")
-        self.redraw_map()
+        self.redraw_map(["find"])
 
     def add_token(self, is_player=False, is_npc=False):
         """Add new token"""
@@ -2888,7 +2926,7 @@ class DnDMapMaster:
         self.tokens_list.selection_set(tk.END)
         self.selected_token = token_id
 
-        self.redraw_map()
+        self.redraw_map(["token"])
         self.update_status(f"Added {token_type} token: {token_name}")
 
     def start_zone_creation(self):
@@ -2907,7 +2945,7 @@ class DnDMapMaster:
         self.snap_points = []
         for zone in self.zones.values():
             self.snap_points.extend(zone.vertices)
-        self.redraw_map()
+        self.redraw_map(["snap_point", "current", "zone_creation"])
 
     def _find_snap_point(self, x, y, threshold=10):
         """Find nearest snap point within threshold"""
@@ -2933,7 +2971,7 @@ class DnDMapMaster:
                 self.ruler_end = None  # Очистим точку B
 
             # Перерисовываем карту с линейкой
-            self.redraw_map()
+            self.redraw_map(["ruler"])
 
         elif self.creating_zone:
             # Логика создания зоны
@@ -3001,6 +3039,16 @@ class DnDMapMaster:
 
     def on_canvas_motion(self, event):
         """Handle mouse motion (for snap point highlighting)"""
+
+        if self.ruler_active and self.ruler_start:
+            # Преобразуем текущие координаты мыши в координаты карты
+            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
+            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
+            
+            # Обновляем точку B (местоположение мыши)
+            self.ruler_end = (x, y)
+            self.redraw_map(["ruler"])
+
         if self.creating_zone and self.current_zone_vertices:
             x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
             y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
@@ -3018,15 +3066,6 @@ class DnDMapMaster:
                     width=2,
                     tags="snap_highlight",
                 )
-        
-        if self.ruler_active and self.ruler_start:
-            # Преобразуем текущие координаты мыши в координаты карты
-            x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
-            y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
-            
-            # Обновляем точку B (местоположение мыши)
-            self.ruler_end = (x, y)
-            self.redraw_map()
             
 
     def on_canvas_drag(self, event):
@@ -3035,7 +3074,7 @@ class DnDMapMaster:
             x = (self.canvas.canvasx(event.x) - self.offset_x) / self.scale
             y = (self.canvas.canvasy(event.y) - self.offset_y) / self.scale
             self.ruler_end = (x, y)
-            self.redraw_map()
+            self.redraw_map(["ruler"])
             return
 
         if self.creating_zone:
@@ -3058,6 +3097,8 @@ class DnDMapMaster:
                 self.token_start_pos[0] + dx,
                 self.token_start_pos[1] + dy,
             )
+            self.redraw_map(["token"])
+
         elif self.selected_find:
             if not hasattr(self, "drag_start"):
                 self.drag_start = (canvas_x, canvas_y)
@@ -3071,6 +3112,7 @@ class DnDMapMaster:
                 self.find_start_pos[0] + dx,
                 self.find_start_pos[1] + dy,
             )
+            self.redraw_map(["find"])
         else:
             # Pan the map
             if not hasattr(self, "last_x"):
@@ -3085,11 +3127,10 @@ class DnDMapMaster:
 
             self.last_x = event.x
             self.last_y = event.y
-
+            print("on_canvas_drag")
+            self.redraw_map()
         if hasattr(self, "minimap_canvas"):
             self._update_minimap()
-
-        self.redraw_map()
 
     def on_canvas_release(self, event):
         """Handle canvas release"""
@@ -3101,15 +3142,9 @@ class DnDMapMaster:
             del self.drag_start
         if hasattr(self, "token_start_pos"):
             del self.token_start_pos
-        
-        if self.ruler_active and self.ruler_start and self.ruler_end:
-            # Завершаем создание линейки, когда отпускаем кнопку
-            self.ruler_active = False
-            self.ruler_start = None
-            self.ruler_end = None
-            self.redraw_map()  # Перерисовываем карту, чтобы удалить линейку
 
-        self.redraw_map()
+        # print("on_canvas_release")
+        # self.redraw_map([])
 
     def on_right_click(self, event):
         """Handle right click - show context menu"""
@@ -3191,7 +3226,7 @@ class DnDMapMaster:
             self.creating_zone = False
             self.current_zone_vertices = []
             self.snap_points = []
-            self.redraw_map()
+            self.redraw_map(["zone", "snap_point", "zone_creation"])
             return
 
         # Check if zone intersects with existing zones
@@ -3214,7 +3249,7 @@ class DnDMapMaster:
         self._update_snap_points()
 
         self.update_status(f"Zone '{zone_name}' created")
-        self.redraw_map()
+        self.redraw_map(["zone", "snap_point", "zone_creation"])
 
     def _zones_intersect(self, new_vertices):
         if not self.zones:
@@ -3340,6 +3375,7 @@ class DnDMapMaster:
         for find in self.finds.values():
             find.size = self.get_token_size()
 
+        print("on_mouse_wheel")
         self.redraw_map()
         self.update_status(f"Масштаб: {self.scale:.2f}x")
         self._update_ui_layout()
@@ -3357,7 +3393,7 @@ class DnDMapMaster:
             for token_id, token in self.tokens.items():
                 if token.name == token_name:
                     self.selected_token = token_id
-                    self.redraw_map()
+                    self.redraw_map(["token"])
                     break
 
     def toggle_zone_visibility(self, event):
@@ -3371,7 +3407,7 @@ class DnDMapMaster:
                     self.update_status(
                         f"Зона '{zone.name}' видимость: {zone.is_visible}"
                     )
-                    self.redraw_map()
+                    self.redraw_map(["zone"])
                     break
 
     def open_player_view(self):
