@@ -1400,7 +1400,7 @@ class DnDMapMaster:
 
         find = self.finds[self.selected_find]
         find.status = not find.status
-        self.redraw_map(["find"])
+        self.redraw_map([f"find_{find.id}"])
         status = "найдена" if find.status else "не найдена"
         self.update_status(f"Находка {find.name} теперь {status}")
 
@@ -1419,7 +1419,8 @@ class DnDMapMaster:
         if desc_dialog.result is not None:
             find.description = desc_dialog.result
             self.update_status(f"Обновлено описание для {find.name}")
-            self.redraw_map(["find"])
+            self.redraw_map([f"find_{find.id}"])
+
 
     def _delete_find(self):
         """Удалить выбранную находку"""
@@ -1433,7 +1434,7 @@ class DnDMapMaster:
         if dialog.show():
             del self.finds[self.selected_find]
             del self.selected_find
-            self.redraw_map(["find"])
+            self.redraw_map([f"find_{self.selected_find}"])
             self.update_status(f"Находка {find.name} удалена")
 
     def _change_token_type(self):
@@ -1495,7 +1496,7 @@ class DnDMapMaster:
             token.is_player = False
             token.is_npc = False
 
-        self.redraw_map(["token"])
+        self.redraw_map([f"token_{token.id}"])
         self._update_tokens_list()
         self.update_status(f"Token {token.name} changed to {token_type}")
 
@@ -1509,7 +1510,7 @@ class DnDMapMaster:
 
         token = self.tokens[self.current_context_object]
         token.is_dead = not token.is_dead
-        self.redraw_map(["token"])
+        self.redraw_map([f"token_{token.id}"])
         status = "мертв" if token.is_dead else "жив"
         self.update_status(f"Token {token.name} is now {status}")
 
@@ -1526,7 +1527,7 @@ class DnDMapMaster:
         if dialog.show():
             del self.tokens[self.current_context_object]
             self._update_tokens_list()
-            self.redraw_map(["token"])
+            self.redraw_map([f"token_{token.id}"])
             self.update_status(f"Token {token.name} deleted")
 
     def _delete_selected_zone(self):
@@ -1560,7 +1561,7 @@ class DnDMapMaster:
         if new_name and new_name != zone.name:
             zone.name = new_name
             self._update_zones_list()
-            self.redraw_map(["token"])
+            self.redraw_map(["zone"])
             self.update_status(f"Zone renamed to {new_name}")
 
     def _toggle_zone_visibility(self):
@@ -1598,7 +1599,6 @@ class DnDMapMaster:
         self._update_ui_layout()
         if self.map_image:
             self._fit_map_to_canvas()
-            print("_on_window_resize")
             self.redraw_map()
 
     def _update_minimap(self):
@@ -2380,14 +2380,13 @@ class DnDMapMaster:
 
                 token.avatar_path = file_path
                 token.avatar_image = avatar_img
-                self.redraw_map(["token"])
+                self.redraw_map([f"token_{token.id}"])
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load image: {e}")
 
     def reset_view(self):
         """Reset zoom and position"""
         self._fit_map_to_canvas()
-        print("reset_view")
         self.redraw_map()
 
     def _draw_hexagon(self, x, y, size, **kwargs):
@@ -2402,21 +2401,18 @@ class DnDMapMaster:
 
     def redraw_map(self, delete_objects="all"):
         """Redraw everything on canvas"""
-        # if delete_objects == "all":
-        #     self.canvas.delete(delete_objects)
 
-        all_items = self.canvas.find_all()
-        # Сохраняем все уникальные теги
-        all_tags = set()
-        # Проходим по всем объектам и добавляем их теги в set
-        for item in all_items:
-            tags = self.canvas.gettags(item)  # Получаем теги для каждого объекта
-            all_tags.update(tags)  # Добавляем теги в set
-        print(all_tags)  # Выводим все уникальные теги
+        # all_items = self.canvas.find_all()
+        # # Сохраняем все уникальные теги
+        # all_tags = set()
+        # # Проходим по всем объектам и добавляем их теги в set
+        # for item in all_items:
+        #     tags = self.canvas.gettags(item)  # Получаем теги для каждого объекта
+        #     all_tags.update(tags)  # Добавляем теги в set
+        # print(all_tags)  # Выводим все уникальные теги
         if self.map_photo:
             # Calculate scaled size
             if delete_objects == "all" or "map" in delete_objects:
-                print("Удалили карту")
                 self.canvas.delete("map")
                 width = int(self.map_image.width * self.scale)
                 height = int(self.map_image.height * self.scale)
@@ -2447,49 +2443,60 @@ class DnDMapMaster:
 
             # Draw grid
             if delete_objects == "all" or "grid" in delete_objects:
-                print("Удалили grid")
                 self.canvas.delete("grid")
                 self._draw_grid()
 
             if delete_objects == "all" or "zone" in delete_objects:
-                print("Удалили zone")
                 self.canvas.delete("zone")
                 # Draw zones
                 for zone in self.zones.values():
                     self._draw_zone(zone)
 
             if delete_objects == "all" or "zone_creation" in delete_objects:
-                print("Удалили zone_creation")
                 self.canvas.delete("zone_creation")
                 # Draw current zone being created
                 if self.current_zone_vertices:
                     self._draw_current_zone()
 
             if delete_objects == "all" or "token" in delete_objects:
-                print("Удалили token")
                 self.canvas.delete("token")
                 # Draw tokens
                 for token in self.tokens.values():
                     self._draw_token(token)
+            
+            # Если передан конкретный токен (например, token_token_6)
+            if any(tag.startswith("token_") for tag in delete_objects):
+                for delete_tag in delete_objects:
+                    if delete_tag.startswith("token_"):
+                        self.canvas.delete(delete_tag)  # Удаляем только этот токен
+                        token_id = f"token_{delete_tag.split("_")[-1]}"  # Получаем id токена
+                        if token_id in self.tokens:
+                            self._draw_token(self.tokens[token_id])  # Рисуем только этот токен
 
             if delete_objects == "all" or "snap_point" in delete_objects:
-                print("Удалили snap_point")
                 self.canvas.delete("snap_point")
                 # Draw snap points
                 for point in self.snap_points:
                     self._draw_snap_point(point)
 
             if delete_objects == "all" or "find" in delete_objects:
-                print("Удалили find")
                 self.canvas.delete("find")
                 # Рисуем находки (только в GM view)
                 for find in self.finds.values():
                     self._draw_find(find)
+            
+            # Если передан конкретный токен (например, token_token_6)
+            if any(tag.startswith("find_") for tag in delete_objects):
+                for delete_tag in delete_objects:
+                    if delete_tag.startswith("find_"):
+                        self.canvas.delete(delete_tag)  # Удаляем только этот токен
+                        find_id = f"find_{delete_tag.split("_")[-1]}"  # Получаем id токена
+                        if find_id in self.finds:
+                            self._draw_find(self.finds[find_id])  # Рисуем только этот токен
 
         
         # Если линейка активна и есть точки A и B, рисуем ее
         if delete_objects == "all" or "ruler" in delete_objects:
-            print("Удалили ruler")
             self.canvas.delete("ruler")
             self._draw_ruler()
 
@@ -2500,7 +2507,6 @@ class DnDMapMaster:
             except:
                 pass
         self._update_minimap()
-        print("--------")
 
     def _update_ui_layout(self):
         """Update UI element positions"""
@@ -2865,7 +2871,7 @@ class DnDMapMaster:
         )
 
         self.update_status(f"Добавлена находка: {find_name}")
-        self.redraw_map(["find"])
+        self.redraw_map([f"find{find_id}"])
 
     def add_token(self, is_player=False, is_npc=False):
         """Add new token"""
@@ -2926,7 +2932,7 @@ class DnDMapMaster:
         self.tokens_list.selection_set(tk.END)
         self.selected_token = token_id
 
-        self.redraw_map(["token"])
+        self.redraw_map([f"token_{token_id}"])
         self.update_status(f"Added {token_type} token: {token_name}")
 
     def start_zone_creation(self):
@@ -3097,7 +3103,7 @@ class DnDMapMaster:
                 self.token_start_pos[0] + dx,
                 self.token_start_pos[1] + dy,
             )
-            self.redraw_map(["token"])
+            self.redraw_map([f"token_{self.selected_token}"])
 
         elif self.selected_find:
             if not hasattr(self, "drag_start"):
@@ -3112,7 +3118,7 @@ class DnDMapMaster:
                 self.find_start_pos[0] + dx,
                 self.find_start_pos[1] + dy,
             )
-            self.redraw_map(["find"])
+            self.redraw_map([f"find_{self.selected_find}"])
         else:
             # Pan the map
             if not hasattr(self, "last_x"):
@@ -3127,7 +3133,6 @@ class DnDMapMaster:
 
             self.last_x = event.x
             self.last_y = event.y
-            print("on_canvas_drag")
             self.redraw_map()
         if hasattr(self, "minimap_canvas"):
             self._update_minimap()
@@ -3375,7 +3380,6 @@ class DnDMapMaster:
         for find in self.finds.values():
             find.size = self.get_token_size()
 
-        print("on_mouse_wheel")
         self.redraw_map()
         self.update_status(f"Масштаб: {self.scale:.2f}x")
         self._update_ui_layout()
@@ -3393,7 +3397,7 @@ class DnDMapMaster:
             for token_id, token in self.tokens.items():
                 if token.name == token_name:
                     self.selected_token = token_id
-                    self.redraw_map(["token"])
+                    self.redraw_map([f"token_{token.id}"])
                     break
 
     def toggle_zone_visibility(self, event):
