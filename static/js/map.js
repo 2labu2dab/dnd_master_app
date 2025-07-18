@@ -19,6 +19,9 @@ let draggingToken = null;
 let draggingFind = null;
 let dragOffset = [0, 0];
 
+let drawingZone = false; // Переменная для отслеживания режима рисования зоны
+let currentZoneVertices = []; // Массив для хранения вершин текущей зоны
+
 function autoUploadMap(input) {
   const formData = new FormData();
   formData.append("map_image", input.files[0]);
@@ -62,6 +65,29 @@ function render() {
   }
 
   drawLayers(offsetX, offsetY, scale);
+  
+  if (drawingZone && currentZoneVertices.length > 0) {
+    drawTempZone(offsetX, offsetY, scale);
+  }
+}
+
+function drawTempZone(offsetX, offsetY, scale) {
+  if (currentZoneVertices.length === 0) return;
+
+  ctx.beginPath();
+  ctx.strokeStyle = "#2196F3"; // Синий контур
+  ctx.fillStyle = "rgba(33, 150, 243, 0.3)"; // Прозрачный синий фон
+  const [startX, startY] = currentZoneVertices[0];
+  ctx.moveTo(startX * scale + offsetX, startY * scale + offsetY);
+
+  for (let i = 1; i < currentZoneVertices.length; i++) {
+    const [x, y] = currentZoneVertices[i];
+    ctx.lineTo(x * scale + offsetX, y * scale + offsetY);
+  }
+
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
 }
 
 function drawLayers(offsetX, offsetY, scale) {
@@ -180,6 +206,11 @@ function drawZone(zone, offsetX, offsetY, scale) {
   ctx.fillText(zone.name, centerX, centerY);
 }
 
+function addZone() {
+  drawingZone = true; // Включаем режим рисования зоны
+  currentZoneVertices = []; // Очищаем текущие вершины зоны
+}
+
 function onGridSizeChange(value) {
   const newSize = parseInt(value);
   document.getElementById("gridSizeDisplay").innerText = newSize;
@@ -194,9 +225,12 @@ function onGridSizeChange(value) {
   });
 }
 
-function addToken() {
-  const name = prompt("Имя персонажа:");
-  if (!name) return;
+function submitToken() {
+  const name = document.getElementById("tokenName").value;
+  const type = document.querySelector('input[name="tokenType"]:checked').value;
+  const isDead = document.getElementById("tokenDead").checked;
+
+  if (!name) return alert("Введите имя!");
 
   const centerX = mapImage.width / 2;
   const centerY = mapImage.height / 2;
@@ -205,16 +239,37 @@ function addToken() {
     id: `token_${Date.now()}`,
     name,
     position: [centerX, centerY],
-    is_player: true,
-    is_npc: false,
-    is_dead: false,
+    size: mapData.grid_settings.cell_size,
+    is_dead: isDead,
+    is_player: type === "player",
+    is_npc: type === "npc"
   };
 
   fetch("/api/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(token),
-  }).then(fetchMap);
+  }).then(() => {
+    closeTokenModal();
+    fetchMap();
+  });
+}
+
+function closeTokenModal() {
+  document.getElementById("tokenModal").style.display = "none";
+  document.getElementById("tokenName").value = "";
+  document.getElementById("tokenDead").checked = false;
+  document.querySelector('input[name="tokenType"][value="player"]').checked = true;
+}
+
+function addToken() {
+  // Открывает модальное окно
+  document.getElementById("tokenModal").style.display = "flex";
+
+  // Сброс значений формы
+  document.getElementById("tokenName").value = "";
+  document.getElementById("tokenDead").checked = false;
+  document.querySelector('input[name="tokenType"][value="player"]').checked = true;
 }
 
 function addFind() {
@@ -240,29 +295,6 @@ function addFind() {
   }).then(fetchMap);
 }
 
-function addZone() {
-  const name = prompt("Имя зоны:");
-  if (!name) return;
-
-  const zone = {
-    id: `zone_${Date.now()}`,
-    name,
-    vertices: [
-      [100, 100],
-      [150, 80],
-      [200, 120],
-      [160, 180],
-    ],
-    is_visible: true,
-  };
-
-  fetch("/api/zone", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(zone),
-  }).then(fetchMap);
-}
-
 function resetView() {
   fetchMap();
 }
@@ -273,6 +305,13 @@ canvas.addEventListener("mousedown", (e) => {
   const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
   const offsetX = (canvas.width - mapImage.width * scale) / 2;
   const offsetY = (canvas.height - mapImage.height * scale) / 2;
+
+  if (drawingZone) {
+    const newVertex = [(mouseX - offsetX) / scale, (mouseY - offsetY) / scale];
+    currentZoneVertices.push(newVertex);
+    render(); // ⬅️ ВАЖНО: обновляем отрисовку после каждого клика
+    return;   // чтобы не сбивать токены и находки
+  }
 
   selectedTokenId = null;
   selectedFindId = null;
@@ -329,6 +368,31 @@ canvas.addEventListener("mousemove", (e) => {
   if (draggingFind) draggingFind.position = [newX, newY];
 
   render();
+});
+
+canvas.addEventListener("contextmenu", (e) => {
+  if (drawingZone) {
+    e.preventDefault(); // Отменяем стандартное контекстное меню
+    const zoneName = prompt("Введите имя зоны:");
+    if (zoneName) {
+      const newZone = {
+        id: `zone_${Date.now()}`,
+        name: zoneName,
+        vertices: currentZoneVertices,
+        is_visible: true,
+      };
+      mapData.zones.push(newZone);
+      drawingZone = false; // Отключаем режим рисования
+      currentZoneVertices = []; // Очищаем текущие вершины
+      render();
+      // Сохраняем изменения
+      fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mapData),
+      });
+    }
+  }
 });
 
 canvas.addEventListener("mouseup", () => {

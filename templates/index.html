@@ -15,8 +15,7 @@
          <input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden />
       </label>
       <button onclick="addToken()">Добавить персонажа</button>
-      <button onclick="startDrawingZone()">Начать рисовать зону</button>
-      <button onclick="finishDrawingZone()">Завершить рисование</button>
+      <button onclick="addZone()">Добавить зону</button>
       <button onclick="addFind()">Добавить находку</button>
       <button onclick="resetView()">Обновить</button>
       <label for="gridSlider">Размер сетки: <span id="gridSizeDisplay">20</span>px</label>
@@ -35,5 +34,21 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+  <div id="tokenModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <span class="close" onclick="closeTokenModal()">&times;</span>
+    <h3>Добавить персонажа</h3>
+    <label>Имя:<br><input type="text" id="tokenName"></label><br><br>
+
+    <label>Тип:</label><br>
+    <label><input type="radio" name="tokenType" value="player" checked> Игрок</label><br>
+    <label><input type="radio" name="tokenType" value="npc"> НПС</label><br>
+    <label><input type="radio" name="tokenType" value="enemy"> Враг</label><br><br>
+
+    <label><input type="checkbox" id="tokenDead"> Мёртв</label><br><br>
+
+    <button onclick="submitToken()">Добавить</button>
+  </div>
+</div>
 </body>
 </html>

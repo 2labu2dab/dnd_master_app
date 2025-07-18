@@ -52,6 +52,10 @@ def add_token():
     save_map_data(data)
     return jsonify({"status": "token added"})
 
+@app.route("/player")
+def player_view():
+    return render_template("player.html")
+
 
 @app.route("/api/zone", methods=["POST"])
 def add_zone():
