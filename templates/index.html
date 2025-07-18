@@ -1,0 +1,39 @@
+<!-- # ====== templates/index.html ====== -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D&D Map Master - Web</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+</head>
+<body>
+  <div id="main">
+    <aside id="sidebar">
+      <h2>D&D Map Master</h2>
+      <label id="map-label">Загрузить карту
+         <input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden />
+      </label>
+      <button onclick="addToken()">Добавить персонажа</button>
+      <button onclick="startDrawingZone()">Начать рисовать зону</button>
+      <button onclick="finishDrawingZone()">Завершить рисование</button>
+      <button onclick="addFind()">Добавить находку</button>
+      <button onclick="resetView()">Обновить</button>
+      <label for="gridSlider">Размер сетки: <span id="gridSizeDisplay">20</span>px</label>
+      <input
+        type="range"
+        id="gridSlider"
+        min="10"
+        max="100"
+        value="20"
+        oninput="onGridSizeChange(this.value)"
+      />
+    </aside>
+    <section id="canvas-container">
+      <canvas id="mapCanvas"></canvas>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+</body>
+</html>
