@@ -4,6 +4,7 @@ from flask import Flask, render_template, jsonify, request, redirect
 from utils.storage import load_map_data, save_map_data
 from logic.models import Token, Zone, Find, GridSettings
 import os
+import base64
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -47,6 +48,15 @@ def get_finds():
 @app.route("/api/token", methods=["POST"])
 def add_token():
     token = request.get_json()
+    avatar_data = token.pop("avatar_data", None)
+
+    if avatar_data:
+        os.makedirs("static/avatars", exist_ok=True)
+        avatar_filename = f"avatars/{token['id']}.png"
+        with open(f"static/{avatar_filename}", "wb") as f:
+            f.write(base64.b64decode(avatar_data.split(",")[1]))
+        token["avatar"] = avatar_filename
+
     data = load_map_data()
     data.setdefault("tokens", []).append(token)
     save_map_data(data)

@@ -22,6 +22,88 @@ let dragOffset = [0, 0];
 let drawingZone = false; // Переменная для отслеживания режима рисования зоны
 let currentZoneVertices = []; // Массив для хранения вершин текущей зоны
 
+let avatarImage = null;
+let avatarData = null;
+const avatarCache = {};
+
+
+function drawAvatarCircle() {
+  const canvas = document.getElementById("avatarCanvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!avatarImage) return;
+
+  const size = Math.min(canvas.width, canvas.height);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, 2 * Math.PI);
+  ctx.clip();
+  ctx.drawImage(avatarImage, 0, 0, size, size);
+  ctx.restore();
+
+  // Сохраняем base64
+  const cropped = canvas.toDataURL("image/png");
+  document.getElementById("avatarData").value = cropped;
+}
+
+function drawAvatarSelection() {
+  const canvas = document.getElementById("avatarCanvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!avatarImage) return;
+
+  // Центрируем изображение
+  const size = Math.min(canvas.width, canvas.height);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(canvas.width / 2, canvas.height / 2, size / 2, 0, 2 * Math.PI);
+  ctx.clip();
+  ctx.drawImage(avatarImage, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
+
+function saveAvatar() {
+  const canvas = document.getElementById("avatarCanvas");
+  avatarData = canvas.toDataURL("image/png");
+  alert("Аватар сохранён и будет добавлен к токену");
+}
+
+function submitToken() {
+  const name = document.getElementById("tokenName").value;
+  const type = document.querySelector('input[name="tokenType"]:checked').value;
+  const isDead = document.getElementById("tokenDead").checked;
+  const avatarData = document.getElementById("avatarData").value;
+
+  if (!name) return alert("Введите имя!");
+
+  const centerX = mapImage.width / 2;
+  const centerY = mapImage.height / 2;
+
+  const token = {
+    id: `token_${Date.now()}`,
+    name,
+    position: [centerX, centerY],
+    size: mapData.grid_settings.cell_size,
+    is_dead: isDead,
+    is_player: type === "player",
+    is_npc: type === "npc",
+    avatar_data: avatarData || null  // 👈 новое поле
+  };
+
+  fetch("/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(token),
+  }).then(() => {
+    closeTokenModal();
+    avatarData = null;
+    fetchMap();
+  });
+}
+
+
 function autoUploadMap(input) {
   const formData = new FormData();
   formData.append("map_image", input.files[0]);
@@ -134,6 +216,34 @@ function drawToken(token, offsetX, offsetY, scale) {
   ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
   ctx.fill();
 
+  if (token.avatar) {
+    if (!avatarCache[token.avatar]) {
+      const img = new Image();
+      img.onload = () => render(); // Перерисовать, когда загрузится
+      img.src = `/static/${token.avatar}`;
+      avatarCache[token.avatar] = img;
+    } else {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(avatarCache[token.avatar], sx - size / 2, sy - size / 2, size, size);
+      ctx.restore();
+    }
+  } else {
+    // Отрисовка цветного круга (как раньше)
+    ctx.beginPath();
+    ctx.fillStyle = token.is_player
+      ? "#4CAF50"
+      : token.is_npc
+      ? "#FFC107"
+      : token.is_dead
+      ? "#616161"
+      : "#F44336";
+    ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
   if (token.id === selectedTokenId) {
     ctx.strokeStyle = "#00FFFF";
     ctx.lineWidth = 2;
@@ -225,10 +335,61 @@ function onGridSizeChange(value) {
   });
 }
 
+function handleAvatarUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const img = new Image();
+    img.onload = function () {
+      const canvas = document.getElementById("avatarPreview");
+      const ctx = canvas.getContext("2d");
+
+      // Обрезаем круг из центра
+      const size = Math.min(img.width, img.height);
+      const cx = img.width / 2;
+      const cy = img.height / 2;
+
+      canvas.width = 100;
+      canvas.height = 100;
+
+      ctx.clearRect(0, 0, 100, 100);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(50, 50, 50, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+
+      ctx.drawImage(
+        img,
+        cx - size / 2,
+        cy - size / 2,
+        size,
+        size,
+        0,
+        0,
+        100,
+        100
+      );
+
+      ctx.restore();
+
+      // Сохраняем base64
+      canvas.dataset.base64 = canvas.toDataURL("image/png");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 function submitToken() {
   const name = document.getElementById("tokenName").value;
   const type = document.querySelector('input[name="tokenType"]:checked').value;
   const isDead = document.getElementById("tokenDead").checked;
+
+  const canvas = document.getElementById("avatarPreview");
+  const avatarData = canvas?.dataset?.base64 || null;
 
   if (!name) return alert("Введите имя!");
 
@@ -242,7 +403,8 @@ function submitToken() {
     size: mapData.grid_settings.cell_size,
     is_dead: isDead,
     is_player: type === "player",
-    is_npc: type === "npc"
+    is_npc: type === "npc",
+    avatar_data: avatarData
   };
 
   fetch("/api/token", {
