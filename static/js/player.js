@@ -4,6 +4,7 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 let mapImage = new Image();
+const avatarCache = {};
 let mapData = {
   tokens: [],
   finds: [],
@@ -51,11 +52,17 @@ function drawLayers(offsetX, offsetY, scale) {
   if (mapData.grid_settings.visible && mapData.grid_settings.visible_to_players) {
     drawGrid(offsetX, offsetY, scale);
   }
+
+  // Отрисовать блюр-зоны (is_visible = false)
   mapData.zones.forEach(z => {
-    if (z.is_visible) drawZone(z, offsetX, offsetY, scale);
+    if (z.is_visible === false) {
+      drawBlurredZone(z, offsetX, offsetY, scale);
+    }
   });
-  mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
-  mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
+
+  mapData.tokens.forEach(t => {
+    if (t.is_visible !== false) drawToken(t, offsetX, offsetY, scale);
+  });
 }
 
 function drawGrid(offsetX, offsetY, scale) {
@@ -85,15 +92,41 @@ function drawToken(token, offsetX, offsetY, scale) {
   const size = mapData.grid_settings.cell_size * scale;
 
   ctx.beginPath();
-  ctx.fillStyle = token.is_player
+  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+  ctx.strokeStyle = token.is_player
     ? "#4CAF50"
     : token.is_npc
     ? "#FFC107"
-    : token.is_dead
-    ? "#616161"
     : "#F44336";
-  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (token.avatar) {
+    if (!avatarCache[token.avatar]) {
+      const img = new Image();
+      img.onload = () => render();
+      img.src = `/static/${token.avatar}`;
+      avatarCache[token.avatar] = img;
+    } else {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(avatarCache[token.avatar], sx - size / 2, sy - size / 2, size, size);
+      ctx.restore();
+    }
+  } else {
+    ctx.beginPath();
+    ctx.fillStyle = token.is_player
+      ? "#4CAF50"
+      : token.is_npc
+      ? "#FFC107"
+      : token.is_dead
+      ? "#616161"
+      : "#F44336";
+    ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+    ctx.fill();
+  }
 
   ctx.fillStyle = "white";
   const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
@@ -120,31 +153,27 @@ function drawFind(find, offsetX, offsetY, scale) {
   ctx.fillText(find.name, sx, sy + size / 2 + fontSize);
 }
 
-function drawZone(zone, offsetX, offsetY, scale) {
+function drawBlurredZone(zone, offsetX, offsetY, scale) {
   if (!zone.vertices || zone.vertices.length < 2) return;
 
   const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
 
+  // Сохраняем контекст
+  ctx.save();
   ctx.beginPath();
   ctx.moveTo(transformed[0][0], transformed[0][1]);
   for (let i = 1; i < transformed.length; i++) {
     ctx.lineTo(transformed[i][0], transformed[i][1]);
   }
   ctx.closePath();
+  ctx.clip();
 
-  ctx.fillStyle = "#A5D6A7";
-  ctx.strokeStyle = "#4CAF50";
-  ctx.fill();
-  ctx.stroke();
-
-  const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
-  const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
-
-  ctx.fillStyle = "#333";
-  ctx.font = `${Math.max(10 * scale, 8)}px Segoe UI`;
-  ctx.fillText(zone.name, centerX, centerY);
+  ctx.filter = "blur(50px)";
+  ctx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
+  ctx.filter = "none";
+  ctx.restore();
 }
 
-// Автообновление карты
+// ⏱ Автообновление
 setInterval(fetchMap, 1000);
 window.onload = fetchMap;

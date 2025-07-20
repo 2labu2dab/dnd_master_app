@@ -6,18 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>D&D Map Master - Web</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="main">
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
-      <label id="map-label">Загрузить карту
-         <input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden />
-      </label>
-      <button onclick="addToken()">Добавить персонажа</button>
-      <button onclick="addZone()">Добавить зону</button>
-      <button onclick="addFind()">Добавить находку</button>
-      <button onclick="resetView()">Обновить</button>
+      <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden /></label>
       <label for="gridSlider">Размер сетки: <span id="gridSizeDisplay">20</span>px</label>
       <input
         type="range"
@@ -27,6 +22,31 @@
         value="20"
         oninput="onGridSizeChange(this.value)"
       />
+      <div class="section">
+    <details open>
+      <summary>Зоны</summary>
+      <button onclick="addZone()">Добавить зону</button>
+      <ul id="zoneList"></ul>
+    </details>
+  </div>
+
+  <!-- Токены -->
+  <div class="section">
+    <details open>
+      <summary>Токены</summary>
+      <button onclick="addToken()">Добавить персонажа</button>
+      <ul id="tokenList"></ul>
+    </details>
+  </div>
+
+  <!-- Находки -->
+  <div class="section">
+    <details open>
+      <summary>Находки</summary>
+      <button onclick="addFind()">Добавить находку</button>
+      <ul id="findList"></ul>
+    </details>
+  </div>
     </aside>
     <section id="canvas-container">
       <canvas id="mapCanvas"></canvas>

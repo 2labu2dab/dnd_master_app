@@ -24,6 +24,7 @@ let currentZoneVertices = []; // Массив для хранения верши
 
 let avatarImage = null;
 let avatarData = null;
+let selectedZoneId = null;
 const avatarCache = {};
 
 
@@ -114,11 +115,79 @@ function autoUploadMap(input) {
   }).then(() => fetchMap());
 }
 
+
+function updateSidebar() {
+  // 🔁 Зоны
+  const zoneList = document.getElementById("zoneList");
+  zoneList.innerHTML = "";
+  mapData.zones.forEach(zone => {
+    const li = document.createElement("li");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = zone.is_visible;
+    checkbox.onchange = () => {
+      zone.is_visible = checkbox.checked;
+      saveMapData();
+      render();
+    };
+    li.textContent = zone.name + " ";
+    li.prepend(checkbox);
+    zoneList.appendChild(li);
+  });
+
+  // 🔁 Токены
+  const tokenList = document.getElementById("tokenList");
+  tokenList.innerHTML = "";
+  mapData.tokens.forEach(token => {
+    const li = document.createElement("li");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = token.is_visible ?? true;
+    checkbox.onchange = () => {
+      token.is_visible = checkbox.checked;
+      saveMapData();
+      render();
+    };
+    const type = token.is_player ? "Игрок" : token.is_npc ? "НПС" : "Враг";
+    li.textContent = `${token.name} (${type}) `;
+    li.prepend(checkbox);
+    tokenList.appendChild(li);
+  });
+
+  // 🔁 Находки
+  const findList = document.getElementById("findList");
+  findList.innerHTML = "";
+  mapData.finds.forEach(find => {
+    const li = document.createElement("li");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = find.status;
+    checkbox.onchange = () => {
+      find.status = checkbox.checked;
+      saveMapData();
+      render();
+    };
+    li.textContent = find.name + " ";
+    li.prepend(checkbox);
+    findList.appendChild(li);
+  });
+}
+
+function saveMapData() {
+  fetch("/api/map", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mapData),
+  });
+}
+
+
 function fetchMap() {
   fetch(`/api/map?ts=${Date.now()}`)
     .then(res => res.json())
     .then(data => {
       mapData = data;
+      updateSidebar();
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
       if (!mapData.zones) mapData.zones = [];
@@ -176,7 +245,7 @@ function drawLayers(offsetX, offsetY, scale) {
   if (mapData.grid_settings.visible) drawGrid(offsetX, offsetY, scale);
   mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale)); // Отрисовываем зоны
   mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
-  mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
+  mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale)); // `status` влияет на цвет, не на отображение
 }
 
 function drawGrid(offsetX, offsetY, scale) {
@@ -206,15 +275,14 @@ function drawToken(token, offsetX, offsetY, scale) {
   const size = cellSize * scale;
 
   ctx.beginPath();
-  ctx.fillStyle = token.is_player
+  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+  ctx.strokeStyle = token.is_player
     ? "#4CAF50"
     : token.is_npc
     ? "#FFC107"
-    : token.is_dead
-    ? "#616161"
     : "#F44336";
-  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.stroke();
 
   if (token.avatar) {
     if (!avatarCache[token.avatar]) {
@@ -254,7 +322,7 @@ function drawToken(token, offsetX, offsetY, scale) {
 
   ctx.fillStyle = "white";
   const fontSize = Math.max(cellSize * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Segoe UI`;
+  ctx.font = `${fontSize}px Inter`;
   ctx.textAlign = "center";
   ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
 }
@@ -279,7 +347,7 @@ function drawFind(find, offsetX, offsetY, scale) {
 
   ctx.fillStyle = "black";
   const fontSize = Math.max(cellSize * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Segoe UI`;
+  ctx.font = `${fontSize}px Inter`;
   ctx.textAlign = "center";
   ctx.fillText(find.name, sx, sy + size / 2 + fontSize);
 }
@@ -290,8 +358,15 @@ function drawZone(zone, offsetX, offsetY, scale) {
   ctx.beginPath();
   
   // Цвет зоны в зависимости от видимости
-  ctx.strokeStyle = zone.is_visible ? "#4CAF50" : "#F44336"; // Зеленый, если видимая, и красный, если скрытая
-  ctx.fillStyle = zone.is_visible ? "#A5D6A7" : "#EF9A9A";   // Светло-зеленый или светло-красный
+  ctx.strokeStyle = zone.is_visible ? "#4CAF50" : "#F44336";
+  ctx.fillStyle = zone.is_visible ? "rgba(76, 175, 80, 0.3)" : "rgba(244, 67, 54, 0.3)";
+
+  const isSelected = zone.id === selectedZoneId;
+  if (isSelected) {
+    ctx.lineWidth = 3;
+  } else {
+    ctx.lineWidth = 1;
+  }
 
   // Преобразуем координаты вершин для масштаба и смещения
   const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
@@ -307,12 +382,17 @@ function drawZone(zone, offsetX, offsetY, scale) {
   ctx.fill();
   ctx.stroke();
 
+  if (isSelected) {
+    ctx.strokeStyle = "#00FFFF"; // цвет обводки выделения
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
   // Отображение имени зоны в центре полигона
   const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
   const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
   ctx.fillStyle = "#333";
-  const fontSize = Math.max(10 * scale, 8);
-  ctx.font = `${fontSize}px Segoe UI`;
+  ctx.font = `16px Inter`;
   ctx.fillText(zone.name, centerX, centerY);
 }
 
@@ -457,11 +537,6 @@ function addFind() {
   }).then(fetchMap);
 }
 
-function resetView() {
-  fetchMap();
-}
-
-// 🎯 Обработка мыши
 canvas.addEventListener("mousedown", (e) => {
   const [mouseX, mouseY] = [e.offsetX, e.offsetY];
   const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
@@ -471,50 +546,82 @@ canvas.addEventListener("mousedown", (e) => {
   if (drawingZone) {
     const newVertex = [(mouseX - offsetX) / scale, (mouseY - offsetY) / scale];
     currentZoneVertices.push(newVertex);
-    render(); // ⬅️ ВАЖНО: обновляем отрисовку после каждого клика
-    return;   // чтобы не сбивать токены и находки
+    render();
+    return;
   }
 
+  // Сброс выделения
   selectedTokenId = null;
   selectedFindId = null;
+  selectedZoneId = null;
   draggingToken = null;
   draggingFind = null;
 
-  // Проверка попадания в круг радиусом равным половине клетки
+  let clicked = false;
+
+  // Токены
   for (const token of mapData.tokens) {
     const [x, y] = token.position;
     const sx = x * scale + offsetX;
     const sy = y * scale + offsetY;
-    const cellSize = mapData.grid_settings.cell_size;
-    const radius = (cellSize * scale) / 2;
+    const radius = (mapData.grid_settings.cell_size * scale) / 2;
 
     if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
       draggingToken = token;
       dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
       selectedTokenId = token.id;
-      render();
-      return;
+      clicked = true;
+      break;
     }
   }
 
-  for (const find of mapData.finds) {
-    const [x, y] = find.position;
-    const sx = x * scale + offsetX;
-    const sy = y * scale + offsetY;
-    const cellSize = mapData.grid_settings.cell_size;
-    const radius = (cellSize * scale) / 2;
+  // Находки
+  if (!clicked) {
+    for (const find of mapData.finds) {
+      const [x, y] = find.position;
+      const sx = x * scale + offsetX;
+      const sy = y * scale + offsetY;
+      const radius = (mapData.grid_settings.cell_size * scale) / 2;
 
-    if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
-      draggingFind = find;
-      dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
-      selectedFindId = find.id;
-      render();
-      return;
+      if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
+        draggingFind = find;
+        dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
+        selectedFindId = find.id;
+        clicked = true;
+        break;
+      }
+    }
+  }
+
+  // Зоны
+  if (!clicked) {
+    for (const zone of mapData.zones) {
+      if (!zone.vertices || zone.vertices.length < 3) continue;
+      const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+      if (pointInPolygon([mouseX, mouseY], transformed)) {
+        selectedZoneId = zone.id;
+        clicked = true;
+        break;
+      }
     }
   }
 
   render();
 });
+
+function pointInPolygon(point, vs) {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1];
+    const xj = vs[j][0], yj = vs[j][1];
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
 
 canvas.addEventListener("mousemove", (e) => {
   if (!draggingToken && !draggingFind) return;
@@ -555,6 +662,31 @@ canvas.addEventListener("contextmenu", (e) => {
       });
     }
   }
+  for (const zone of mapData.zones) {
+  const path = new Path2D();
+  zone.vertices.forEach(([vx, vy], i) => {
+    const px = vx * scale + offsetX;
+    const py = vy * scale + offsetY;
+    if (i === 0) path.moveTo(px, py);
+    else path.lineTo(px, py);
+  });
+  path.closePath();
+
+  if (ctx.isPointInPath(path, e.offsetX, e.offsetY)) {
+    e.preventDefault();
+    const choice = confirm(zone.is_visible ? "Скрыть зону?" : "Сделать зону видимой?");
+    if (choice !== null) {
+      zone.is_visible = !zone.is_visible;
+      fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mapData),
+      });
+      render();
+    }
+    return;
+  }
+}
 });
 
 canvas.addEventListener("mouseup", () => {
@@ -577,6 +709,12 @@ document.addEventListener("keydown", (e) => {
     if (selectedTokenId) {
       mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
       selectedTokenId = null;
+      changed = true;
+    }
+
+    if (selectedZoneId) {
+      mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
+      selectedZoneId = null;
       changed = true;
     }
 

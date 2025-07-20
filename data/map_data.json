@@ -1,7 +1,19 @@
 {
-  "finds": [],
+  "finds": [
+    {
+      "description": "",
+      "id": "find_1752991854871",
+      "name": "rgdf",
+      "position": [
+        970.566794435739,
+        417.00105393451065
+      ],
+      "size": 25,
+      "status": false
+    }
+  ],
   "grid_settings": {
-    "cell_size": 200,
+    "cell_size": 120,
     "color": "#888888",
     "opacity": 100,
     "visible": true,
@@ -16,13 +28,106 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": true,
+      "is_visible": false,
       "name": "выфвыфвф",
       "position": [
-        1132.752992383025,
-        1054.4069640914036
+        1322.927244313991,
+        277.77480861361636
       ],
       "size": 100
+    },
+    {
+      "id": "token_1752990198891",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": false,
+      "is_visible": false,
+      "name": "asdsa",
+      "position": [
+        1515.2906015977894,
+        546.0642066310223
+      ],
+      "size": 75
+    },
+    {
+      "avatar": "avatars/token_1752990213491.png",
+      "id": "token_1752990213491",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": false,
+      "is_visible": false,
+      "name": "sadsad",
+      "position": [
+        1024.2469071404598,
+        618.9716763116996
+      ],
+      "size": 75
+    },
+    {
+      "avatar": "avatars/token_1752991338348.png",
+      "id": "token_1752991338348",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": true,
+      "is_visible": false,
+      "name": "fjfyj",
+      "position": [
+        1254.6245919477697,
+        1045.701849836779
+      ],
+      "size": 93
     }
   ],
-  "zones": []
+  "zones": [
+    {
+      "id": "zone_1752991086398",
+      "is_visible": true,
+      "name": "парап",
+      "vertices": [
+        [
+          260.06528835690966,
+          417.84548422198037
+        ],
+        [
+          125.1360174102285,
+          992.3830250272034
+        ],
+        [
+          845.4842219804135,
+          842.2198041349293
+        ],
+        [
+          889.0097932535364,
+          700.7616974972797
+        ]
+      ]
+    },
+    {
+      "id": "zone_1752991850675",
+      "is_visible": true,
+      "name": "fdsf",
+      "vertices": [
+        [
+          462.45919477693144,
+          803.0467899891186
+        ],
+        [
+          364.5266594124048,
+          1340.5875952121871
+        ],
+        [
+          952.1218715995647,
+          1314.4722524483134
+        ],
+        [
+          989.1186071817192,
+          1062.0239390642002
+        ],
+        [
+          989.1186071817192,
+          1062.0239390642002
+        ]
+      ]
+    }
+  ]
 }
