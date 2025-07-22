@@ -541,6 +541,27 @@ function drawFind(find, offsetX, offsetY, scale) {
   ctx.fillText(find.name, sx, sy + size / 2 + fontSize);
 }
 
+function addToken() {
+  document.getElementById("tokenModal").style.display = "flex";
+  document.getElementById("tokenName").value = "";
+  document.getElementById("tokenAC").value = 10;
+  document.getElementById("tokenHP").value = 10;
+
+  // Устанавливаем активную кнопку типа токена по умолчанию
+  document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector('.type-btn[data-type="player"]').classList.add("active");
+
+  // Сброс аватара
+  const avatarPreview = document.getElementById("avatarPreview");
+  avatarPreview.src = "";
+  avatarPreview.style.display = "none";
+  avatarPreview.removeAttribute("data-base64");
+
+  document.getElementById("avatarOverlay").style.display = "block";
+  document.getElementById("avatarMask").style.display = "none";
+  document.getElementById("editIcon").style.display = "none";
+}
+
 function drawZone(zone, offsetX, offsetY, scale) {
   if (!zone.vertices || zone.vertices.length < 2) return; // Если зона не имеет вершин, не рисуем её
 
@@ -689,6 +710,14 @@ canvas.addEventListener("mousedown", (e) => {
         break;
       }
     }
+  }
+
+  if (drawingZone) {
+    const x = (mouseX - offsetX) / scale;
+    const y = (mouseY - offsetY) / scale;
+    currentZoneVertices.push([x, y]);
+    render();
+    return; // Не продолжаем обработку клика (не выделяем токены и т.п.)
   }
 
   // Зоны
