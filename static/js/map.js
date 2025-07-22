@@ -91,11 +91,13 @@ function saveAvatar() {
 
 function submitToken() {
   const name = document.getElementById("tokenName").value;
-  const type = document.querySelector('input[name="tokenType"]:checked').value;
-  const isDead = document.getElementById("tokenDead").checked;
-  const avatarData = document.getElementById("avatarData").value;
+  const avatarData = document.getElementById("avatarPreview").dataset.base64 || null;
+  const ac = parseInt(document.getElementById("tokenAC").value);
+  const hp = parseInt(document.getElementById("tokenHP").value);
+  const type = document.querySelector(".type-btn.active")?.dataset.type;
+  const preview = document.getElementById("avatarRawPreview");
 
-  if (!name) return alert("Введите имя!");
+  if (!name || !type) return alert("Заполните все поля");
 
   const centerX = mapImage.width / 2;
   const centerY = mapImage.height / 2;
@@ -105,10 +107,13 @@ function submitToken() {
     name,
     position: [centerX, centerY],
     size: mapData.grid_settings.cell_size,
-    is_dead: isDead,
+    is_dead: false,
     is_player: type === "player",
     is_npc: type === "npc",
-    avatar_data: avatarData || null  // 👈 новое поле
+    armor_class: ac,
+    health_points: hp,
+    max_health_points: hp,
+    avatar_data: avatarData
   };
 
   fetch("/api/token", {
@@ -117,8 +122,8 @@ function submitToken() {
     body: JSON.stringify(token),
   }).then(() => {
     closeTokenModal();
-    avatarData = null;
     fetchMap();
+    updateSidebar();
   });
 }
 
@@ -533,87 +538,27 @@ function onGridSizeChange(value) {
   });
 }
 
-function handleAvatarUpload(input) {
-  const file = input.files[0];
+function handleAvatarUpload(event) {
+  const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = function (e) {
-    const img = new Image();
-    img.onload = function () {
-      const canvas = document.getElementById("avatarPreview");
-      const ctx = canvas.getContext("2d");
-
-      // Обрезаем круг из центра
-      const size = Math.min(img.width, img.height);
-      const cx = img.width / 2;
-      const cy = img.height / 2;
-
-      canvas.width = 100;
-      canvas.height = 100;
-
-      ctx.clearRect(0, 0, 100, 100);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(50, 50, 50, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-
-      ctx.drawImage(
-        img,
-        cx - size / 2,
-        cy - size / 2,
-        size,
-        size,
-        0,
-        0,
-        100,
-        100
-      );
-
-      ctx.restore();
-
-      // Сохраняем base64
-      canvas.dataset.base64 = canvas.toDataURL("image/png");
-    };
+    const img = document.getElementById('avatarPreview');
     img.src = e.target.result;
+    img.style.display = 'block';
+
+    document.getElementById('avatarOverlay').style.display = 'none';
+    document.getElementById('avatarMask').style.display = 'block';
+    document.getElementById('editIcon').style.display = 'block';
+
+    // Можно также сохранить base64:
+    img.dataset.base64 = e.target.result;
   };
   reader.readAsDataURL(file);
 }
 
-function submitToken() {
-  const name = document.getElementById("tokenName").value;
-  const type = document.querySelector('input[name="tokenType"]:checked').value;
-  const isDead = document.getElementById("tokenDead").checked;
 
-  const canvas = document.getElementById("avatarPreview");
-  const avatarData = canvas?.dataset?.base64 || null;
-
-  if (!name) return alert("Введите имя!");
-
-  const centerX = mapImage.width / 2;
-  const centerY = mapImage.height / 2;
-
-  const token = {
-    id: `token_${Date.now()}`,
-    name,
-    position: [centerX, centerY],
-    size: mapData.grid_settings.cell_size,
-    is_dead: isDead,
-    is_player: type === "player",
-    is_npc: type === "npc",
-    avatar_data: avatarData
-  };
-
-  fetch("/api/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(token),
-  }).then(() => {
-    closeTokenModal();
-    fetchMap();
-  });
-}
 
 function closeTokenModal() {
   document.getElementById("tokenModal").style.display = "none";
@@ -853,4 +798,14 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-window.onload = fetchMap;
+window.onload = () => {
+  fetchMap();
+
+  // Обработчики кнопок выбора типа токена
+  document.querySelectorAll(".type-btn").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+  });
+};

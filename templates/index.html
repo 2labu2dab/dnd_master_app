@@ -59,26 +59,53 @@
     </section>
   </div>
   <div id="tokenModal" class="modal" style="display:none;">
-  <div class="modal-content">
+  <div class="modal-content large-modal">
     <span class="close" onclick="closeTokenModal()">&times;</span>
-    <h3>Добавить персонажа</h3>
+    <h3>Создание токена персонажа</h3>
 
-    <label>Имя:<br><input type="text" id="tokenName"></label><br><br>
+    <!-- Тип токена -->
+    <div class="token-type-buttons">
+      <button data-type="player" class="type-btn active">Игрок</button>
+      <button data-type="npc" class="type-btn">НПС</button>
+      <button data-type="enemy" class="type-btn">Враг</button>
+    </div>
 
-    <label>Тип:</label><br>
-    <label><input type="radio" name="tokenType" value="player" checked> Игрок</label><br>
-    <label><input type="radio" name="tokenType" value="npc"> НПС</label><br>
-    <label><input type="radio" name="tokenType" value="enemy"> Враг</label><br><br>
+    <div class="token-form">
+      <!-- Аватар -->
+      <div class="avatar-upload" id="avatarUpload">
+        <input type="file" id="avatarInput" accept="image/*" hidden onchange="handleAvatarUpload(this)">
+        <div class="avatar-upload">
+        <div id="avatarDropzone" onclick="document.getElementById('avatarFile').click()">
+          <img id="avatarPreview" src="" alt="Avatar" style="display: none;" />
+          <div id="avatarMask" class="circle-mask" style="display: none;"></div>
+          <div id="editIcon" style="display: none;">✎</div>
+          <input type="file" id="avatarFile" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
+          <div id="avatarOverlay">
+            <strong>Нажми для выбора</strong><br />
+            <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
+          </div>
+        </div>
+      </div>
+      </div>
 
-    <label><input type="checkbox" id="tokenDead"> Мёртв</label><br><br>
+      <!-- Параметры -->
+      <div class="token-fields">
+        <label>Имя<br><input type="text" id="tokenName"></label>
+        <div class="flex-row">
+          <label>КД<br><input type="number" id="tokenAC" value="10"></label>
+          <label>Макс. ОЗ<br><input type="number" id="tokenHP" value="10"></label>
+        </div>
+      </div>
+    </div>
 
-    <label>Аватар:<br><input type="file" accept="image/*" onchange="handleAvatarUpload(this)"></label><br><br>
-    <canvas id="avatarPreview" width="100" height="100" style="border:1px solid #ccc;"></canvas>
-    <input type="hidden" id="avatarData">
-
-    <button onclick="submitToken()">Добавить</button>
+    <!-- Кнопки -->
+    <div class="token-buttons">
+      <button class="save-btn" onclick="submitToken()">Сохранить</button>
+      <button class="cancel-btn" onclick="closeTokenModal()">Отменить</button>
+    </div>
   </div>
 </div>
+
 <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
 </html>
