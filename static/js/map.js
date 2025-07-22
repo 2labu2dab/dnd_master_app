@@ -1,7 +1,8 @@
 // static/js/map.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth - 270;
+const sidebar = document.getElementById("sidebar");
+canvas.width = window.innerWidth - sidebar.offsetWidth;
 canvas.height = window.innerHeight;
 
 let mapImage = new Image();
@@ -10,7 +11,7 @@ let mapData = {
   finds: [],
   zones: [],
   map_image: "",
-  grid_settings: { cell_size: 20, color: "#888888", visible: true }
+  grid_settings: { cell_size: 20, color: "#888888", visible: false }
 };
 
 
@@ -26,6 +27,10 @@ let currentZoneVertices = []; // Массив для хранения верши
 let avatarImage = null;
 let avatarData = null;
 let selectedZoneId = null;
+let isRulerMode = false;
+let rulerStart = null;
+let lastMouseX = 0;
+let lastMouseY = 0;
 const avatarCache = {};
 
 
@@ -314,7 +319,26 @@ function fetchMap() {
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
       if (!mapData.zones) mapData.zones = [];
-      if (!mapData.grid_settings) mapData.grid_settings = { cell_size: 20, color: "#888888", visible: true };
+      if (!mapData.grid_settings) mapData.grid_settings = { cell_size: 20, color: "#888888", visible: false };
+
+      // ⬇ Устанавливаем значение сетки
+      const gridSize = mapData.grid_settings.cell_size || 20;
+      document.getElementById("gridSlider").value = mapData.grid_settings.cell_size;
+      document.getElementById("gridInput").value = mapData.grid_settings.cell_size;
+
+      // ⬇ Обновляем визуальное отображение слайдера
+      const rawPercent = ((gridSize - 10) / (200 - 10)) * 100;
+      const adjustedPercent = Math.min(rawPercent + 2, 100);
+      document.getElementById("gridSlider").style.setProperty('--percent', `${adjustedPercent}%`);
+
+      // ⬇ Состояние кнопки сетки
+      const gridToggle = document.getElementById("gridToggle");
+      gridToggle.classList.toggle("active", mapData.grid_settings.visible);
+      if (mapData.grid_settings.visible) {
+        gridToggle.classList.add("active");
+      } else {
+        gridToggle.classList.remove("active");
+      }
 
       if (mapData.map_image) {
         mapImage = new Image();
@@ -325,6 +349,13 @@ function fetchMap() {
       }
     });
 }
+
+window.addEventListener("resize", () => {
+  const sidebar = document.getElementById("sidebar");
+  canvas.width = window.innerWidth - sidebar.offsetWidth;
+  canvas.height = window.innerHeight;
+  render();
+});
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -343,6 +374,41 @@ function render() {
   if (drawingZone && currentZoneVertices.length > 0) {
     drawTempZone(offsetX, offsetY, scale);
   }
+
+  if (isRulerMode && rulerStart) {
+  const [x1, y1] = rulerStart;
+  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const offsetX = (canvas.width - mapImage.width * scale) / 2;
+  const offsetY = (canvas.height - mapImage.height * scale) / 2;
+
+  const sx1 = x1 * scale + offsetX;
+  const sy1 = y1 * scale + offsetY;
+  const sx2 = lastMouseX;
+  const sy2 = lastMouseY;
+
+  ctx.beginPath();
+  ctx.moveTo(sx1, sy1);
+  ctx.lineTo(sx2, sy2);
+  ctx.strokeStyle = "#4C5BEF";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const dx = (sx2 - sx1) / scale;
+  const dy = (sy2 - sy1) / scale;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const cells = dist / mapData.grid_settings.cell_size;
+  const feet = cells * 5;
+
+  const midX = (sx1 + sx2) / 2;
+  const midY = (sy1 + sy2) / 2;
+
+  ctx.fillStyle = "white";
+  ctx.font = "16px Inter";
+  ctx.textAlign = "center";
+  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+}
 }
 
 function drawTempZone(offsetX, offsetY, scale) {
@@ -526,7 +592,8 @@ function addZone() {
 
 function onGridSizeChange(value) {
   const newSize = parseInt(value);
-  document.getElementById("gridSizeDisplay").innerText = newSize;
+  document.getElementById("gridSlider").value = newSize;
+  document.getElementById("gridInput").value = newSize;  document.getElementById("gridInput").value = newSize;
   mapData.grid_settings.cell_size = newSize;
   render();
 
@@ -567,53 +634,21 @@ function closeTokenModal() {
   document.querySelector('input[name="tokenType"][value="player"]').checked = true;
 }
 
-function addToken() {
-  // Открывает модальное окно
-  document.getElementById("tokenModal").style.display = "flex";
-
-  // Сброс значений формы
-  document.getElementById("tokenName").value = "";
-  document.getElementById("tokenDead").checked = false;
-  document.querySelector('input[name="tokenType"][value="player"]').checked = true;
-}
-
-function addFind() {
-  const name = prompt("Имя находки:");
-  if (!name) return;
-
-  const centerX = mapImage.width / 2;
-  const centerY = mapImage.height / 2;
-
-  const find = {
-    id: `find_${Date.now()}`,
-    name,
-    position: [centerX, centerY],
-    size: 25,
-    status: false,
-    description: "",
-  };
-
-  fetch("/api/find", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(find),
-  }).then(fetchMap);
-}
-
 canvas.addEventListener("mousedown", (e) => {
   const [mouseX, mouseY] = [e.offsetX, e.offsetY];
   const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
   const offsetX = (canvas.width - mapImage.width * scale) / 2;
   const offsetY = (canvas.height - mapImage.height * scale) / 2;
 
-  if (drawingZone) {
-    const newVertex = [(mouseX - offsetX) / scale, (mouseY - offsetY) / scale];
-    currentZoneVertices.push(newVertex);
+  if (isRulerMode) {
+    const x = (mouseX - offsetX) / scale;
+    const y = (mouseY - offsetY) / scale;
+    rulerStart = [x, y];
     render();
     return;
   }
 
-  // Сброс выделения
+  // Дальше — твой старый код выбора токена/находки/зоны:
   selectedTokenId = null;
   selectedFindId = null;
   selectedZoneId = null;
@@ -672,6 +707,7 @@ canvas.addEventListener("mousedown", (e) => {
   render();
 });
 
+
 function pointInPolygon(point, vs) {
   const [x, y] = point;
   let inside = false;
@@ -686,20 +722,54 @@ function pointInPolygon(point, vs) {
   return inside;
 }
 
+let hoveringFind = null;
+
 canvas.addEventListener("mousemove", (e) => {
-  if (!draggingToken && !draggingFind) return;
+  const mouseX = e.offsetX;
+  const mouseY = e.offsetY;
 
   const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
   const offsetX = (canvas.width - mapImage.width * scale) / 2;
   const offsetY = (canvas.height - mapImage.height * scale) / 2;
 
-  const newX = (e.offsetX - offsetX) / scale - dragOffset[0];
-  const newY = (e.offsetY - offsetY) / scale - dragOffset[1];
+  lastMouseX = e.offsetX;
+  lastMouseY = e.offsetY;
 
-  if (draggingToken) draggingToken.position = [newX, newY];
-  if (draggingFind) draggingFind.position = [newX, newY];
+  if (isRulerMode && rulerStart) {
+    render(); // чтобы линия тянулась за мышью
+  }
 
-  render();
+  if (draggingToken || draggingFind) {
+    const newX = (mouseX - offsetX) / scale - dragOffset[0];
+    const newY = (mouseY - offsetY) / scale - dragOffset[1];
+    if (draggingToken) draggingToken.position = [newX, newY];
+    if (draggingFind) draggingFind.position = [newX, newY];
+    render();
+    return;
+  }
+
+  let hovered = null;
+  for (const find of mapData.finds) {
+    const [x, y] = find.position;
+    const sx = x * scale + offsetX;
+    const sy = y * scale + offsetY;
+    const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+    if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
+      hovered = find;
+      break;
+    }
+  }
+
+  const tooltip = document.getElementById("findTooltip");
+  if (hovered) {
+    tooltip.style.display = "block";
+    tooltip.innerHTML = `<strong>${hovered.name}</strong><br>${hovered.description || ""}`;
+    tooltip.style.left = `${e.clientX + 12}px`;
+    tooltip.style.top = `${e.clientY + 12}px`;
+  } else {
+    tooltip.style.display = "none";
+  }
 });
 
 canvas.addEventListener("contextmenu", (e) => {
@@ -798,9 +868,52 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+
+function openFindModal() {
+  document.getElementById("findModal").style.display = "flex";
+  document.getElementById("findName").value = "";
+  document.getElementById("findDescription").value = "";
+}
+
+function closeFindModal() {
+  document.getElementById("findModal").style.display = "none";
+}
+
+function submitFind() {
+  const name = document.getElementById("findName").value.trim();
+  const description = document.getElementById("findDescription").value.trim();
+
+  if (!name) {
+    alert("Введите имя находки");
+    return;
+  }
+
+  const centerX = mapImage.width / 2;
+  const centerY = mapImage.height / 2;
+
+  const find = {
+    id: `find_${Date.now()}`,
+    name,
+    position: [centerX, centerY],
+    size: mapData.grid_settings.cell_size,
+    status: false,
+    description
+  };
+
+  fetch("/api/find", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(find),
+  }).then(() => {
+    closeFindModal();
+    fetchMap();
+  });
+}
+
+
+
 window.onload = () => {
   fetchMap();
-
   // Обработчики кнопок выбора типа токена
   document.querySelectorAll(".type-btn").forEach(btn => {
     btn.onclick = () => {
@@ -808,4 +921,38 @@ window.onload = () => {
       btn.classList.add("active");
     };
   });
+
+
+  const gridSlider = document.getElementById('gridSlider');
+  function updateSliderVisual() {
+    const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
+    const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
+    gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
+  }
+  gridSlider.addEventListener('input', updateSliderVisual);
+
+  document.getElementById("rulerToggle").addEventListener("click", () => {
+    isRulerMode = !isRulerMode;
+    rulerStart = null;
+
+    const button = document.getElementById("rulerToggle");
+    const icon = document.getElementById("rulerIcon");
+
+    button.classList.toggle("active", isRulerMode);
+    icon.style.stroke = isRulerMode ? "#4C5BEF" : "#fff"; // меняем цвет иконки
+
+    render();
+  });
+  const gridToggle = document.getElementById("gridToggle");
+  gridToggle.addEventListener("click", () => {
+  gridToggle.classList.toggle("active");
+
+  // Переключаем видимость
+  const visible = gridToggle.classList.contains("active");
+  mapData.grid_settings.visible = visible;
+
+    render(); // Перерисовать карту с новым состоянием
+    saveMapData();
+  });
+  updateSliderVisual(); // безопасно — не вызывает render()
 };

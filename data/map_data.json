@@ -1,11 +1,214 @@
 {
-  "finds": [],
+  "finds": [
+    {
+      "description": "",
+      "id": "find_1753151961121",
+      "name": "Библиотека",
+      "position": [
+        549.5277475516866,
+        204.2872687704026
+      ],
+      "size": 25,
+      "status": true
+    },
+    {
+      "description": "",
+      "id": "find_1753152005309",
+      "name": "Комната",
+      "position": [
+        467.2644178454842,
+        97.89336235038085
+      ],
+      "size": 25,
+      "status": false
+    },
+    {
+      "description": "",
+      "id": "find_1753152011513",
+      "name": "Архив",
+      "position": [
+        244.6050054406964,
+        22.211099020674645
+      ],
+      "size": 25,
+      "status": true
+    },
+    {
+      "description": "2 зелья лечения\n3 зуба",
+      "id": "find_1753152871835",
+      "name": "Шкаф",
+      "position": [
+        114.08052230685531,
+        139.02502720348207
+      ],
+      "size": 38,
+      "status": false
+    }
+  ],
   "grid_settings": {
-    "cell_size": 10,
+    "cell_size": 95,
     "color": "#888888",
     "visible": true
   },
   "map_image": "maps\\current_map.png",
-  "tokens": [],
-  "zones": []
+  "tokens": [
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151923983.png",
+      "health_points": 10,
+      "id": "token_1753151923983",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": true,
+      "is_visible": true,
+      "max_health_points": 10,
+      "name": "Игрок 1",
+      "position": [
+        412.97062023939066,
+        222.3852013057672
+      ],
+      "size": 53
+    },
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151930539.png",
+      "health_points": 10,
+      "id": "token_1753151930539",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": true,
+      "is_visible": false,
+      "max_health_points": 10,
+      "name": "Игрок 2",
+      "position": [
+        250.0892274211099,
+        162.60718171926007
+      ],
+      "size": 53
+    },
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151939479.png",
+      "health_points": 10,
+      "id": "token_1753151939479",
+      "is_dead": false,
+      "is_npc": true,
+      "is_player": false,
+      "is_visible": false,
+      "max_health_points": 10,
+      "name": "НПС 1",
+      "position": [
+        399.260065288357,
+        137.37976060935804
+      ],
+      "size": 53
+    },
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151944384.png",
+      "health_points": 10,
+      "id": "token_1753151944384",
+      "is_dead": false,
+      "is_npc": true,
+      "is_player": false,
+      "is_visible": false,
+      "max_health_points": 10,
+      "name": "НПС 2",
+      "position": [
+        237.47551686615887,
+        261.32317736670296
+      ],
+      "size": 53
+    },
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151951675.png",
+      "health_points": 10,
+      "id": "token_1753151951675",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": false,
+      "is_visible": false,
+      "max_health_points": 10,
+      "name": "Враг 1",
+      "position": [
+        349.9020674646355,
+        330.424374319913
+      ],
+      "size": 53
+    },
+    {
+      "armor_class": 10,
+      "avatar": "avatars/token_1753151956369.png",
+      "health_points": 10,
+      "id": "token_1753151956369",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": false,
+      "is_visible": false,
+      "max_health_points": 10,
+      "name": "Враг 2",
+      "position": [
+        507.2992383025027,
+        326.5854189336235
+      ],
+      "size": 53
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_1753151906513",
+      "is_visible": false,
+      "name": "Зона 1",
+      "vertices": [
+        [
+          250.63764961915126,
+          183.17301414581067
+        ],
+        [
+          121.21001088139282,
+          331.247007616975
+        ],
+        [
+          213.89336235038084,
+          352.6354733405876
+        ],
+        [
+          415.16430903155606,
+          298.89009793253535
+        ],
+        [
+          417.35799782372146,
+          297.2448313384113
+        ]
+      ]
+    },
+    {
+      "id": "zone_1753151914433",
+      "is_visible": false,
+      "name": "Зона 2",
+      "vertices": [
+        [
+          190.8596300326442,
+          77.8759521218716
+        ],
+        [
+          184.82698585418933,
+          144.78346028291622
+        ],
+        [
+          340.03046789989116,
+          136.557127312296
+        ],
+        [
+          368.54842219804135,
+          94.87704026115343
+        ],
+        [
+          360.3220892274211,
+          79.52121871599564
+        ]
+      ]
+    }
+  ]
 }

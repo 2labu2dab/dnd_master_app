@@ -18,12 +18,37 @@ body {
 
 .section {
   margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #3a3a3a;
 }
 
-.section summary {
-  font-weight: bold;
+summary {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: white;
   cursor: pointer;
-  margin-bottom: 5px;
+  padding: 10px 0;
+  user-select: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::after {
+  content: "▾";
+  font-size: 14px;
+  transition: transform 0.3s ease;
+  margin-left: 8px;
+  color: white;
+}
+
+details[open] > summary::after {
+  transform: rotate(180deg);
 }
 
 .section ul {
@@ -61,7 +86,7 @@ body {
 }
 
 #sidebar {
-  width: 270px;
+  width: 400px;
   background-color: #252526;
   padding: 20px;
   box-sizing: border-box;
@@ -126,21 +151,20 @@ body {
 }
 
 .add-button {
+  width: auto;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
   background-color: #4C5BEF;
   color: white;
   border: none;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-family: 'Inter', sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   transition: background-color 0.2s ease;
-  width: 100%;
-  box-sizing: border-box;
-  gap: 10px;
+  box-shadow: 0 0 4px rgba(0,0,0,0.2);
 }
 
 .add-button:hover {
@@ -384,4 +408,139 @@ large-modal {
   font-weight: bold;
   border: none;
   cursor: pointer;
+}
+
+.grid-control {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.grid-control input[type="number"] {
+  width: 55px;
+  border: none;
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 14px;
+  background: white;
+  color: black;
+  text-align: center;
+  outline: none;
+  appearance: none;
+}
+
+.grid-control input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 14px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, #4C5BEF var(--percent, 0%), #2d2d2d var(--percent, 0%));
+  outline: none;
+  cursor: pointer;
+}
+
+.grid-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: white;
+  border: 4px solid #4C5BEF;
+  box-shadow: 0 0 4px rgba(0,0,0,0.4);
+  margin-top: -4px;
+}
+
+.grid-control input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: white;
+  border: 4px solid #4C5BEF;
+  box-shadow: 0 0 4px rgba(0,0,0,0.4);
+}
+
+#findTooltip {
+  position: fixed;
+  background: rgba(255, 255, 255, 0.95);
+  color: #111;
+  padding: 12px 16px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  pointer-events: none;
+  z-index: 9999;
+  max-width: 300px;
+  white-space: pre-line;
+}
+
+
+/* #rulerToggle {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background-color: #3c3c47;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+#rulerToggle.active {
+  background-color: white;
+}
+
+#rulerToggle svg {
+  width: 24px;
+  height: 24px;
+  color: white;
+  transition: color 0.2s;
+}
+
+#rulerToggle.active svg {
+  color: #4C5BEF;
+} */
+.tool-button {
+  background-color: #2E2E35;
+  border-radius: 12px;
+  border: none;
+  padding: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  color: white; /* ← Вот это важно */
+}
+
+.tool-button svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  transition: stroke 0.2s;
+}
+
+.tool-button.active {
+  background-color: white;
+  color: #4C5BEF; /* ← Цвет для stroke SVG */
+}
+
+#toolButtons {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* расстояние между кнопками */
+  z-index: 10;
 }
