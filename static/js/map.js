@@ -10,7 +10,7 @@ let mapData = {
   tokens: [],
   finds: [],
   zones: [],
-  map_image: "",
+  map_image_base64: "",
   grid_settings: { cell_size: 20, color: "#888888", visible: false }
 };
 
@@ -135,7 +135,7 @@ function submitToken() {
 
 function autoUploadMap(input) {
   const formData = new FormData();
-  formData.append("map_image", input.files[0]);
+  formData.append("map_image", input.files[0]); // ⬅️ название должно быть "map_image"
 
   fetch("/upload_map", {
     method: "POST",
@@ -340,13 +340,13 @@ function fetchMap() {
         gridToggle.classList.remove("active");
       }
 
-      if (mapData.map_image) {
-        mapImage = new Image();
-        mapImage.onload = () => render();
-        mapImage.src = `/static/${mapData.map_image}?ts=${Date.now()}`;
-      } else {
-        render();
-      }
+      if (mapData.map_image_base64) {
+      mapImage = new Image();
+      mapImage.onload = () => render();
+      mapImage.src = mapData.map_image_base64;
+    } else {
+      render();
+    }
     });
 }
 
@@ -365,7 +365,7 @@ function render() {
   const offsetX = (canvas.width - newWidth) / 2;
   const offsetY = (canvas.height - newHeight) / 2;
 
-  if (mapData.map_image && mapImage.complete) {
+  if (mapData.map_image_base64 && mapImage.complete) {
     ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
   }
 
@@ -460,9 +460,9 @@ function drawToken(token, offsetX, offsetY, scale) {
   const [x, y] = token.position;
   const sx = x * scale + offsetX;
   const sy = y * scale + offsetY;
-  const cellSize = mapData.grid_settings.cell_size;
-  const size = cellSize * scale;
+  const size = mapData.grid_settings.cell_size * scale;
 
+  // Цветная рамка по типу
   ctx.beginPath();
   ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
   ctx.strokeStyle = token.is_player
@@ -470,25 +470,33 @@ function drawToken(token, offsetX, offsetY, scale) {
     : token.is_npc
     ? "#FFC107"
     : "#F44336";
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 2;
   ctx.stroke();
 
-  if (token.avatar) {
-    if (!avatarCache[token.avatar]) {
+  // Источник аватара: base64 или путь
+  const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
+  const cached = avatarCache[token.id];
+
+  if (avatarSrc) {
+    if (!cached) {
       const img = new Image();
-      img.onload = () => render(); // Перерисовать, когда загрузится
-      img.src = `/static/${token.avatar}`;
-      avatarCache[token.avatar] = img;
-    } else {
+      img.onload = () => render();
+      img.onerror = () => {
+        console.warn(`⚠ Не удалось загрузить аватар токена ${token.name}`);
+        avatarCache[token.id] = null; // помечаем как сломанный
+      };
+      img.src = avatarSrc;
+      avatarCache[token.id] = img;
+    } else if (cached instanceof HTMLImageElement && cached.complete && cached.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
       ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(avatarCache[token.avatar], sx - size / 2, sy - size / 2, size, size);
+      ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
       ctx.restore();
     }
   } else {
-    // Отрисовка цветного круга (как раньше)
+    // Цветной круг, если аватар отсутствует
     ctx.beginPath();
     ctx.fillStyle = token.is_player
       ? "#4CAF50"
@@ -501,17 +509,10 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.fill();
   }
 
-  if (token.id === selectedTokenId) {
-    ctx.strokeStyle = "#00FFFF";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(sx, sy, size / 2 + 3, 0, 2 * Math.PI);
-    ctx.stroke();
-  }
-
+  // Подпись под токеном
   ctx.fillStyle = "white";
-  const fontSize = Math.max(cellSize * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Inter`;
+  const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
+  ctx.font = `${fontSize}px Inter, sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
 }
@@ -651,8 +652,20 @@ function handleAvatarUpload(event) {
 function closeTokenModal() {
   document.getElementById("tokenModal").style.display = "none";
   document.getElementById("tokenName").value = "";
-  document.getElementById("tokenDead").checked = false;
-  document.querySelector('input[name="tokenType"][value="player"]').checked = true;
+  document.getElementById("tokenAC").value = 10;
+  document.getElementById("tokenHP").value = 10;
+
+  document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector('.type-btn[data-type="player"]').classList.add("active");
+
+  const avatarPreview = document.getElementById("avatarPreview");
+  avatarPreview.src = "";
+  avatarPreview.style.display = "none";
+  avatarPreview.removeAttribute("data-base64");
+
+  document.getElementById("avatarOverlay").style.display = "block";
+  document.getElementById("avatarMask").style.display = "none";
+  document.getElementById("editIcon").style.display = "none";
 }
 
 canvas.addEventListener("mousedown", (e) => {

@@ -51,11 +51,7 @@ def add_token():
     avatar_data = token.pop("avatar_data", None)
 
     if avatar_data:
-        os.makedirs("static/avatars", exist_ok=True)
-        avatar_filename = f"avatars/{token['id']}.png"
-        with open(f"static/{avatar_filename}", "wb") as f:
-            f.write(base64.b64decode(avatar_data.split(",")[1]))
-        token["avatar"] = avatar_filename
+        token["avatar_data"] = avatar_data  # ⬅️ сохраняем base64 прямо в JSON
 
     data = load_map_data()
     data.setdefault("tokens", []).append(token)
@@ -92,18 +88,12 @@ def upload_map():
     if file.filename == "":
         return "No selected file", 400
 
-    os.makedirs("static/maps", exist_ok=True)
-    filepath = os.path.join("static/maps", "current_map.png")
-    try:
-        file.save(filepath)
-        print(f"[DEBUG] Map saved to: {filepath}")
-    except Exception as e:
-        print(f"[ERROR] Failed to save file: {e}")
-        return f"Failed to save file: {e}", 500
+    image_data = file.read()
+    encoded = base64.b64encode(image_data).decode("utf-8")
+    base64_url = f"data:{file.mimetype};base64,{encoded}"
 
-    # Обновим map_data.json
     data = load_map_data()
-    data["map_image"] = filepath.replace("static/", "")
+    data["map_image_base64"] = base64_url
     save_map_data(data)
     return redirect("/")
 

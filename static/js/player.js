@@ -25,10 +25,10 @@ function fetchMap() {
       if (!mapData.zones) mapData.zones = [];
       if (!mapData.grid_settings) mapData.grid_settings = { cell_size: 20, color: "#888888", visible: true };
 
-      if (mapData.map_image) {
+      if (mapData.map_image_base64) {
         mapImage = new Image();
         mapImage.onload = () => render();
-        mapImage.src = `/static/${mapData.map_image}?ts=${Date.now()}`;
+        mapImage.src = mapData.map_image_base64;
       } else {
         render();
       }
@@ -103,21 +103,31 @@ function drawToken(token, offsetX, offsetY, scale) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  if (token.avatar) {
-    if (!avatarCache[token.avatar]) {
+  const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
+  const cached = avatarCache[token.id];
+
+  if (avatarSrc) {
+    if (!cached) {
       const img = new Image();
       img.onload = () => render();
-      img.src = `/static/${token.avatar}`;
-      avatarCache[token.avatar] = img;
-    } else {
+      img.onerror = () => {
+        console.warn(`⚠ Не удалось загрузить аватар: ${avatarSrc}`);
+        avatarCache[token.id] = null; // помечаем как битый
+      };
+      img.src = avatarSrc;
+      avatarCache[token.id] = img;
+    } else if (cached instanceof HTMLImageElement && cached.complete && cached.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
       ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(avatarCache[token.avatar], sx - size / 2, sy - size / 2, size, size);
+      ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
       ctx.restore();
+    } else {
+      // ничего не рисуем — картинка в загрузке или битая
     }
   } else {
+    // fallback-круг
     ctx.beginPath();
     ctx.fillStyle = token.is_player
       ? "#4CAF50"
@@ -130,6 +140,7 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.fill();
   }
 
+  // подпись
   ctx.fillStyle = "white";
   const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
   ctx.font = `${fontSize}px Segoe UI`;
