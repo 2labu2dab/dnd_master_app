@@ -1,3 +1,4 @@
+// static/js/map.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth - 270;
@@ -26,6 +27,23 @@ let avatarImage = null;
 let avatarData = null;
 let selectedZoneId = null;
 const avatarCache = {};
+
+
+function syncGridInputs(value) {
+  const num = parseInt(value);
+  if (isNaN(num) || num < 10 || num > 200) return;
+
+  document.getElementById("gridSlider").value = num;
+  document.getElementById("gridInput").value = num;
+  mapData.grid_settings.cell_size = num;
+  render();
+
+  fetch("/api/map", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mapData),
+  });
+}
 
 
 function drawAvatarCircle() {
@@ -115,62 +133,162 @@ function autoUploadMap(input) {
   }).then(() => fetchMap());
 }
 
+// Глазки
+function getOpenEyeSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 5c-6 0-9 6-9 6s3 6 9 6 9-6 9-6-3-6-9-6zm0 10a4 4 0 110-8 4 4 0 010 8z"/></svg>`;
+}
+function getClosedEyeSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M2 5l2.5 2.5C3.5 9 3 10 3 12s.5 3 1.5 4.5L2 19l2 2 3.5-3.5C9 18.5 10 19 12 19s3-.5 4.5-1.5L20 21l2-2-2.5-2.5C21 15 21 14 21 12s0-3-1.5-4.5L22 5l-2-2-3.5 3.5C15 5.5 14 5 12 5s-3 .5-4.5 1.5L4 3 2 5z"/></svg>`;
+}
+
 
 function updateSidebar() {
   // 🔁 Зоны
   const zoneList = document.getElementById("zoneList");
   zoneList.innerHTML = "";
+
   mapData.zones.forEach(zone => {
     const li = document.createElement("li");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = zone.is_visible;
-    checkbox.onchange = () => {
-      zone.is_visible = checkbox.checked;
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.justifyContent = "space-between";
+    li.style.background = "#2a2a3b";
+    li.style.padding = "6px 10px";
+    li.style.borderRadius = "4px";
+    li.style.marginBottom = "4px";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = zone.name;
+    nameSpan.style.overflow = "hidden";
+    nameSpan.style.textOverflow = "ellipsis";
+    nameSpan.style.whiteSpace = "nowrap";
+    nameSpan.style.color = "#ddd";
+    nameSpan.style.flex = "1";
+
+    const eye = document.createElement("span");
+    eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
+    eye.style.cursor = "pointer";
+    eye.title = "Показать/скрыть зону";
+    eye.onclick = () => {
+      zone.is_visible = !zone.is_visible;
       saveMapData();
-      render();
+      updateSidebar();
+      render(); // обновим карту
     };
-    li.textContent = zone.name + " ";
-    li.prepend(checkbox);
+
+    li.appendChild(nameSpan);
+    li.appendChild(eye);
     zoneList.appendChild(li);
   });
 
   // 🔁 Токены
   const tokenList = document.getElementById("tokenList");
   tokenList.innerHTML = "";
+
   mapData.tokens.forEach(token => {
     const li = document.createElement("li");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = token.is_visible ?? true;
-    checkbox.onchange = () => {
-      token.is_visible = checkbox.checked;
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.justifyContent = "space-between";
+    li.style.gap = "8px";
+    li.style.background = "#2a2a3b";
+    li.style.padding = "6px 10px";
+    li.style.borderRadius = "4px";
+    li.style.color = "#ccc";
+
+    const dot = document.createElement("span");
+    dot.style.display = "inline-block";
+    dot.style.width = "10px";
+    dot.style.height = "10px";
+    dot.style.borderRadius = "50%";
+    dot.style.backgroundColor = token.is_player
+      ? "#4CAF50"
+      : token.is_npc
+      ? "#FFC107"
+      : "#F44336";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.style.flex = "1";
+    nameSpan.style.overflow = "hidden";
+    nameSpan.style.textOverflow = "ellipsis";
+    nameSpan.style.whiteSpace = "nowrap";
+    nameSpan.textContent = token.name;
+
+    const acSpan = document.createElement("span");
+    acSpan.style.minWidth = "40px";
+    acSpan.style.textAlign = "right";
+    acSpan.style.color = "#aaa";
+    acSpan.textContent = `${token.armor_class || 10} КД`;
+
+    const hpSpan = document.createElement("span");
+    const hp = token.health_points ?? 10;
+    const max = token.max_health_points ?? 10;
+
+    if (token.is_dead || hp <= 0) {
+      hpSpan.textContent = "МЁРТВ";
+      hpSpan.style.color = "#e53935";
+    } else {
+      const percent = hp / max;
+      hpSpan.textContent = `${hp}/${max} ОЗ`;
+      hpSpan.style.color =
+        percent > 0.8 ? "#4CAF50" :
+        percent > 0.4 ? "#FFC107" :
+        "#F44336";
+    }
+
+    const eye = document.createElement("span");
+    eye.innerHTML = token.is_visible !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+    eye.style.cursor = "pointer";
+    eye.title = "Видимость для игроков";
+    eye.onclick = () => {
+      token.is_visible = !token.is_visible;
       saveMapData();
-      render();
+      updateSidebar();
     };
-    const type = token.is_player ? "Игрок" : token.is_npc ? "НПС" : "Враг";
-    li.textContent = `${token.name} (${type}) `;
-    li.prepend(checkbox);
+
+    li.appendChild(dot);
+    li.appendChild(nameSpan);
+    li.appendChild(acSpan);
+    li.appendChild(hpSpan);
+    li.appendChild(eye);
     tokenList.appendChild(li);
   });
 
   // 🔁 Находки
   const findList = document.getElementById("findList");
   findList.innerHTML = "";
+
   mapData.finds.forEach(find => {
     const li = document.createElement("li");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = find.status;
-    checkbox.onchange = () => {
-      find.status = checkbox.checked;
-      saveMapData();
-      render();
-    };
-    li.textContent = find.name + " ";
-    li.prepend(checkbox);
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.justifyContent = "space-between";
+    li.style.background = "#2a2a3b";
+    li.style.padding = "6px 10px";
+    li.style.borderRadius = "4px";
+    li.style.marginBottom = "4px";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = find.name;
+    nameSpan.style.overflow = "hidden";
+    nameSpan.style.textOverflow = "ellipsis";
+    nameSpan.style.whiteSpace = "nowrap";
+    nameSpan.style.color = "#ddd";
+    nameSpan.style.flex = "1";
+
+    const statusSpan = document.createElement("span");
+    if (find.status) {
+      statusSpan.textContent = "Осмотрено";
+      statusSpan.style.color = "#4CAF50";
+      statusSpan.style.fontSize = "14px";
+      statusSpan.style.flexShrink = "0";
+    }
+
+    li.appendChild(nameSpan);
+    li.appendChild(statusSpan);
     findList.appendChild(li);
   });
+
 }
 
 function saveMapData() {

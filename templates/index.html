@@ -13,19 +13,19 @@
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
       <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden /></label>
-      <label for="gridSlider">Размер сетки: <span id="gridSizeDisplay">20</span>px</label>
-      <input
-        type="range"
-        id="gridSlider"
-        min="10"
-        max="200"
-        value="20"
-        oninput="onGridSizeChange(this.value)"
-      />
+      <label>Размер сетки (px):</label>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <input type="range" id="gridSlider" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
+        <input type="number" id="gridInput" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" style="width: 60px;" />
+      </div>
       <div class="section">
     <details open>
-      <summary>Зоны</summary>
-      <button onclick="addZone()">Добавить зону</button>
+      <summary>Скрытые области</summary>
+      
+      <button class="add-button" onclick="addZone()">
+        Создать зону
+        <span class="add-icon">+</span>
+      </button>
       <ul id="zoneList"></ul>
     </details>
   </div>
@@ -33,8 +33,11 @@
   <!-- Токены -->
   <div class="section">
     <details open>
-      <summary>Токены</summary>
-      <button onclick="addToken()">Добавить персонажа</button>
+      <summary>Токены персонажей</summary>
+      <button class="add-button" onclick="addToken()">
+        Создать токен
+        <span class="add-icon">+</span>
+      </button>
       <ul id="tokenList"></ul>
     </details>
   </div>
@@ -43,7 +46,10 @@
   <div class="section">
     <details open>
       <summary>Находки</summary>
-      <button onclick="addFind()">Добавить находку</button>
+      <button class="add-button" onclick="addFind()">
+        Создать находку
+        <span class="add-icon">+</span>
+      </button>
       <ul id="findList"></ul>
     </details>
   </div>

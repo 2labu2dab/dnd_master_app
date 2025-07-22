@@ -9,11 +9,11 @@
         417.00105393451065
       ],
       "size": 25,
-      "status": false
+      "status": true
     }
   ],
   "grid_settings": {
-    "cell_size": 120,
+    "cell_size": 143,
     "color": "#888888",
     "opacity": 100,
     "visible": true,
@@ -28,7 +28,7 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": true,
-      "is_visible": false,
+      "is_visible": true,
       "name": "выфвыфвф",
       "position": [
         1322.927244313991,
@@ -41,7 +41,7 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": false,
-      "is_visible": false,
+      "is_visible": true,
       "name": "asdsa",
       "position": [
         1515.2906015977894,
@@ -55,11 +55,11 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": false,
-      "is_visible": false,
+      "is_visible": true,
       "name": "sadsad",
       "position": [
-        1024.2469071404598,
-        618.9716763116996
+        1139.5896710142356,
+        686.4363117850402
       ],
       "size": 75
     },
@@ -69,13 +69,51 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": true,
-      "is_visible": false,
+      "is_visible": true,
       "name": "fjfyj",
       "position": [
         1254.6245919477697,
         1045.701849836779
       ],
       "size": 93
+    },
+    {
+      "id": "token_1753147695699",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": true,
+      "is_visible": true,
+      "name": "вывывы",
+      "position": [
+        978.2372143634384,
+        1298.1501632208922
+      ],
+      "size": 55
+    },
+    {
+      "id": "token_1753147796511",
+      "is_dead": false,
+      "is_npc": false,
+      "is_player": true,
+      "is_visible": true,
+      "name": "вавы",
+      "position": [
+        593.0359085963004,
+        1285.0924918389553
+      ],
+      "size": 143
+    },
+    {
+      "id": "token_1753148475417",
+      "name": "вавыавывы",
+      "position": [
+        1000,
+        1000
+      ],
+      "size": 143,
+      "is_dead": false,
+      "is_player": false,
+      "is_npc": true
     }
   ],
   "zones": [
@@ -126,6 +164,68 @@
         [
           989.1186071817192,
           1062.0239390642002
+        ]
+      ]
+    },
+    {
+      "id": "zone_1753144605696",
+      "is_visible": true,
+      "name": "апвапва",
+      "vertices": [
+        [
+          377.58433079434167,
+          624.5919477693144
+        ],
+        [
+          66.37649619151252,
+          696.4091403699673
+        ],
+        [
+          436.34385201305764,
+          850.9249183895538
+        ],
+        [
+          597.3884657236126,
+          759.5212187159956
+        ],
+        [
+          619.1512513601741,
+          568.0087051142546
+        ],
+        [
+          619.1512513601741,
+          568.0087051142546
+        ]
+      ]
+    },
+    {
+      "id": "zone_1753147811459",
+      "is_visible": true,
+      "name": "авы",
+      "vertices": [
+        [
+          984.766050054407,
+          1001.088139281828
+        ],
+        [
+          1026.1153427638737,
+          1003.2644178454842
+        ],
+        [
+          1004.3525571273123,
+          966.2676822633297
+        ],
+        [
+          786.7247007616975,
+          750.816104461371
+        ],
+        [
+          991.2948857453754,
+          1035.9085963003265
+        ],
+        [
+          867.2470076169749,
+          1018.4983677910773
         ]
       ]
     }
