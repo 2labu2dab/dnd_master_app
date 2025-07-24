@@ -544,3 +544,29 @@ large-modal {
   gap: 8px; /* расстояние между кнопками */
   z-index: 10;
 }
+
+#playerMini {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 320px;
+  height: 180px;
+  border: 2px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.6);
+  z-index: 9999;
+}
+
+#togglePlayerMini.mini-toggle-btn {
+  position: fixed;
+  bottom: 200px;
+  right: 12px;
+  z-index: 10000;
+  background: #222;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}

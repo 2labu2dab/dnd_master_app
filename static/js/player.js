@@ -2,8 +2,7 @@
 // static/js/player.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+const isEmbeddedPreview = window !== window.parent;  // true, если это iframe
 
 let mapImage = new Image();
 const avatarCache = {};
@@ -15,10 +14,21 @@ let mapData = {
   grid_settings: { cell_size: 20, color: "#888888", visible: true }
 };
 
+function resizeCanvasToDisplaySize() {
+  const displayWidth = canvas.clientWidth;
+  const displayHeight = canvas.clientHeight;
+
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+  }
+}
+
 function fetchMap() {
   fetch(`/api/map?ts=${Date.now()}`)
     .then(res => res.json())
     .then(data => {
+      console.log("[iframe] загружены данные карты:", data);
       mapData = data;
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
@@ -36,22 +46,24 @@ function fetchMap() {
 }
 
 function render() {
+  resizeCanvasToDisplaySize();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);  // Масштабирование с учетом пропорций
   const newWidth = mapImage.width * scale;
   const newHeight = mapImage.height * scale;
-  const offsetX = (canvas.width - newWidth) / 2;
-  const offsetY = (canvas.height - newHeight) / 2;
-
-  if (mapData.map_image && mapImage.complete) {
-    ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
+  const offsetX = (canvas.width - newWidth) / 2;  // Центрирование по X
+  const offsetY = (canvas.height - newHeight) / 2;  // Центрирование по Y
+  if (mapImage.complete) {
+    ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);  // Отрисовка с центровкой и масштабированием
+  } else {
+    console.warn("[render] mapImage еще не загружено полностью");
   }
 
-  drawLayers(offsetX, offsetY, scale);
+  drawLayers(offsetX, offsetY, scale);  // Отрисовка слоев (токены, зоны и т.д.)
 }
 
 function drawLayers(offsetX, offsetY, scale) {
-  if (mapData.grid_settings.visible && mapData.grid_settings.visible_to_players) {
+  if (!isEmbeddedPreview && mapData.grid_settings.visible && mapData.grid_settings.visible_to_players) {
     drawGrid(offsetX, offsetY, scale);
   }
 
@@ -141,11 +153,13 @@ function drawToken(token, offsetX, offsetY, scale) {
   }
 
   // подпись
-  ctx.fillStyle = "white";
-  const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Segoe UI`;
-  ctx.textAlign = "center";
-  ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
+  if (!isEmbeddedPreview) {
+    ctx.fillStyle = "white";
+    const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
+    ctx.font = `${fontSize}px Segoe UI`;
+    ctx.textAlign = "center";
+    ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
+  }
 }
 
 function drawFind(find, offsetX, offsetY, scale) {

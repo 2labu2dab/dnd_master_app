@@ -3,6 +3,19 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+    <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>D&D Карта — Игрок</title>
@@ -10,7 +23,6 @@
 </head>
 <body>
   <canvas id="mapCanvas"></canvas>
-
   <script src="{{ url_for('static', filename='js/player.js') }}"></script>
 </body>
 </html>

@@ -43,6 +43,8 @@ function syncGridInputs(value) {
   mapData.grid_settings.cell_size = num;
   render();
 
+  updateSliderVisual();
+
   fetch("/api/map", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -834,7 +836,8 @@ canvas.addEventListener("contextmenu", (e) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mapData),
-      });
+      }).then(() => {fetchMap();});
+      
     }
   }
   for (const zone of mapData.zones) {
@@ -880,7 +883,6 @@ canvas.addEventListener("mouseup", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Delete") {
     let changed = false;
-
     if (selectedTokenId) {
       mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
       selectedTokenId = null;
@@ -907,6 +909,7 @@ document.addEventListener("keydown", (e) => {
         body: JSON.stringify(mapData),
       });
     }
+  updateSidebar();
   }
 });
 
@@ -952,11 +955,24 @@ function submitFind() {
   });
 }
 
-
+function updateSliderVisual() {
+    const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
+    const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
+    gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
+  }
 
 window.onload = () => {
   fetchMap();
   // Обработчики кнопок выбора типа токена
+  const toggleBtn = document.getElementById("togglePlayerMini");
+  const miniFrame = document.getElementById("playerMini");
+  let playerVisible = false;
+
+  toggleBtn.addEventListener("click", () => {
+    playerVisible = !playerVisible;
+    miniFrame.style.display = playerVisible ? "block" : "none";
+    toggleBtn.textContent = playerVisible ? "👁" : "🚫";
+  });
   document.querySelectorAll(".type-btn").forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
@@ -966,11 +982,6 @@ window.onload = () => {
 
 
   const gridSlider = document.getElementById('gridSlider');
-  function updateSliderVisual() {
-    const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
-    const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
-    gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
-  }
   gridSlider.addEventListener('input', updateSliderVisual);
 
   document.getElementById("rulerToggle").addEventListener("click", () => {
