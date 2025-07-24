@@ -4,6 +4,7 @@ const ctx = canvas.getContext("2d");
 const sidebar = document.getElementById("sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth;
 canvas.height = window.innerHeight;
+let zoomLevel = 1;
 
 let mapImage = new Image();
 let mapData = {
@@ -31,6 +32,8 @@ let isRulerMode = false;
 let rulerStart = null;
 let lastMouseX = 0;
 let lastMouseY = 0;
+let editingFindId = null;
+let hoveredSnapVertex = null;
 const avatarCache = {};
 
 
@@ -311,12 +314,90 @@ function saveMapData() {
   });
 }
 
+function zonesIntersect(verticesA, verticesB) {
+  function onSegment(p, q, r) {
+    return q[0] <= Math.max(p[0], r[0]) &&
+           q[0] >= Math.min(p[0], r[0]) &&
+           q[1] <= Math.max(p[1], r[1]) &&
+           q[1] >= Math.min(p[1], r[1]);
+  }
+
+  function orientation(p, q, r) {
+    const val = (q[1] - p[1]) * (r[0] - q[0]) -
+                (q[0] - p[0]) * (r[1] - q[1]);
+    if (Math.abs(val) < 1e-10) return 0; // коллинеарны
+    return (val > 0) ? 1 : 2;
+  }
+
+  function doIntersect(p1, q1, p2, q2) {
+    const o1 = orientation(p1, q1, p2);
+    const o2 = orientation(p1, q1, q2);
+    const o3 = orientation(p2, q2, p1);
+    const o4 = orientation(p2, q2, q1);
+
+    function pointsEqual(p, q) {
+      return Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+    }
+
+    if (o1 !== o2 && o3 !== o4) {
+      // Но если один из концов совпадает — не считаем пересечением
+      if (
+        (pointsEqual(p1, p2) || pointsEqual(p1, q2) ||
+        pointsEqual(q1, p2) || pointsEqual(q1, q2))
+      ) {
+        return false;
+      }
+
+      return true;
+    }
+
+    // Проверка коллинеарности и касаний
+    if (o1 === 0 && onSegment(p1, p2, q1)) {
+      return false;
+    }
+    if (o2 === 0 && onSegment(p1, q2, q1)) {
+        return false;
+    }
+    if (o3 === 0 && onSegment(p2, p1, q2)) {
+      return false;
+    }
+    if (o4 === 0 && onSegment(p2, q1, q2)) {
+      return false;
+    }
+
+    return false;
+  }
+
+  function getEdges(vertices) {
+    const edges = [];
+    for (let i = 0; i < vertices.length; i++) {
+      const a = vertices[i];
+      const b = vertices[(i + 1) % vertices.length];
+      edges.push([a, b]);
+    }
+    return edges;
+  }
+
+  const edgesA = getEdges(verticesA);
+  const edgesB = getEdges(verticesB);
+
+  for (const [a1, a2] of edgesA) {
+    for (const [b1, b2] of edgesB) {
+      if (doIntersect(a1, a2, b1, b2)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 function fetchMap() {
   fetch(`/api/map?ts=${Date.now()}`)
     .then(res => res.json())
     .then(data => {
       mapData = data;
+      zoomLevel = mapData.zoom_level || 1;
       updateSidebar();
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
@@ -361,7 +442,8 @@ window.addEventListener("resize", () => {
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const baseScale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const scale = baseScale * (mapData.zoom_level || 1);
   const newWidth = mapImage.width * scale;
   const newHeight = mapImage.height * scale;
   const offsetX = (canvas.width - newWidth) / 2;
@@ -430,6 +512,19 @@ function drawTempZone(offsetX, offsetY, scale) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  if (hoveredSnapVertex) {
+    const [hx, hy] = hoveredSnapVertex;
+    const px = hx * scale + offsetX;
+    const py = hy * scale + offsetY;
+
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, 2 * Math.PI);
+    ctx.fillStyle = "cyan";
+    ctx.fill();
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 function drawLayers(offsetX, offsetY, scale) {
@@ -467,12 +562,14 @@ function drawToken(token, offsetX, offsetY, scale) {
   // Цветная рамка по типу
   ctx.beginPath();
   ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-  ctx.strokeStyle = token.is_player
+  ctx.strokeStyle = token.is_dead
+    ? "#999" // серая обводка для мёртвых
+    : token.is_player
     ? "#4CAF50"
     : token.is_npc
     ? "#FFC107"
     : "#F44336";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 4;
   ctx.stroke();
 
   // Источник аватара: base64 или путь
@@ -494,29 +591,52 @@ function drawToken(token, offsetX, offsetY, scale) {
       ctx.beginPath();
       ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
+
+      // Если токен мёртв — отрисовка в ч/б
+      if (token.is_dead) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext("2d");
+
+        tempCtx.drawImage(cached, 0, 0, size, size);
+
+        const imageData = tempCtx.getImageData(0, 0, size, size);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          data[i] = data[i + 1] = data[i + 2] = avg;
+        }
+
+        tempCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(tempCanvas, sx - size / 2, sy - size / 2);
+      } else {
+        ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
+      }
+
       ctx.restore();
     }
   } else {
     // Цветной круг, если аватар отсутствует
     ctx.beginPath();
-    ctx.fillStyle = token.is_player
+    ctx.fillStyle = token.is_dead
+      ? "#616161"
+      : token.is_player
       ? "#4CAF50"
       : token.is_npc
       ? "#FFC107"
-      : token.is_dead
-      ? "#616161"
       : "#F44336";
     ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
     ctx.fill();
   }
 
   // Подпись под токеном
-  ctx.fillStyle = "white";
-  const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Inter, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
+  // ctx.fillStyle = "white";
+  // const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
+  // ctx.font = `${fontSize}px Inter, sans-serif`;
+  // ctx.textAlign = "center";
+  // ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
 }
 
 function drawFind(find, offsetX, offsetY, scale) {
@@ -526,22 +646,33 @@ function drawFind(find, offsetX, offsetY, scale) {
   const cellSize = mapData.grid_settings.cell_size;
   const size = cellSize * scale;
 
-  ctx.beginPath();
-  ctx.fillStyle = "white";
-  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-  ctx.fill();
+  ctx.save();
 
+  // Прозрачность для найденных
   if (find.status) {
-    ctx.fillStyle = "#4CAF50";
-    ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-    ctx.fill();
+    ctx.globalAlpha = 0.5;
   }
 
-  ctx.fillStyle = "black";
-  const fontSize = Math.max(cellSize * 0.5 * scale, 8);
-  ctx.font = `${fontSize}px Inter`;
+  // Фон круга
+  ctx.beginPath();
+  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = "#4C5BEF";
+  ctx.fill();
+
+  // Белая обводка
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "white";
+  ctx.stroke();
+
+  // Знак "?"
+  ctx.fillStyle = "white";
+  const fontSize = size * 0.6;
+  ctx.font = `bold ${fontSize}px Inter, sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText(find.name, sx, sy + size / 2 + fontSize);
+  ctx.textBaseline = "middle";
+  ctx.fillText("?", sx, sy);
+
+  ctx.restore();
 }
 
 function addToken() {
@@ -684,7 +815,25 @@ canvas.addEventListener("mousedown", (e) => {
     return;
   }
 
-  // Дальше — твой старый код выбора токена/находки/зоны:
+  if (drawingZone) {
+    let x = (mouseX - offsetX) / scale;
+    let y = (mouseY - offsetY) / scale;
+
+    // Привязка к вершинам
+    if (hoveredSnapVertex) {
+      [x, y] = hoveredSnapVertex;
+    }
+
+    // Обрезка по карте
+    x = Math.max(0, Math.min(x, mapImage.width));
+    y = Math.max(0, Math.min(y, mapImage.height));
+
+    currentZoneVertices.push([x, y]);
+    render();
+    return;
+  }
+
+  // Выбор объектов
   selectedTokenId = null;
   selectedFindId = null;
   selectedZoneId = null;
@@ -693,7 +842,6 @@ canvas.addEventListener("mousedown", (e) => {
 
   let clicked = false;
 
-  // Токены
   for (const token of mapData.tokens) {
     const [x, y] = token.position;
     const sx = x * scale + offsetX;
@@ -709,7 +857,6 @@ canvas.addEventListener("mousedown", (e) => {
     }
   }
 
-  // Находки
   if (!clicked) {
     for (const find of mapData.finds) {
       const [x, y] = find.position;
@@ -727,15 +874,6 @@ canvas.addEventListener("mousedown", (e) => {
     }
   }
 
-  if (drawingZone) {
-    const x = (mouseX - offsetX) / scale;
-    const y = (mouseY - offsetY) / scale;
-    currentZoneVertices.push([x, y]);
-    render();
-    return; // Не продолжаем обработку клика (не выделяем токены и т.п.)
-  }
-
-  // Зоны
   if (!clicked) {
     for (const zone of mapData.zones) {
       if (!zone.vertices || zone.vertices.length < 3) continue;
@@ -776,11 +914,34 @@ canvas.addEventListener("mousemove", (e) => {
   const offsetX = (canvas.width - mapImage.width * scale) / 2;
   const offsetY = (canvas.height - mapImage.height * scale) / 2;
 
-  lastMouseX = e.offsetX;
-  lastMouseY = e.offsetY;
+  lastMouseX = mouseX;
+  lastMouseY = mouseY;
+
+  if (drawingZone) {
+    let x = (mouseX - offsetX) / scale;
+    let y = (mouseY - offsetY) / scale;
+    let found = null;
+    const snapRadius = 10 / scale;
+
+    for (const zone of mapData.zones) {
+      for (const [vx, vy] of zone.vertices) {
+        const dist = Math.hypot(x - vx, y - vy);
+        if (dist < snapRadius) {
+          found = [vx, vy];
+          break;
+        }
+      }
+      if (found) break;
+    }
+
+    hoveredSnapVertex = found;
+    render(); // отрисовать с подсветкой
+    return;
+  }
 
   if (isRulerMode && rulerStart) {
     render(); // чтобы линия тянулась за мышью
+    return;
   }
 
   if (draggingToken || draggingFind) {
@@ -816,55 +977,131 @@ canvas.addEventListener("mousemove", (e) => {
   }
 });
 
+function renderTokenContextMenu(token, x, y) {
+  const menu = document.getElementById("tokenContextMenu");
+  const nameElem = document.getElementById("contextTokenName");
+  const statsElem = document.getElementById("contextTokenStats");
+  const checkbox = document.getElementById("contextIsDeadCheckbox");
+
+  nameElem.textContent = token.name;
+  statsElem.textContent = `КД: ${token.armor_class}, HP: ${token.health_points}/${token.max_health_points}`;
+
+  checkbox.checked = token.is_dead || token.health_points <= 0;
+
+  checkbox.onchange = () => {
+    token.is_dead = checkbox.checked;
+    if (checkbox.checked) token.health_points = 0;
+    saveMapData();
+    render();
+    updateSidebar();
+  };
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.style.display = "block";
+}
+
 canvas.addEventListener("contextmenu", (e) => {
-  if (drawingZone) {
-    e.preventDefault(); // Отменяем стандартное контекстное меню
-    const zoneName = prompt("Введите имя зоны:");
-    if (zoneName) {
-      const newZone = {
-        id: `zone_${Date.now()}`,
-        name: zoneName,
-        vertices: currentZoneVertices,
-        is_visible: true,
-      };
-      mapData.zones.push(newZone);
-      drawingZone = false; // Отключаем режим рисования
-      currentZoneVertices = []; // Очищаем текущие вершины
-      render();
-      // Сохраняем изменения
-      fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
-      }).then(() => {fetchMap();});
-      
+  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const offsetX = (canvas.width - mapImage.width * scale) / 2;
+  const offsetY = (canvas.height - mapImage.height * scale) / 2;
+
+  for (const token of mapData.tokens) {
+    const [x, y] = token.position;
+    const sx = x * scale + offsetX;
+    const sy = y * scale + offsetY;
+    const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+    if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
+      e.preventDefault();
+      selectedTokenId = token.id;
+      renderTokenContextMenu(token, e.pageX, e.pageY);
+      return;
     }
   }
-  for (const zone of mapData.zones) {
-  const path = new Path2D();
-  zone.vertices.forEach(([vx, vy], i) => {
-    const px = vx * scale + offsetX;
-    const py = vy * scale + offsetY;
-    if (i === 0) path.moveTo(px, py);
-    else path.lineTo(px, py);
-  });
-  path.closePath();
 
-  if (ctx.isPointInPath(path, e.offsetX, e.offsetY)) {
+  if (drawingZone) {
     e.preventDefault();
-    const choice = confirm(zone.is_visible ? "Скрыть зону?" : "Сделать зону видимой?");
-    if (choice !== null) {
-      zone.is_visible = !zone.is_visible;
-      fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
-      });
-      render();
+
+    if (currentZoneVertices.length < 3) {
+      alert("Зона должна иметь минимум 3 точки");
+      return;
     }
+
+    const zoneName = prompt("Введите имя зоны:");
+    if (!zoneName) return;
+
+    const newZoneVertices = [...currentZoneVertices];
+
+    const hasIntersection = mapData.zones.some(z =>
+      z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
+    );
+
+    if (hasIntersection) {
+      alert("Новая зона пересекается с существующей! Измените форму.");
+      return;
+    }
+
+    const newZone = {
+      id: `zone_${Date.now()}`,
+      name: zoneName,
+      vertices: newZoneVertices,
+      is_visible: true,
+    };
+    mapData.zones.push(newZone);
+    drawingZone = false;
+    currentZoneVertices = [];
+    render();
+    fetch("/api/map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapData),
+    }).then(() => {
+      fetchMap();
+    });
     return;
   }
-}
+
+  // ПКМ по находке
+  for (const find of mapData.finds) {
+    const [x, y] = find.position;
+    const sx = x * scale + offsetX;
+    const sy = y * scale + offsetY;
+    const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+    if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
+      e.preventDefault();
+      openFindModal(find);
+      return;
+    }
+  }
+
+  // ПКМ по зоне — смена видимости
+  for (const zone of mapData.zones) {
+    const path = new Path2D();
+    zone.vertices.forEach(([vx, vy], i) => {
+      const px = vx * scale + offsetX;
+      const py = vy * scale + offsetY;
+      if (i === 0) path.moveTo(px, py);
+      else path.lineTo(px, py);
+    });
+    path.closePath();
+
+    if (ctx.isPointInPath(path, e.offsetX, e.offsetY)) {
+      e.preventDefault();
+      const choice = confirm(zone.is_visible ? "Скрыть зону?" : "Сделать зону видимой?");
+      if (choice !== null) {
+        zone.is_visible = !zone.is_visible;
+        fetch("/api/map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mapData),
+        });
+        render();
+      }
+      return;
+    }
+  }
 });
 
 canvas.addEventListener("mouseup", () => {
@@ -878,6 +1115,19 @@ canvas.addEventListener("mouseup", () => {
 
   draggingToken = null;
   draggingFind = null;
+});
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+
+  // нормализуем поведение скролла
+  const zoomStep = 0.1;
+  const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+
+  zoomLevel = Math.min(Math.max(zoomLevel + delta, 0.1), 5);
+  mapData.zoom_level = zoomLevel;
+  render();
+  saveMapData();
 });
 
 document.addEventListener("keydown", (e) => {
@@ -914,14 +1164,28 @@ document.addEventListener("keydown", (e) => {
 });
 
 
-function openFindModal() {
-  document.getElementById("findModal").style.display = "flex";
-  document.getElementById("findName").value = "";
-  document.getElementById("findDescription").value = "";
+function openFindModal(find = null) {
+  const modal = document.getElementById("findModal");
+  const title = document.getElementById("findModalTitle");
+
+  modal.style.display = "flex";
+
+  if (find) {
+    editingFindId = find.id;
+    title.textContent = "Редактирование находки";
+    document.getElementById("findName").value = find.name;
+    document.getElementById("findDescription").value = find.description || "";
+  } else {
+    editingFindId = null;
+    title.textContent = "Создание находки";
+    document.getElementById("findName").value = "";
+    document.getElementById("findDescription").value = "";
+  }
 }
 
 function closeFindModal() {
   document.getElementById("findModal").style.display = "none";
+  editingFindId = null;
 }
 
 function submitFind() {
@@ -933,26 +1197,40 @@ function submitFind() {
     return;
   }
 
-  const centerX = mapImage.width / 2;
-  const centerY = mapImage.height / 2;
+  if (editingFindId) {
+    // Редактирование
+    const find = mapData.finds.find(f => f.id === editingFindId);
+    if (find) {
+      find.name = name;
+      find.description = description;
+      saveMapData();
+      closeFindModal();
+      render();
+      updateSidebar();
+    }
+  } else {
+    // Создание
+    const centerX = mapImage.width / 2;
+    const centerY = mapImage.height / 2;
 
-  const find = {
-    id: `find_${Date.now()}`,
-    name,
-    position: [centerX, centerY],
-    size: mapData.grid_settings.cell_size,
-    status: false,
-    description
-  };
+    const find = {
+      id: `find_${Date.now()}`,
+      name,
+      position: [centerX, centerY],
+      size: mapData.grid_settings.cell_size,
+      status: false,
+      description
+    };
 
-  fetch("/api/find", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(find),
-  }).then(() => {
-    closeFindModal();
-    fetchMap();
-  });
+    fetch("/api/find", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(find),
+    }).then(() => {
+      closeFindModal();
+      fetchMap();
+    });
+  }
 }
 
 function updateSliderVisual() {
@@ -1013,6 +1291,12 @@ window.onload = () => {
 
     render(); // Перерисовать карту с новым состоянием
     saveMapData();
+  });
+  document.addEventListener("click", (e) => {
+    const menu = document.getElementById("tokenContextMenu");
+    if (!menu.contains(e.target)) {
+      menu.style.display = "none";
+    }
   });
   updateSliderVisual(); // безопасно — не вызывает render()
 };

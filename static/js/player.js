@@ -2,7 +2,8 @@
 // static/js/player.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
-const isEmbeddedPreview = window !== window.parent;  // true, если это iframe
+const isEmbeddedPreview = window !== window.parent;
+let zoomLevel = 1;
 
 let mapImage = new Image();
 const avatarCache = {};
@@ -30,6 +31,10 @@ function fetchMap() {
     .then(data => {
       console.log("[iframe] загружены данные карты:", data);
       mapData = data;
+      // if (!isEmbeddedPreview && typeof mapData.zoom_level === "number") {
+      //   zoomLevel = mapData.zoom_level;
+      // } Если вдруг Вероника захочет нормальное превью)
+      zoomLevel = mapData.zoom_level;
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
       if (!mapData.zones) mapData.zones = [];
@@ -48,7 +53,8 @@ function fetchMap() {
 function render() {
   resizeCanvasToDisplaySize();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);  // Масштабирование с учетом пропорций
+  const baseScale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+  const scale = baseScale * zoomLevel;
   const newWidth = mapImage.width * scale;
   const newHeight = mapImage.height * scale;
   const offsetX = (canvas.width - newWidth) / 2;  // Центрирование по X
@@ -112,7 +118,7 @@ function drawToken(token, offsetX, offsetY, scale) {
     : token.is_npc
     ? "#FFC107"
     : "#F44336";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 4;
   ctx.stroke();
 
   const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
