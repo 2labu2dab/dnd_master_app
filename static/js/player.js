@@ -29,7 +29,6 @@ function fetchMap() {
   fetch(`/api/map?ts=${Date.now()}`)
     .then(res => res.json())
     .then(data => {
-      console.log("[iframe] загружены данные карты:", data);
       mapData = data;
       // if (!isEmbeddedPreview && typeof mapData.zoom_level === "number") {
       //   zoomLevel = mapData.zoom_level;

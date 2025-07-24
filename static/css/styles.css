@@ -596,3 +596,28 @@ large-modal {
 .token-dead-toggle.unconscious-toggle.active {
   background-color: #f1c40f; /* жёлтый для "Без сознания" */
 }
+
+.corner-button {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: #2a2a3b;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+.corner-button svg {
+  color: white;
+}
+.corner-button.active svg {
+  color: #4C5BEF;
+}
+
+.corner-button.active {
+  background-color: white;
+  color: #4C5BEF; /* ← Цвет для stroke SVG */
+}
+
