@@ -147,10 +147,10 @@ function autoUploadMap(input) {
 
 // Глазки
 function getOpenEyeSVG() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 5c-6 0-9 6-9 6s3 6 9 6 9-6 9-6-3-6-9-6zm0 10a4 4 0 110-8 4 4 0 010 8z"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg>`;
 }
 function getClosedEyeSVG() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M2 5l2.5 2.5C3.5 9 3 10 3 12s.5 3 1.5 4.5L2 19l2 2 3.5-3.5C9 18.5 10 19 12 19s3-.5 4.5-1.5L20 21l2-2-2.5-2.5C21 15 21 14 21 12s0-3-1.5-4.5L22 5l-2-2-3.5 3.5C15 5.5 14 5 12 5s-3 .5-4.5 1.5L4 3 2 5z"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m9.343 18.782l-1.932-.518l.787-2.939a11 11 0 0 1-3.237-1.872l-2.153 2.154l-1.414-1.414l2.153-2.154a10.96 10.96 0 0 1-2.371-5.07l1.968-.359a9.002 9.002 0 0 0 17.713 0l1.968.358a10.96 10.96 0 0 1-2.372 5.071l2.154 2.154l-1.414 1.414l-2.154-2.154a11 11 0 0 1-3.237 1.872l.788 2.94l-1.932.517l-.788-2.94a11 11 0 0 1-3.74 0z"/></svg>`;
 }
 
 
@@ -968,11 +968,18 @@ window.onload = () => {
   const miniFrame = document.getElementById("playerMini");
   let playerVisible = false;
 
+  function updateMiniToggleIcon() {
+    toggleBtn.innerHTML = playerVisible ? getOpenEyeSVG() : getClosedEyeSVG();
+  }
+
   toggleBtn.addEventListener("click", () => {
     playerVisible = !playerVisible;
     miniFrame.style.display = playerVisible ? "block" : "none";
-    toggleBtn.textContent = playerVisible ? "👁" : "🚫";
+    updateMiniToggleIcon();
   });
+
+  updateMiniToggleIcon();
+
   document.querySelectorAll(".type-btn").forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
