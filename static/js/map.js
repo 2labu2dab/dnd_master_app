@@ -838,22 +838,71 @@ canvas.addEventListener("mousedown", (e) => {
   }
 
   if (drawingZone) {
-    let x = (mouseX - offsetX) / scale;
-    let y = (mouseY - offsetY) / scale;
+    if (e.button === 0) { // Левый клик добавляет точку
+      let x = (mouseX - offsetX) / scale;
+      let y = (mouseY - offsetY) / scale;
 
-    // Привязка к вершинам
-    if (hoveredSnapVertex) {
-      [x, y] = hoveredSnapVertex;
+      // Привязка к вершинам
+      if (hoveredSnapVertex) {
+        [x, y] = hoveredSnapVertex;
+      }
+
+      // Обрезка по карте
+      x = Math.max(0, Math.min(x, mapImage.width));
+      y = Math.max(0, Math.min(y, mapImage.height));
+
+      currentZoneVertices.push([x, y]);
+      render();
     }
+    // Если правый клик — завершаем рисование зоны
+    else if (e.button === 2) { // Правый клик завершает рисование
+      e.preventDefault(); // Останавливаем стандартное поведение ПКМ (например, контекстное меню)
 
-    // Обрезка по карте
-    x = Math.max(0, Math.min(x, mapImage.width));
-    y = Math.max(0, Math.min(y, mapImage.height));
+      // Если в текущей зоне меньше 3 точек, не завершаем рисование
+      if (currentZoneVertices.length < 3) {
+        alert("Зона должна иметь минимум 3 точки.");
+        return;
+      }
 
-    currentZoneVertices.push([x, y]);
-    render();
-    return;
+      // Запрашиваем имя зоны только после того, как рисование завершено
+      const zoneName = prompt("Введите имя зоны:");
+      if (!zoneName) return;  // Если имя не введено, ничего не делаем
+
+      // Копируем текущие вершины зоны, не добавляя новые
+      const newZoneVertices = [...currentZoneVertices];
+
+      // Проверяем на пересечение с другими зонами
+      const hasIntersection = mapData.zones.some(z =>
+        z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
+      );
+
+      if (hasIntersection) {
+        alert("Новая зона пересекается с существующей! Измените форму.");
+        return;
+      }
+
+      // Завершаем рисование зоны
+      const newZone = {
+        id: `zone_${Date.now()}`,
+        name: zoneName,
+        vertices: newZoneVertices,
+        is_visible: true,
+      };
+
+      mapData.zones.push(newZone); // Добавляем зону в список
+      drawingZone = false;  // Останавливаем рисование зоны
+      currentZoneVertices = []; // Очищаем вершины текущей зоны
+      render(); // Обновляем карту
+      fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mapData),
+      }).then(() => {
+        fetchMap(); // Обновляем данные карты
+      });
+    }
   }
+  
 
   // Выбор объектов
   selectedTokenId = null;
@@ -1039,18 +1088,22 @@ canvas.addEventListener("contextmenu", (e) => {
   }
 
   if (drawingZone) {
-    e.preventDefault();
+    e.preventDefault(); // предотвращаем стандартное поведение ПКМ (например, контекстное меню)
 
+    // Если в текущей зоне меньше 3 точек, не завершаем рисование
     if (currentZoneVertices.length < 3) {
-      alert("Зона должна иметь минимум 3 точки");
+      alert("Зона должна иметь минимум 3 точки.");
       return;
     }
 
+    // Запрашиваем имя зоны только после того, как рисование завершено
     const zoneName = prompt("Введите имя зоны:");
-    if (!zoneName) return;
+    if (!zoneName) return; // Если имя не введено, ничего не делаем
 
+    // Копируем текущие вершины зоны, не добавляя новые
     const newZoneVertices = [...currentZoneVertices];
 
+    // Проверяем на пересечение с другими зонами
     const hasIntersection = mapData.zones.some(z =>
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
     );
@@ -1060,24 +1113,26 @@ canvas.addEventListener("contextmenu", (e) => {
       return;
     }
 
+    // Завершаем рисование зоны
     const newZone = {
       id: `zone_${Date.now()}`,
       name: zoneName,
       vertices: newZoneVertices,
       is_visible: true,
     };
-    mapData.zones.push(newZone);
-    drawingZone = false;
-    currentZoneVertices = [];
-    render();
+
+    mapData.zones.push(newZone); // Добавляем зону в список
+    drawingZone = false;  // Останавливаем рисование зоны
+    currentZoneVertices = []; // Очищаем вершины текущей зоны
+    render(); // Обновляем карту
     fetch("/api/map", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(mapData),
     }).then(() => {
-      fetchMap();
+      fetchMap(); // Обновляем данные карты
     });
-    return;
+    return; // Останавливаем выполнение, чтобы избежать дальнейших действий
   }
 
   // ПКМ по находке
