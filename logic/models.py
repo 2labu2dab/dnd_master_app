@@ -23,11 +23,12 @@ class Find:
         self.description = description
 
 class Zone:
-    def __init__(self, id, name, vertices, is_visible=True):
+    def __init__(self, id, name, vertices, description, is_visible=True):
         self.id = id
         self.name = name
         self.vertices = vertices
         self.is_visible = is_visible
+        self.description = description
 
 class GridSettings:
     def __init__(self, visible=True, visible_to_players=True, cell_size=20, color="#888888", opacity=100):

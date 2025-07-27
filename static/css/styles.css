@@ -636,3 +636,46 @@ large-modal {
   color: #4C5BEF; /* ← Цвет для stroke SVG */
 }
 
+.zone-visibility-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 14px;
+  color: #333;
+}
+
+.zone-visibility-toggle input[type="checkbox"] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #4C5BEF;
+  border-radius: 4px;
+  background-color: white;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.zone-visibility-toggle input[type="checkbox"]:checked {
+  background-color: #4C5BEF;
+  border-color: #4C5BEF;
+}
+
+.zone-visibility-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: rotate(45deg);
+  transition: opacity 0.2s ease;
+}
+
+.zone-visibility-toggle input[type="checkbox"]:checked::after {
+  opacity: 1;
+}

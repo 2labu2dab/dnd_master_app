@@ -1,6 +1,7 @@
 <!-- # ====== templates/index.html ====== -->
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,61 +9,63 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
 </head>
+
 <body>
   <div id="main">
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
-      <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden /></label>
-    <div class="section">
-    <details open>
-    <summary>Сетка</summary>
-    <div class="grid-control">
-      <input type="number" id="gridInput" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
-      <input type="range" id="gridSlider" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
-    </div>
-    </details>
-    <div class="section">
-    <details open>
-      <summary>Скрытые области</summary>
-      
-      <button class="add-button" onclick="addZone()">
-        Создать зону
-        <span class="add-icon">+</span>
-      </button>
-      <ul id="zoneList"></ul>
-    </details>
-  </div>
+      <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*"
+          onchange="autoUploadMap(this)" hidden /></label>
+      <div class="section">
+        <details open>
+          <summary>Сетка</summary>
+          <div class="grid-control">
+            <input type="number" id="gridInput" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
+            <input type="range" id="gridSlider" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
+          </div>
+        </details>
+        <div class="section">
+          <details open>
+            <summary>Скрытые области</summary>
 
-  <!-- Токены -->
-  <div class="section">
-    <details open>
-      <summary>Токены персонажей</summary>
-      <button class="add-button" onclick="addToken()">
-        Создать токен
-        <span class="add-icon">+</span>
-      </button>
-      <ul id="tokenList"></ul>
-    </details>
-  </div>
+            <button class="add-button" onclick="addZone()">
+              Создать зону
+              <span class="add-icon">+</span>
+            </button>
+            <ul id="zoneList"></ul>
+          </details>
+        </div>
 
-  <!-- Находки -->
-  <div class="section">
-    <details open>
-      <summary>Находки</summary>
-      <button class="add-button" onclick="openFindModal()">
-        Создать находку
-        <span class="add-icon">+</span>
-      </button>
-      <ul id="findList"></ul>
-    </details>
-  </div>
+        <!-- Токены -->
+        <div class="section">
+          <details open>
+            <summary>Токены персонажей</summary>
+            <button class="add-button" onclick="addToken()">
+              Создать токен
+              <span class="add-icon">+</span>
+            </button>
+            <ul id="tokenList"></ul>
+          </details>
+        </div>
+
+        <!-- Находки -->
+        <div class="section">
+          <details open>
+            <summary>Находки</summary>
+            <button class="add-button" onclick="openFindModal()">
+              Создать находку
+              <span class="add-icon">+</span>
+            </button>
+            <ul id="findList"></ul>
+          </details>
+        </div>
     </aside>
     <section id="canvas-container">
       <div id="toolButtons">
         <button id="gridToggle" class="tool-button" title="Показать/скрыть сетку">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
             <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-              d="M7 2v20M17 2v20m5-15H2m20 10H2"/>
+              d="M7 2v20M17 2v20m5-15H2m20 10H2" />
           </svg>
         </button>
         <button id="rulerToggle" class="tool-button" title="Линейка">
@@ -79,55 +82,56 @@
             d="M7 2v20M17 2v20m5-15H2m20 10H2" />
         </svg>
       </button>
-</button>
+      </button>
     </section>
   </div>
   <div id="tokenModal" class="modal" style="display:none;">
-  <div class="modal-content large-modal">
-    <span class="close" onclick="closeTokenModal()">&times;</span>
-    <h3>Создание токена персонажа</h3>
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeTokenModal()">&times;</span>
+      <h3>Создание токена персонажа</h3>
 
-    <!-- Тип токена -->
-    <div class="token-type-buttons">
-      <button data-type="player" class="type-btn active">Игрок</button>
-      <button data-type="npc" class="type-btn">НПС</button>
-      <button data-type="enemy" class="type-btn">Враг</button>
-    </div>
+      <!-- Тип токена -->
+      <div class="token-type-buttons">
+        <button data-type="player" class="type-btn active">Игрок</button>
+        <button data-type="npc" class="type-btn">НПС</button>
+        <button data-type="enemy" class="type-btn">Враг</button>
+      </div>
 
-    <div class="token-form">
-      <!-- Аватар -->
-      <div class="avatar-upload" id="avatarUpload">
-        <input type="file" id="avatarInput" accept="image/*" hidden onchange="handleAvatarUpload(this)">
-        <div class="avatar-upload">
-        <div id="avatarDropzone" onclick="document.getElementById('avatarFile').click()">
-          <img id="avatarPreview" src="" alt="Avatar" style="display: none;" />
-          <div id="avatarMask" class="circle-mask" style="display: none;"></div>
-          <div id="editIcon" style="display: none;">✎</div>
-          <input type="file" id="avatarFile" accept="image/*" style="display: none;" onchange="handleAvatarUpload(event)">
-          <div id="avatarOverlay">
-            <strong>Нажми для выбора</strong><br />
-            <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
+      <div class="token-form">
+        <!-- Аватар -->
+        <div class="avatar-upload" id="avatarUpload">
+          <input type="file" id="avatarInput" accept="image/*" hidden onchange="handleAvatarUpload(this)">
+          <div class="avatar-upload">
+            <div id="avatarDropzone" onclick="document.getElementById('avatarFile').click()">
+              <img id="avatarPreview" src="" alt="Avatar" style="display: none;" />
+              <div id="avatarMask" class="circle-mask" style="display: none;"></div>
+              <div id="editIcon" style="display: none;">✎</div>
+              <input type="file" id="avatarFile" accept="image/*" style="display: none;"
+                onchange="handleAvatarUpload(event)">
+              <div id="avatarOverlay">
+                <strong>Нажми для выбора</strong><br />
+                <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Параметры -->
+        <div class="token-fields">
+          <label>Имя<br><input type="text" id="tokenName"></label>
+          <div class="flex-row">
+            <label>КД<br><input type="number" id="tokenAC" value="10"></label>
+            <label>Макс. ОЗ<br><input type="number" id="tokenHP" value="10"></label>
           </div>
         </div>
       </div>
-      </div>
 
-      <!-- Параметры -->
-      <div class="token-fields">
-        <label>Имя<br><input type="text" id="tokenName"></label>
-        <div class="flex-row">
-          <label>КД<br><input type="number" id="tokenAC" value="10"></label>
-          <label>Макс. ОЗ<br><input type="number" id="tokenHP" value="10"></label>
-        </div>
+      <!-- Кнопки -->
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitToken()">Сохранить</button>
+        <button class="cancel-btn" onclick="closeTokenModal()">Отменить</button>
       </div>
     </div>
-
-    <!-- Кнопки -->
-    <div class="token-buttons">
-      <button class="save-btn" onclick="submitToken()">Сохранить</button>
-      <button class="cancel-btn" onclick="closeTokenModal()">Отменить</button>
-    </div>
-  </div>
   </div>
 
   <div id="findModal" class="modal" style="display: none;">
@@ -141,7 +145,8 @@
           </label>
 
           <label>Описание<br>
-            <textarea id="findDescription" rows="6" style="width: 100%; resize: vertical; font-family: Inter, sans-serif; font-size: 14px; padding: 6px; border-radius: 6px; border: 1px solid #ccc;"></textarea>
+            <textarea id="findDescription" rows="6"
+              style="width: 100%; resize: vertical; font-family: Inter, sans-serif; font-size: 14px; padding: 6px; border-radius: 6px; border: 1px solid #ccc;"></textarea>
           </label>
         </div>
       </div>
@@ -153,6 +158,36 @@
     </div>
   </div>
   <div id="findTooltip" style="display: none;"></div>
+
+
+  <div id="zoneModal" class="modal" style="display: none;">
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeZoneModal()">&times;</span>
+      <h3 id="zoneModalTitle">Создание зоны</h3>
+      <div class="token-form">
+        <div class="token-fields">
+          <label>Имя зоны<br>
+            <input type="text" id="zoneName">
+          </label>
+
+          <label>Описание<br>
+            <textarea id="zoneDescription" rows="6"
+              style="width: 100%; resize: vertical; font-family: Inter, sans-serif; font-size: 14px; padding: 6px; border-radius: 6px; border: 1px solid #ccc;"></textarea>
+          </label>
+        </div>
+      </div>
+      <div class="zone-visibility-toggle">
+        <input type="checkbox" id="zoneVisibleCheckbox" checked />
+        <label for="zoneVisibleCheckbox">Зона видима игрокам</label>
+      </div>
+
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitZone()">Сохранить</button>
+        <button class="cancel-btn" onclick="closeZoneModal()">Отменить</button>
+      </div>
+    </div>
+  </div>
+  <div id="zoneTooltip" style="display: none;"></div>
 
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
   <iframe id="playerMini" src="/player" width="320" height="180" style="display: none;"></iframe>
@@ -179,4 +214,5 @@
     </label>
   </div>
 </body>
+
 </html>

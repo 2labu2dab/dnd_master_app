@@ -33,6 +33,8 @@ let rulerStart = null;
 let lastMouseX = 0;
 let lastMouseY = 0;
 let editingFindId = null;
+let editingZoneId = null;
+let pendingZoneVertices = null;
 let hoveredSnapVertex = null;
 const avatarCache = {};
 
@@ -854,53 +856,6 @@ canvas.addEventListener("mousedown", (e) => {
       currentZoneVertices.push([x, y]);
       render();
     }
-    // Если правый клик — завершаем рисование зоны
-    else if (e.button === 2) { // Правый клик завершает рисование
-      e.preventDefault(); // Останавливаем стандартное поведение ПКМ (например, контекстное меню)
-
-      // Если в текущей зоне меньше 3 точек, не завершаем рисование
-      if (currentZoneVertices.length < 3) {
-        alert("Зона должна иметь минимум 3 точки.");
-        return;
-      }
-
-      // Запрашиваем имя зоны только после того, как рисование завершено
-      const zoneName = prompt("Введите имя зоны:");
-      if (!zoneName) return;  // Если имя не введено, ничего не делаем
-
-      // Копируем текущие вершины зоны, не добавляя новые
-      const newZoneVertices = [...currentZoneVertices];
-
-      // Проверяем на пересечение с другими зонами
-      const hasIntersection = mapData.zones.some(z =>
-        z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
-      );
-
-      if (hasIntersection) {
-        alert("Новая зона пересекается с существующей! Измените форму.");
-        return;
-      }
-
-      // Завершаем рисование зоны
-      const newZone = {
-        id: `zone_${Date.now()}`,
-        name: zoneName,
-        vertices: newZoneVertices,
-        is_visible: true,
-      };
-
-      mapData.zones.push(newZone); // Добавляем зону в список
-      drawingZone = false;  // Останавливаем рисование зоны
-      currentZoneVertices = []; // Очищаем вершины текущей зоны
-      render(); // Обновляем карту
-      fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
-      }).then(() => {
-        fetchMap(); // Обновляем данные карты
-      });
-    }
   }
   
 
@@ -1071,6 +1026,7 @@ function renderTokenContextMenu(token, x, y) {
 }
 
 canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
   const { scale, offsetX, offsetY } = getTransform();
 
   for (const token of mapData.tokens) {
@@ -1097,11 +1053,16 @@ canvas.addEventListener("contextmenu", (e) => {
     }
 
     // Запрашиваем имя зоны только после того, как рисование завершено
-    const zoneName = prompt("Введите имя зоны:");
-    if (!zoneName) return; // Если имя не введено, ничего не делаем
+    const newZoneVertices = [...currentZoneVertices]; // <-- СНАЧАЛА копируем
+    pendingZoneVertices = [...currentZoneVertices];
+    drawingZone = false;
+    currentZoneVertices = [];
 
-    // Копируем текущие вершины зоны, не добавляя новые
-    const newZoneVertices = [...currentZoneVertices];
+    document.getElementById("zoneName").value = "";
+    document.getElementById("zoneDescription").value = "";
+    document.getElementById("zoneModalTitle").textContent = "Создание зоны";
+    document.getElementById("zoneModal").style.display = "flex";
+    document.getElementById("zoneVisibleCheckbox").checked = true;
 
     // Проверяем на пересечение с другими зонами
     const hasIntersection = mapData.zones.some(z =>
@@ -1112,26 +1073,6 @@ canvas.addEventListener("contextmenu", (e) => {
       alert("Новая зона пересекается с существующей! Измените форму.");
       return;
     }
-
-    // Завершаем рисование зоны
-    const newZone = {
-      id: `zone_${Date.now()}`,
-      name: zoneName,
-      vertices: newZoneVertices,
-      is_visible: true,
-    };
-
-    mapData.zones.push(newZone); // Добавляем зону в список
-    drawingZone = false;  // Останавливаем рисование зоны
-    currentZoneVertices = []; // Очищаем вершины текущей зоны
-    render(); // Обновляем карту
-    fetch("/api/map", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mapData),
-    }).then(() => {
-      fetchMap(); // Обновляем данные карты
-    });
     return; // Останавливаем выполнение, чтобы избежать дальнейших действий
   }
 
@@ -1162,19 +1103,23 @@ canvas.addEventListener("contextmenu", (e) => {
 
     if (ctx.isPointInPath(path, e.offsetX, e.offsetY)) {
       e.preventDefault();
-      const choice = confirm(zone.is_visible ? "Скрыть зону?" : "Сделать зону видимой?");
-      if (choice !== null) {
-        zone.is_visible = !zone.is_visible;
-        fetch("/api/map", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(mapData),
-        });
-        render();
-      }
+
+      // Сохраняем текущую зону
+      selectedZoneId = zone.id;
+      pendingZoneVertices = [...zone.vertices]; // ← если нужно редактировать позже координаты
+
+      // Заполняем поля модалки
+      document.getElementById("zoneName").value = zone.name || "";
+      document.getElementById("zoneDescription").value = zone.description || "";
+      document.getElementById("zoneVisibleCheckbox").checked = zone.is_visible ?? true;
+
+      document.getElementById("zoneModalTitle").textContent = "Редактирование зоны";
+      document.getElementById("zoneModal").style.display = "flex";
+
       return;
     }
   }
+
 });
 
 canvas.addEventListener("mouseup", () => {
@@ -1215,7 +1160,8 @@ document.addEventListener("keydown", (e) => {
     if (selectedZoneId) {
       mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
       selectedZoneId = null;
-      changed = true;
+      saveMapData(); // ← сохраняем изменения
+      render();
     }
 
     if (selectedFindId) {
@@ -1260,6 +1206,71 @@ function closeFindModal() {
   document.getElementById("findModal").style.display = "none";
   editingFindId = null;
 }
+
+function closeZoneModal() {
+  document.getElementById("zoneModal").style.display = "none";
+  editingZoneId = null;
+  pendingZoneVertices = null;
+}
+
+function submitZone() {
+  const isVisible = document.getElementById("zoneVisibleCheckbox").checked;
+  const name = document.getElementById("zoneName").value.trim();
+  const description = document.getElementById("zoneDescription").value.trim();
+
+  if (!name || !pendingZoneVertices) {
+    alert("Введите имя зоны.");
+    return;
+  }
+
+  const editing = !!selectedZoneId;
+
+  if (!editing) {
+    // Проверка на пересечение только при создании новой зоны
+    const hasIntersection = mapData.zones.some(z =>
+      z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, pendingZoneVertices)
+    );
+
+    if (hasIntersection) {
+      alert("Новая зона пересекается с существующей! Измените форму.");
+      return;
+    }
+  }
+
+  if (editing) {
+    // Редактируем существующую зону
+    const zone = mapData.zones.find(z => z.id === selectedZoneId);
+    if (zone) {
+      zone.name = name;
+      zone.description = description;
+      zone.is_visible = isVisible;
+    }
+  } else {
+    // Создаём новую зону
+    const newZone = {
+      id: `zone_${Date.now()}`,
+      name,
+      description,
+      vertices: [...pendingZoneVertices],
+      is_visible: isVisible,
+    };
+    mapData.zones.push(newZone);
+  }
+
+  // Очистка и завершение
+  selectedZoneId = null;
+  pendingZoneVertices = null;
+  document.getElementById("zoneModal").style.display = "none";
+  render();
+  updateSidebar();
+
+  fetch("/api/map", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mapData),
+  });
+}
+
 
 function submitFind() {
   const name = document.getElementById("findName").value.trim();
