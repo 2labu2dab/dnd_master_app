@@ -613,9 +613,6 @@ large-modal {
 }
 
 .corner-button {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
   background: #2a2a3b;
   color: white;
   border: none;
@@ -678,4 +675,14 @@ large-modal {
 
 .zone-visibility-toggle input[type="checkbox"]:checked::after {
   opacity: 1;
+}
+
+#playerCornerButtons {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  z-index: 1000;
 }
