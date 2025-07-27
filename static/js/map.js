@@ -568,12 +568,13 @@ function drawToken(token, offsetX, offsetY, scale) {
   const sx = x * scale + offsetX;
   const sy = y * scale + offsetY;
   const size = mapData.grid_settings.cell_size * scale;
+  const radius = size / 2;
 
   // Цветная рамка по типу
   ctx.beginPath();
-  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+  ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
   ctx.strokeStyle = token.is_dead
-    ? "#999" // серая обводка для мёртвых
+    ? "#999"
     : token.is_player
     ? "#4CAF50"
     : token.is_npc
@@ -582,7 +583,7 @@ function drawToken(token, offsetX, offsetY, scale) {
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Источник аватара: base64 или путь
+  // Источник аватара
   const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
   const cached = avatarCache[token.id];
 
@@ -592,17 +593,16 @@ function drawToken(token, offsetX, offsetY, scale) {
       img.onload = () => render();
       img.onerror = () => {
         console.warn(`⚠ Не удалось загрузить аватар токена ${token.name}`);
-        avatarCache[token.id] = null; // помечаем как сломанный
+        avatarCache[token.id] = null;
       };
       img.src = avatarSrc;
       avatarCache[token.id] = img;
     } else if (cached instanceof HTMLImageElement && cached.complete && cached.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
       ctx.clip();
 
-      // Если токен мёртв — отрисовка в ч/б
       if (token.is_dead) {
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = size;
@@ -610,7 +610,6 @@ function drawToken(token, offsetX, offsetY, scale) {
         const tempCtx = tempCanvas.getContext("2d");
 
         tempCtx.drawImage(cached, 0, 0, size, size);
-
         const imageData = tempCtx.getImageData(0, 0, size, size);
         const data = imageData.data;
 
@@ -620,15 +619,14 @@ function drawToken(token, offsetX, offsetY, scale) {
         }
 
         tempCtx.putImageData(imageData, 0, 0);
-        ctx.drawImage(tempCanvas, sx - size / 2, sy - size / 2);
+        ctx.drawImage(tempCanvas, sx - radius, sy - radius);
       } else {
-        ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
+        ctx.drawImage(cached, sx - radius, sy - radius, size, size);
       }
 
       ctx.restore();
     }
   } else {
-    // Цветной круг, если аватар отсутствует
     ctx.beginPath();
     ctx.fillStyle = token.is_dead
       ? "#616161"
@@ -637,35 +635,36 @@ function drawToken(token, offsetX, offsetY, scale) {
       : token.is_npc
       ? "#FFC107"
       : "#F44336";
-    ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+    ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
     ctx.fill();
   }
 
-  // Подпись под токеном
-  // ctx.fillStyle = "white";
-  // const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
-  // ctx.font = `${fontSize}px Inter, sans-serif`;
-  // ctx.textAlign = "center";
-  // ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
+  // Обводка выделенного токена
+  if (selectedTokenId === token.id) {
+    ctx.beginPath();
+    ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = "#00FFFF";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 function drawFind(find, offsetX, offsetY, scale) {
   const [x, y] = find.position;
   const sx = x * scale + offsetX;
   const sy = y * scale + offsetY;
-  const cellSize = mapData.grid_settings.cell_size;
-  const size = cellSize * scale;
+  const size = mapData.grid_settings.cell_size * scale;
+  const radius = size / 2;
 
   ctx.save();
 
-  // Прозрачность для найденных
   if (find.status) {
     ctx.globalAlpha = 0.5;
   }
 
-  // Фон круга
+  // Круг находки
   ctx.beginPath();
-  ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
+  ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
   ctx.fillStyle = "#4C5BEF";
   ctx.fill();
 
@@ -674,16 +673,25 @@ function drawFind(find, offsetX, offsetY, scale) {
   ctx.strokeStyle = "white";
   ctx.stroke();
 
-  // Знак "?"
+  // Текст "?"
   ctx.fillStyle = "white";
-  const fontSize = size * 0.6;
-  ctx.font = `bold ${fontSize}px Inter, sans-serif`;
+  ctx.font = `bold ${radius}px Inter, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("?", sx, sy);
 
+  // Обводка выделенной находки
+  if (selectedFindId === find.id) {
+    ctx.beginPath();
+    ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = "#00FFFF";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
+
 
 function getMapCoordinates(event, offsetX, offsetY, scale) {
   const rect = canvas.getBoundingClientRect();
@@ -734,9 +742,9 @@ function drawZone(zone, offsetX, offsetY, scale) {
 
   const isSelected = zone.id === selectedZoneId;
   if (isSelected) {
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
   } else {
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 4;
   }
 
   // Преобразуем координаты вершин для масштаба и смещения
