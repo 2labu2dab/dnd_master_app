@@ -221,8 +221,8 @@ function updateSidebar() {
     dot.style.backgroundColor = token.is_player
       ? "#4CAF50"
       : token.is_npc
-      ? "#FFC107"
-      : "#F44336";
+        ? "#FFC107"
+        : "#F44336";
 
     const nameSpan = document.createElement("span");
     nameSpan.style.flex = "1";
@@ -249,8 +249,8 @@ function updateSidebar() {
       hpSpan.textContent = `${hp}/${max} ОЗ`;
       hpSpan.style.color =
         percent > 0.8 ? "#4CAF50" :
-        percent > 0.4 ? "#FFC107" :
-        "#F44336";
+          percent > 0.4 ? "#FFC107" :
+            "#F44336";
     }
 
     const eye = document.createElement("span");
@@ -319,14 +319,14 @@ function saveMapData() {
 function zonesIntersect(verticesA, verticesB) {
   function onSegment(p, q, r) {
     return q[0] <= Math.max(p[0], r[0]) &&
-           q[0] >= Math.min(p[0], r[0]) &&
-           q[1] <= Math.max(p[1], r[1]) &&
-           q[1] >= Math.min(p[1], r[1]);
+      q[0] >= Math.min(p[0], r[0]) &&
+      q[1] <= Math.max(p[1], r[1]) &&
+      q[1] >= Math.min(p[1], r[1]);
   }
 
   function orientation(p, q, r) {
     const val = (q[1] - p[1]) * (r[0] - q[0]) -
-                (q[0] - p[0]) * (r[1] - q[1]);
+      (q[0] - p[0]) * (r[1] - q[1]);
     if (Math.abs(val) < 1e-10) return 0; // коллинеарны
     return (val > 0) ? 1 : 2;
   }
@@ -345,7 +345,7 @@ function zonesIntersect(verticesA, verticesB) {
       // Но если один из концов совпадает — не считаем пересечением
       if (
         (pointsEqual(p1, p2) || pointsEqual(p1, q2) ||
-        pointsEqual(q1, p2) || pointsEqual(q1, q2))
+          pointsEqual(q1, p2) || pointsEqual(q1, q2))
       ) {
         return false;
       }
@@ -358,7 +358,7 @@ function zonesIntersect(verticesA, verticesB) {
       return false;
     }
     if (o2 === 0 && onSegment(p1, q2, q1)) {
-        return false;
+      return false;
     }
     if (o3 === 0 && onSegment(p2, p1, q2)) {
       return false;
@@ -466,7 +466,7 @@ function render() {
   }
 
   drawLayers(offsetX, offsetY, scale);
-  
+
   if (drawingZone && currentZoneVertices.length > 0) {
     drawTempZone(offsetX, offsetY, scale);
   }
@@ -576,10 +576,10 @@ function drawToken(token, offsetX, offsetY, scale) {
   ctx.strokeStyle = token.is_dead
     ? "#999"
     : token.is_player
-    ? "#4CAF50"
-    : token.is_npc
-    ? "#FFC107"
-    : "#F44336";
+      ? "#4CAF50"
+      : token.is_npc
+        ? "#FFC107"
+        : "#F44336";
   ctx.lineWidth = 4;
   ctx.stroke();
 
@@ -631,10 +631,10 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.fillStyle = token.is_dead
       ? "#616161"
       : token.is_player
-      ? "#4CAF50"
-      : token.is_npc
-      ? "#FFC107"
-      : "#F44336";
+        ? "#4CAF50"
+        : token.is_npc
+          ? "#FFC107"
+          : "#F44336";
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
     ctx.fill();
   }
@@ -735,7 +735,7 @@ function drawZone(zone, offsetX, offsetY, scale) {
   if (!zone.vertices || zone.vertices.length < 2) return; // Если зона не имеет вершин, не рисуем её
 
   ctx.beginPath();
-  
+
   // Цвет зоны в зависимости от видимости
   ctx.strokeStyle = zone.is_visible ? "#4CAF50" : "#F44336";
   ctx.fillStyle = zone.is_visible ? "rgba(76, 175, 80, 0.3)" : "rgba(244, 67, 54, 0.3)";
@@ -767,11 +767,20 @@ function drawZone(zone, offsetX, offsetY, scale) {
     ctx.stroke();
   }
 
-  // Отображение имени зоны в центре полигона
+  // Отображение имени зоны в центре полигона с белым буфером
   const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
   const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
-  ctx.fillStyle = "#333";
-  ctx.font = `16px Inter`;
+  ctx.font = `18px Inter`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Белый контур
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 4;
+  ctx.strokeText(zone.name, centerX, centerY);
+
+  // Чёрный текст
+  ctx.fillStyle = "black";
   ctx.fillText(zone.name, centerX, centerY);
 }
 
@@ -783,7 +792,7 @@ function addZone() {
 function onGridSizeChange(value) {
   const newSize = parseInt(value);
   document.getElementById("gridSlider").value = newSize;
-  document.getElementById("gridInput").value = newSize;  document.getElementById("gridInput").value = newSize;
+  document.getElementById("gridInput").value = newSize; document.getElementById("gridInput").value = newSize;
   mapData.grid_settings.cell_size = newSize;
   render();
 
@@ -865,7 +874,7 @@ canvas.addEventListener("mousedown", (e) => {
       render();
     }
   }
-  
+
 
   // Выбор объектов
   selectedTokenId = null;
@@ -1021,8 +1030,15 @@ function renderTokenContextMenu(token, x, y) {
   checkbox.checked = token.is_dead || token.health_points <= 0;
 
   checkbox.onchange = () => {
+    const wasDead = token.is_dead || token.health_points <= 0;
     token.is_dead = checkbox.checked;
-    if (checkbox.checked) token.health_points = 0;
+
+    if (checkbox.checked) {
+      token.health_points = 0;
+    } else if (wasDead) {
+      token.health_points = 1;
+    }
+
     saveMapData();
     render();
     updateSidebar();
@@ -1186,7 +1202,7 @@ document.addEventListener("keydown", (e) => {
         body: JSON.stringify(mapData),
       });
     }
-  updateSidebar();
+    updateSidebar();
   }
 });
 
@@ -1326,10 +1342,10 @@ function submitFind() {
 }
 
 function updateSliderVisual() {
-    const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
-    const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
-    gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
-  }
+  const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
+  const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
+  gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
+}
 
 window.onload = () => {
   fetchMap();
