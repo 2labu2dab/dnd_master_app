@@ -17,26 +17,32 @@ body {
 }
 
 .section {
-  margin-top: 20px;
-  padding-top: 10px;
+  margin-top: 0px;
+  padding-top: 0px;
   border-top: 1px solid #3a3a3a;
 }
 
 summary {
+  height: 20px;
   list-style: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: white;
   cursor: pointer;
-  padding: 10px 0;
   user-select: none;
+  margin-bottom: 15px; /* Добавлен отступ снизу */
+  margin-top: 15px; /* Добавлен отступ снизу */
 }
 
 summary::-webkit-details-marker {
   display: none;
+}
+
+details{
+  margin-bottom: 15px;
 }
 
 summary::after {
@@ -72,10 +78,12 @@ details[open] > summary::after {
   margin-bottom: 10px;
   text-align: center;
   transition: background-color 0.2s ease;
+  background-color: #4C5BEF;
+  border-radius: 9999px;
 }
 
 #map-label:hover {
-  background-color: #007acc;
+  background-color: #3e4cd4;
 }
 
 #main {
@@ -151,7 +159,7 @@ details[open] > summary::after {
 }
 
 .add-button {
-  width: auto;
+  width: 180px; /* Фиксированная ширина кнопки */
   padding: 8px 16px;
   font-size: 14px;
   font-family: 'Inter', sans-serif;
@@ -160,15 +168,21 @@ details[open] > summary::after {
   border: none;
   border-radius: 9999px;
   display: inline-flex;
+  justify-content: space-between; /* Разделяет текст и иконку */
   align-items: center;
   gap: 8px;
   cursor: pointer;
   transition: background-color 0.2s ease;
   box-shadow: 0 0 4px rgba(0,0,0,0.2);
+  margin-bottom: 15px; /* Добавлен отступ снизу */
 }
 
 .add-button:hover {
   background-color: #3e4cd4;
+}
+
+.add-button .add-icon {
+  order: 2; /* Иконка будет расположена справа */
 }
 
 .add-icon {
@@ -417,7 +431,8 @@ large-modal {
 }
 
 .grid-control input[type="number"] {
-  width: 55px;
+  width: 57px;
+  height: 20px;
   border: none;
   border-radius: 9999px;
   padding: 6px 10px;

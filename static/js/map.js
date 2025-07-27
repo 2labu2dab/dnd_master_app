@@ -417,7 +417,7 @@ function fetchMap() {
       document.getElementById("gridSlider").value = gridSize;
       document.getElementById("gridInput").value = gridSize;
 
-      const rawPercent = ((gridSize - 10) / (200 - 10)) * 100;
+      const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
       const adjustedPercent = Math.min(rawPercent + 2, 100);
       document.getElementById("gridSlider").style.setProperty('--percent', `${adjustedPercent}%`);
 

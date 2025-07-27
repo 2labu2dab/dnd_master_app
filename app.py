@@ -108,11 +108,11 @@ if __name__ == "__main__":
             "map_image": "",  # 👈 добавляем эту строку
             "grid_settings": {
                 "visible": True,
-                "visible_to_players": True,
+                "visible_to_players": False,
                 "cell_size": 20,
                 "color": "#888888",
                 "opacity": 100
             },
-            "ruler_visible_to_players": True
+            "ruler_visible_to_players": False
         })
     app.run(debug=True, port=5000)
