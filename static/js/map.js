@@ -5,6 +5,7 @@ const sidebar = document.getElementById("sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let zoomLevel = 1;
+const socket = io();
 
 let mapImage = new Image();
 let mapData = {
@@ -984,13 +985,21 @@ canvas.addEventListener("mousemove", (e) => {
   }
 
   if (isRulerMode && rulerStart) {
+    const { scale, offsetX, offsetY } = getTransform();
+
     mapData.ruler_start = rulerStart;
     mapData.ruler_end = [
-      (mouseX - offsetX) / scale,
-      (mouseY - offsetY) / scale
+      (e.offsetX - offsetX) / scale,
+      (e.offsetY - offsetY) / scale
     ];
+
     render();
-    saveMapData();  // чтобы отправить данные на сервер
+
+    socket.emit("ruler_update", {
+      ruler_start: mapData.ruler_start,
+      ruler_end: mapData.ruler_end
+    });
+
     return;
   }
 

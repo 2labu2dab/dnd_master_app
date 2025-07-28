@@ -101,6 +101,7 @@ def upload_map():
 @socketio.on("ruler_update")
 def handle_ruler_update(data):
     emit("ruler_update", data, broadcast=True, include_self=False)
+
     
 
 
