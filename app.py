@@ -1,12 +1,12 @@
-# ====== app.py ======
-
+# app.py
 from flask import Flask, render_template, jsonify, request, redirect
+from flask_socketio import SocketIO, emit
 from utils.storage import load_map_data, save_map_data
-from logic.models import Token, Zone, Find, GridSettings
 import os
 import base64
 
-app = Flask(__name__, static_folder="static", template_folder="templates")
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")  # Включаем WebSocket
 
 
 @app.route("/")
@@ -24,6 +24,7 @@ def get_map():
 def save_map():
     data = request.get_json()
     save_map_data(data)
+    socketio.emit("map_updated", data)  # ⬅ отправляем обновление всем
     return jsonify({"status": "ok"})
 
 
@@ -97,6 +98,11 @@ def upload_map():
     save_map_data(data)
     return redirect("/")
 
+@socketio.on("ruler_update")
+def handle_ruler_update(data):
+    emit("ruler_update", data, broadcast=True, include_self=False)
+    
+
 
 if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
@@ -117,4 +123,4 @@ if __name__ == "__main__":
                 "opacity": 100
             }
         })
-    app.run(debug=True, port=5000)
+    socketio.run(app, debug=True, port=5000)  # ⬅ запускаем через socketio.run
