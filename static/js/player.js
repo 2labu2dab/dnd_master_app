@@ -12,6 +12,9 @@ let mapData = {
   finds: [],
   zones: [],
   map_image: "",
+  ruler_visible_to_players: false,
+  ruler_start: null,
+  ruler_end: null,
   grid_settings: { cell_size: 20, color: "#888888", visible: true }
 };
 
@@ -30,9 +33,6 @@ function fetchMap() {
     .then(res => res.json())
     .then(data => {
       mapData = data;
-      // if (!isEmbeddedPreview && typeof mapData.zoom_level === "number") {
-      //   zoomLevel = mapData.zoom_level;
-      // } Если вдруг Вероника захочет нормальное превью)
       zoomLevel = mapData.zoom_level;
       if (!mapData.tokens) mapData.tokens = [];
       if (!mapData.finds) mapData.finds = [];
@@ -63,8 +63,45 @@ function render() {
   } else {
     console.warn("[render] mapImage еще не загружено полностью");
   }
+  if (mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
+    drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, scale);
+  }
 
   drawLayers(offsetX, offsetY, scale);  // Отрисовка слоев (токены, зоны и т.д.)
+}
+
+
+function drawMasterRuler(start, end, offsetX, offsetY, scale) {
+  const [x1, y1] = start;
+  const [x2, y2] = end;
+
+  const sx1 = x1 * scale + offsetX;
+  const sy1 = y1 * scale + offsetY;
+  const sx2 = x2 * scale + offsetX;
+  const sy2 = y2 * scale + offsetY;
+
+  ctx.beginPath();
+  ctx.moveTo(sx1, sy1);
+  ctx.lineTo(sx2, sy2);
+  ctx.strokeStyle = "#4C5BEF";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const dx = (x2 - x1);
+  const dy = (y2 - y1);
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const cells = dist / mapData.grid_settings.cell_size;
+  const feet = cells * 5;
+
+  const midX = (sx1 + sx2) / 2;
+  const midY = (sy1 + sy2) / 2;
+
+  ctx.fillStyle = "white";
+  ctx.font = "16px Inter";
+  ctx.textAlign = "center";
+  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
 }
 
 function drawLayers(offsetX, offsetY, scale) {

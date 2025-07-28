@@ -435,6 +435,9 @@ function fetchMap() {
         playerGridToggle.classList.remove("active");
       }
 
+      const playerRulerToggle = document.getElementById("playerRulerToggle");
+      playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
+
       if (mapData.map_image_base64) {
         mapImage = new Image();
         mapImage.onload = () => render();
@@ -981,7 +984,13 @@ canvas.addEventListener("mousemove", (e) => {
   }
 
   if (isRulerMode && rulerStart) {
-    render(); // чтобы линия тянулась за мышью
+    mapData.ruler_start = rulerStart;
+    mapData.ruler_end = [
+      (mouseX - offsetX) / scale,
+      (mouseY - offsetY) / scale
+    ];
+    render();
+    saveMapData();  // чтобы отправить данные на сервер
     return;
   }
 
@@ -1380,6 +1389,13 @@ window.onload = () => {
   rulerBtn.addEventListener("click", () => {
     isRulerMode = !isRulerMode;
     rulerStart = null;
+
+    if (!isRulerMode) {
+      mapData.ruler_start = null;
+      mapData.ruler_end = null;
+      saveMapData();
+    }
+
     rulerBtn.classList.toggle("active", isRulerMode);
     render();
   });
@@ -1397,6 +1413,14 @@ window.onload = () => {
     const current = mapData.grid_settings.visible_to_players ?? true;
     mapData.grid_settings.visible_to_players = !current;
     playerGridToggle.classList.toggle("active", !current);
+    saveMapData();
+  });
+
+  const playerRulerToggle = document.getElementById("playerRulerToggle");
+  playerRulerToggle.addEventListener("click", () => {
+    const current = mapData.ruler_visible_to_players ?? false;
+    mapData.ruler_visible_to_players = !current;
+    playerRulerToggle.classList.toggle("active", !current);
     saveMapData();
   });
 

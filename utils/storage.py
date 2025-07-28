@@ -11,6 +11,9 @@ def load_map_data():
             "zones": [],
             "finds": [],
             "map_image_base64": "",
+            "ruler_visible_to_players": False,
+            "ruler_start": None,
+            "ruler_end": None,
             "grid_settings": {
                 "visible": True,
                 "visible_to_players": True,
@@ -19,7 +22,6 @@ def load_map_data():
                 "opacity": 100
             }
         }
-
     with open("data/map_data.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
