@@ -7,6 +7,7 @@ let zoomLevel = 1;
 
 let mapImage = new Image();
 const avatarCache = {};
+const socket = io();
 let mapData = {
   tokens: [],
   finds: [],
@@ -48,6 +49,18 @@ function fetchMap() {
       }
     });
 }
+
+socket.on("map_updated", (data) => {
+  mapData = data;
+  render();
+});
+
+socket.on("ruler_update", (data) => {
+  mapData.ruler_start = data.ruler_start;
+  mapData.ruler_end = data.ruler_end;
+  render();
+});
+
 
 function render() {
   resizeCanvasToDisplaySize();
@@ -242,7 +255,4 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
   ctx.filter = "none";
   ctx.restore();
 }
-
-// ⏱ Автообновление
-setInterval(fetchMap, 1000);
 window.onload = fetchMap;
