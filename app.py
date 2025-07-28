@@ -105,14 +105,16 @@ if __name__ == "__main__":
             "tokens": [],
             "zones": [],
             "finds": [],
-            "map_image": "",  # 👈 добавляем эту строку
+            "map_image_base64": "",
+            "ruler_visible_to_players": False,
+            "ruler_start": None,
+            "ruler_end": None,
             "grid_settings": {
                 "visible": True,
-                "visible_to_players": False,
+                "visible_to_players": True,
                 "cell_size": 20,
                 "color": "#888888",
                 "opacity": 100
-            },
-            "ruler_visible_to_players": False
+            }
         })
     app.run(debug=True, port=5000)
