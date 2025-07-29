@@ -29,10 +29,30 @@ function resizeCanvasToDisplaySize() {
   }
 }
 
+window.addEventListener("resize", () => {
+  const displayWidth = canvas.clientWidth;
+  const displayHeight = canvas.clientHeight;
+
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+  }
+  render();
+});
+
 function fetchMap() {
   fetch(`/api/map?ts=${Date.now()}`)
     .then(res => res.json())
     .then(data => {
+      const mapImageEl = document.getElementById("mapDisabledImage");
+
+      if (mapData.player_map_enabled === false) {
+        mapImageEl.style.display = "block";
+        canvas.style.display = "none";
+      } else {
+        mapImageEl.style.display = "none";
+        canvas.style.display = "block";
+      }
       mapData = data;
       zoomLevel = mapData.zoom_level;
       if (!mapData.tokens) mapData.tokens = [];
@@ -52,7 +72,19 @@ function fetchMap() {
 
 socket.on("map_updated", (data) => {
   mapData = data;
-  render();
+  zoomLevel = mapData.zoom_level || 1;
+
+  const mapImageEl = document.getElementById("mapDisabledImage");
+  if (mapData.player_map_enabled === false) {
+    mapImageEl.style.display = "block";
+    canvas.style.display = "none";
+    return;
+  } else {
+    mapImageEl.style.display = "none";
+    canvas.style.display = "block";
+  }
+
+  render(); // только если карта включена
 });
 
 socket.on("ruler_update", (data) => {

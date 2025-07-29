@@ -2,7 +2,8 @@
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const sidebar = document.getElementById("sidebar");
-canvas.width = window.innerWidth - sidebar.offsetWidth;
+const rightSidebar = document.getElementById("right-sidebar"); // Добавим это
+canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let zoomLevel = 1;
 const socket = io();
@@ -418,6 +419,10 @@ function fetchMap() {
         };
       }
 
+      if (mapData.player_map_enabled === undefined) {
+        mapData.player_map_enabled = true;
+      }
+
       // Устанавливаем значения слайдера
       const gridSize = mapData.grid_settings.cell_size || 20;
       document.getElementById("gridSlider").value = gridSize;
@@ -454,7 +459,8 @@ function fetchMap() {
 
 window.addEventListener("resize", () => {
   const sidebar = document.getElementById("sidebar");
-  canvas.width = window.innerWidth - sidebar.offsetWidth;
+  const rightSidebar = document.getElementById("right-sidebar");
+  canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
   canvas.height = window.innerHeight;
   render();
 });
@@ -1256,7 +1262,7 @@ function openFindModal(find = null) {
 
   modal.style.display = "flex";
 
-   if (find) {
+  if (find) {
     editingFindId = find.id;
     title.textContent = "Редактирование находки";
     document.getElementById("findName").value = find.name;
@@ -1396,16 +1402,22 @@ window.onload = () => {
 
   const toggleBtn = document.getElementById("togglePlayerMini");
   const miniFrame = document.getElementById("playerMini");
-  let playerVisible = false;
 
   function updateMiniToggleIcon() {
-    toggleBtn.innerHTML = playerVisible ? getOpenEyeSVG() : getClosedEyeSVG();
+    toggleBtn.innerHTML = mapData.player_map_enabled !== false ? getOpenEyeSVG() : getClosedEyeSVG();
   }
 
   toggleBtn.addEventListener("click", () => {
-    playerVisible = !playerVisible;
-    miniFrame.style.display = playerVisible ? "block" : "none";
+    const enabled = mapData.player_map_enabled !== false;
+    mapData.player_map_enabled = !enabled;
+
     updateMiniToggleIcon();
+
+    fetch("/api/map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapData),
+    });
   });
 
   updateMiniToggleIcon();
