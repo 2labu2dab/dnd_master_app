@@ -122,6 +122,7 @@ if __name__ == "__main__":
                 "cell_size": 20,
                 "color": "#888888",
                 "opacity": 100
-            }
+            },
+            "characters": [],
         })
     socketio.run(app, debug=True, port=5000)  # ⬅ запускаем через socketio.run

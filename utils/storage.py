@@ -20,7 +20,8 @@ def load_map_data():
                 "cell_size": 20,
                 "color": "#888888",
                 "opacity": 100
-            }
+            },
+            "characters": [],
         }
     with open("data/map_data.json", "r", encoding="utf-8") as f:
         return json.load(f)

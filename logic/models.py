@@ -13,6 +13,12 @@ class Token:
         self.max_health_points = max_health_points
         self.armor_class = armor_class
 
+class Character:
+    def __init__(self, id, name, is_visible):
+        self.id = id
+        self.name = name
+        self.is_visible = is_visible
+
 class Find:
     def __init__(self, id, name, position, size, status=False, description=""):
         self.id = id
