@@ -243,7 +243,6 @@ function drawToken(token, offsetX, offsetY, scale) {
       ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
       ctx.clip();
       if (token.is_dead) {
-        // Монохромное изображение
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = size;
         tempCanvas.height = size;
