@@ -2,7 +2,7 @@
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const sidebar = document.getElementById("sidebar");
-const rightSidebar = document.getElementById("right-sidebar"); // Добавим это
+const rightSidebar = document.getElementById("right-sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let zoomLevel = 1;
@@ -24,8 +24,8 @@ let draggingToken = null;
 let draggingFind = null;
 let dragOffset = [0, 0];
 
-let drawingZone = false; // Переменная для отслеживания режима рисования зоны
-let currentZoneVertices = []; // Массив для хранения вершин текущей зоны
+let drawingZone = false;
+let currentZoneVertices = [];
 
 let avatarImage = null;
 let avatarData = null;
@@ -75,7 +75,6 @@ function drawAvatarCircle() {
   ctx.drawImage(avatarImage, 0, 0, size, size);
   ctx.restore();
 
-  // Сохраняем base64
   const cropped = canvas.toDataURL("image/png");
   document.getElementById("avatarData").value = cropped;
 }
@@ -87,7 +86,6 @@ function drawAvatarSelection() {
 
   if (!avatarImage) return;
 
-  // Центрируем изображение
   const size = Math.min(canvas.width, canvas.height);
   ctx.save();
   ctx.beginPath();
@@ -144,7 +142,7 @@ function submitToken() {
 
 function autoUploadMap(input) {
   const formData = new FormData();
-  formData.append("map_image", input.files[0]); // ⬅️ название должно быть "map_image"
+  formData.append("map_image", input.files[0]);
 
   fetch("/upload_map", {
     method: "POST",
@@ -152,7 +150,6 @@ function autoUploadMap(input) {
   }).then(() => fetchMap());
 }
 
-// Глазки
 function getOpenEyeSVG() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg>`;
 }
@@ -162,7 +159,6 @@ function getClosedEyeSVG() {
 
 
 function updateSidebar() {
-  // 🔁 Зоны
   const zoneList = document.getElementById("zoneList");
   zoneList.innerHTML = "";
 
@@ -192,7 +188,7 @@ function updateSidebar() {
       zone.is_visible = !zone.is_visible;
       saveMapData();
       updateSidebar();
-      render(); // обновим карту
+      render();
     };
 
     li.appendChild(nameSpan);
@@ -200,7 +196,6 @@ function updateSidebar() {
     zoneList.appendChild(li);
   });
 
-  // 🔁 Токены
   const tokenList = document.getElementById("tokenList");
   tokenList.innerHTML = "";
 
@@ -273,7 +268,6 @@ function updateSidebar() {
     tokenList.appendChild(li);
   });
 
-  // 🔁 Находки
   const findList = document.getElementById("findList");
   findList.innerHTML = "";
 
@@ -332,7 +326,7 @@ function zonesIntersect(verticesA, verticesB) {
   function orientation(p, q, r) {
     const val = (q[1] - p[1]) * (r[0] - q[0]) -
       (q[0] - p[0]) * (r[1] - q[1]);
-    if (Math.abs(val) < 1e-10) return 0; // коллинеарны
+    if (Math.abs(val) < 1e-10) return 0;
     return (val > 0) ? 1 : 2;
   }
 
@@ -347,7 +341,6 @@ function zonesIntersect(verticesA, verticesB) {
     }
 
     if (o1 !== o2 && o3 !== o4) {
-      // Но если один из концов совпадает — не считаем пересечением
       if (
         (pointsEqual(p1, p2) || pointsEqual(p1, q2) ||
           pointsEqual(q1, p2) || pointsEqual(q1, q2))
@@ -358,7 +351,6 @@ function zonesIntersect(verticesA, verticesB) {
       return true;
     }
 
-    // Проверка коллинеарности и касаний
     if (o1 === 0 && onSegment(p1, p2, q1)) {
       return false;
     }
@@ -422,8 +414,6 @@ function fetchMap() {
       if (mapData.player_map_enabled === undefined) {
         mapData.player_map_enabled = true;
       }
-
-      // Устанавливаем значения слайдера
       const gridSize = mapData.grid_settings.cell_size || 20;
       document.getElementById("gridSlider").value = gridSize;
       document.getElementById("gridInput").value = gridSize;
@@ -432,11 +422,9 @@ function fetchMap() {
       const adjustedPercent = Math.min(rawPercent + 2, 100);
       document.getElementById("gridSlider").style.setProperty('--percent', `${adjustedPercent}%`);
 
-      // Обновление состояния кнопки сетки мастера
       const gridToggle = document.getElementById("gridToggle");
       gridToggle.classList.toggle("active", mapData.grid_settings.visible);
 
-      // Обновление состояния кнопки сетки игрока
       const playerGridToggle = document.getElementById("playerGridToggle");
       if (mapData.grid_settings.visible_to_players !== false) {
         playerGridToggle.classList.add("active");
@@ -515,15 +503,13 @@ function render() {
     ctx.textAlign = "center";
     ctx.lineWidth = 4;
     ctx.strokeStyle = "white";
-    ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10); // Белый буфер
+    ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10);
     ctx.fillStyle = "black";
-    ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);   // Чёрный текст
+    ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
 
-
-    // Стрелка
     ctx.strokeStyle = "#c82a2aff";
     ctx.lineWidth = 2;
-    const headlen = 10; // длина стрелочного наконечника
+    const headlen = 10;
     const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
 
     const arrowX1 = sx2 - headlen * Math.cos(angle - Math.PI / 6);
@@ -544,8 +530,8 @@ function drawTempZone(offsetX, offsetY, scale) {
   if (currentZoneVertices.length === 0) return;
 
   ctx.beginPath();
-  ctx.strokeStyle = "#2196F3"; // Синий контур
-  ctx.fillStyle = "rgba(33, 150, 243, 0.3)"; // Прозрачный синий фон
+  ctx.strokeStyle = "#2196F3";
+  ctx.fillStyle = "rgba(33, 150, 243, 0.3)";
   const [startX, startY] = currentZoneVertices[0];
   ctx.moveTo(startX * scale + offsetX, startY * scale + offsetY);
 
@@ -574,9 +560,9 @@ function drawTempZone(offsetX, offsetY, scale) {
 
 function drawLayers(offsetX, offsetY, scale) {
   if (mapData.grid_settings.visible) drawGrid(offsetX, offsetY, scale);
-  mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale)); // Отрисовываем зоны
+  mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
   mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
-  mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale)); // `status` влияет на цвет, не на отображение
+  mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 }
 
 function drawGrid(offsetX, offsetY, scale) {
@@ -605,7 +591,6 @@ function drawToken(token, offsetX, offsetY, scale) {
   const size = mapData.grid_settings.cell_size * scale;
   const radius = size / 2;
 
-  // Цветная рамка по типу
   ctx.beginPath();
   ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
   ctx.strokeStyle = token.is_dead
@@ -618,7 +603,6 @@ function drawToken(token, offsetX, offsetY, scale) {
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Источник аватара
   const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
   const cached = avatarCache[token.id];
 
@@ -674,7 +658,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.fill();
   }
 
-  // Обводка выделенного токена
   if (selectedTokenId === token.id) {
     ctx.beginPath();
     ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
@@ -697,25 +680,21 @@ function drawFind(find, offsetX, offsetY, scale) {
     ctx.globalAlpha = 0.5;
   }
 
-  // Круг находки
   ctx.beginPath();
   ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
   ctx.fillStyle = "#4C5BEF";
   ctx.fill();
 
-  // Белая обводка
   ctx.lineWidth = 2;
   ctx.strokeStyle = "white";
   ctx.stroke();
 
-  // Текст "?"
   ctx.fillStyle = "white";
   ctx.font = `bold ${radius}px Inter, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("?", sx, sy);
 
-  // Обводка выделенной находки
   if (selectedFindId === find.id) {
     ctx.beginPath();
     ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
@@ -751,11 +730,9 @@ function addToken() {
   document.getElementById("tokenAC").value = 10;
   document.getElementById("tokenHP").value = 10;
 
-  // Устанавливаем активную кнопку типа токена по умолчанию
   document.querySelectorAll(".type-btn").forEach(b => b.classList.remove("active"));
   document.querySelector('.type-btn[data-type="player"]').classList.add("active");
 
-  // Сброс аватара
   const avatarPreview = document.getElementById("avatarPreview");
   avatarPreview.src = "";
   avatarPreview.style.display = "none";
@@ -767,11 +744,10 @@ function addToken() {
 }
 
 function drawZone(zone, offsetX, offsetY, scale) {
-  if (!zone.vertices || zone.vertices.length < 2) return; // Если зона не имеет вершин, не рисуем её
+  if (!zone.vertices || zone.vertices.length < 2) return;
 
   ctx.beginPath();
 
-  // Цвет зоны в зависимости от видимости
   ctx.strokeStyle = zone.is_visible ? "#4CAF50" : "#F44336";
   ctx.fillStyle = zone.is_visible ? "rgba(76, 175, 80, 0.3)" : "rgba(244, 67, 54, 0.3)";
 
@@ -782,46 +758,40 @@ function drawZone(zone, offsetX, offsetY, scale) {
     ctx.lineWidth = 4;
   }
 
-  // Преобразуем координаты вершин для масштаба и смещения
   const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
 
-  // Рисуем линии, соединяя все вершины
   ctx.moveTo(transformed[0][0], transformed[0][1]);
   for (let i = 1; i < transformed.length; i++) {
     ctx.lineTo(transformed[i][0], transformed[i][1]);
   }
-  ctx.closePath(); // Закрываем путь (замкнутый полигон)
+  ctx.closePath();
 
-  // Заполняем и обводим зону
   ctx.fill();
   ctx.stroke();
 
   if (isSelected) {
-    ctx.strokeStyle = "#00FFFF"; // цвет обводки выделения
+    ctx.strokeStyle = "#00FFFF";
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 
-  // Отображение имени зоны в центре полигона с белым буфером
   const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
   const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
   ctx.font = `18px Inter`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Белый контур
   ctx.strokeStyle = "white";
   ctx.lineWidth = 4;
   ctx.strokeText(zone.name, centerX, centerY);
 
-  // Чёрный текст
   ctx.fillStyle = "black";
   ctx.fillText(zone.name, centerX, centerY);
 }
 
 function addZone() {
-  drawingZone = true; // Включаем режим рисования зоны
-  currentZoneVertices = []; // Очищаем текущие вершины зоны
+  drawingZone = true;
+  currentZoneVertices = [];
 }
 
 function onGridSizeChange(value) {
@@ -831,7 +801,6 @@ function onGridSizeChange(value) {
   mapData.grid_settings.cell_size = newSize;
   render();
 
-  // сохраняем
   fetch("/api/map", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -853,7 +822,6 @@ function handleAvatarUpload(event) {
     document.getElementById('avatarMask').style.display = 'block';
     document.getElementById('editIcon').style.display = 'block';
 
-    // Можно также сохранить base64:
     img.dataset.base64 = e.target.result;
   };
   reader.readAsDataURL(file);
@@ -892,16 +860,14 @@ canvas.addEventListener("mousedown", (e) => {
   }
 
   if (drawingZone) {
-    if (e.button === 0) { // Левый клик добавляет точку
+    if (e.button === 0) {
       let x = (mouseX - offsetX) / scale;
       let y = (mouseY - offsetY) / scale;
 
-      // Привязка к вершинам
       if (hoveredSnapVertex) {
         [x, y] = hoveredSnapVertex;
       }
 
-      // Обрезка по карте
       x = Math.max(0, Math.min(x, mapImage.width));
       y = Math.max(0, Math.min(y, mapImage.height));
 
@@ -910,8 +876,6 @@ canvas.addEventListener("mousedown", (e) => {
     }
   }
 
-
-  // Выбор объектов
   selectedTokenId = null;
   selectedFindId = null;
   selectedZoneId = null;
@@ -1011,7 +975,7 @@ canvas.addEventListener("mousemove", (e) => {
     }
 
     hoveredSnapVertex = found;
-    render(); // отрисовать с подсветкой
+    render();
     return;
   }
 
@@ -1117,16 +1081,13 @@ canvas.addEventListener("contextmenu", (e) => {
   }
 
   if (drawingZone) {
-    e.preventDefault(); // предотвращаем стандартное поведение ПКМ (например, контекстное меню)
+    e.preventDefault();
 
-    // Если в текущей зоне меньше 3 точек, не завершаем рисование
     if (currentZoneVertices.length < 3) {
       alert("Зона должна иметь минимум 3 точки.");
       return;
     }
-
-    // Запрашиваем имя зоны только после того, как рисование завершено
-    const newZoneVertices = [...currentZoneVertices]; // <-- СНАЧАЛА копируем
+    const newZoneVertices = [...currentZoneVertices];
     pendingZoneVertices = [...currentZoneVertices];
     drawingZone = false;
     currentZoneVertices = [];
@@ -1137,7 +1098,6 @@ canvas.addEventListener("contextmenu", (e) => {
     document.getElementById("zoneModal").style.display = "flex";
     document.getElementById("zoneVisibleCheckbox").checked = true;
 
-    // Проверяем на пересечение с другими зонами
     const hasIntersection = mapData.zones.some(z =>
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
     );
@@ -1146,10 +1106,9 @@ canvas.addEventListener("contextmenu", (e) => {
       alert("Новая зона пересекается с существующей! Измените форму.");
       return;
     }
-    return; // Останавливаем выполнение, чтобы избежать дальнейших действий
+    return;
   }
 
-  // ПКМ по находке
   for (const find of mapData.finds) {
     const [x, y] = find.position;
     const sx = x * scale + offsetX;
@@ -1163,7 +1122,6 @@ canvas.addEventListener("contextmenu", (e) => {
     }
   }
 
-  // ПКМ по зоне — смена видимости
   for (const zone of mapData.zones) {
     const path = new Path2D();
     zone.vertices.forEach(([vx, vy], i) => {
@@ -1177,11 +1135,9 @@ canvas.addEventListener("contextmenu", (e) => {
     if (ctx.isPointInPath(path, e.offsetX, e.offsetY)) {
       e.preventDefault();
 
-      // Сохраняем текущую зону
       selectedZoneId = zone.id;
-      pendingZoneVertices = [...zone.vertices]; // ← если нужно редактировать позже координаты
+      pendingZoneVertices = [...zone.vertices];
 
-      // Заполняем поля модалки
       document.getElementById("zoneName").value = zone.name || "";
       document.getElementById("zoneDescription").value = zone.description || "";
       document.getElementById("zoneVisibleCheckbox").checked = zone.is_visible ?? true;
@@ -1211,7 +1167,6 @@ canvas.addEventListener("mouseup", () => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
-  // нормализуем поведение скролла
   const zoomStep = 0.1;
   const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
 
@@ -1233,7 +1188,7 @@ document.addEventListener("keydown", (e) => {
     if (selectedZoneId) {
       mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
       selectedZoneId = null;
-      saveMapData(); // ← сохраняем изменения
+      saveMapData();
       render();
     }
 
@@ -1267,7 +1222,7 @@ function openFindModal(find = null) {
     title.textContent = "Редактирование находки";
     document.getElementById("findName").value = find.name;
     document.getElementById("findDescription").value = find.description || "";
-    document.getElementById("findVisibleCheckbox").checked = !!find.status; // ⬅️ установка чекбокса
+    document.getElementById("findVisibleCheckbox").checked = !!find.status;
   } else {
     editingFindId = null;
     title.textContent = "Создание находки";
@@ -1300,7 +1255,6 @@ function submitZone() {
   const editing = !!selectedZoneId;
 
   if (!editing) {
-    // Проверка на пересечение только при создании новой зоны
     const hasIntersection = mapData.zones.some(z =>
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, pendingZoneVertices)
     );
@@ -1312,7 +1266,6 @@ function submitZone() {
   }
 
   if (editing) {
-    // Редактируем существующую зону
     const zone = mapData.zones.find(z => z.id === selectedZoneId);
     if (zone) {
       zone.name = name;
@@ -1320,7 +1273,6 @@ function submitZone() {
       zone.is_visible = isVisible;
     }
   } else {
-    // Создаём новую зону
     const newZone = {
       id: `zone_${Date.now()}`,
       name,
@@ -1331,7 +1283,6 @@ function submitZone() {
     mapData.zones.push(newZone);
   }
 
-  // Очистка и завершение
   selectedZoneId = null;
   pendingZoneVertices = null;
   document.getElementById("zoneModal").style.display = "none";
@@ -1356,7 +1307,6 @@ function submitFind() {
   }
 
   if (editingFindId) {
-    // Редактирование
     const find = mapData.finds.find(f => f.id === editingFindId);
     if (find) {
       find.name = name;
@@ -1367,7 +1317,6 @@ function submitFind() {
       updateSidebar();
     }
   } else {
-    // Создание
     const centerX = mapImage.width / 2;
     const centerY = mapImage.height / 2;
 
@@ -1393,7 +1342,7 @@ function submitFind() {
 
 function updateSliderVisual() {
   const rawPercent = ((gridSlider.value - gridSlider.min) / (gridSlider.max - gridSlider.min)) * 100;
-  const adjustedPercent = Math.min(rawPercent + 2, 100); // +2% для смягчения края
+  const adjustedPercent = Math.min(rawPercent + 2, 100);
   gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
 }
 

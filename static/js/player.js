@@ -84,7 +84,7 @@ socket.on("map_updated", (data) => {
     canvas.style.display = "block";
   }
 
-  render(); // только если карта включена
+  render();
 });
 
 socket.on("ruler_update", (data) => {
@@ -101,18 +101,18 @@ function render() {
   const scale = baseScale * zoomLevel;
   const newWidth = mapImage.width * scale;
   const newHeight = mapImage.height * scale;
-  const offsetX = (canvas.width - newWidth) / 2;  // Центрирование по X
-  const offsetY = (canvas.height - newHeight) / 2;  // Центрирование по Y
+  const offsetX = (canvas.width - newWidth) / 2;
+  const offsetY = (canvas.height - newHeight) / 2;
   if (mapImage.complete) {
-    ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);  // Отрисовка с центровкой и масштабированием
+    ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
   } else {
     console.warn("[render] mapImage еще не загружено полностью");
   }
-  if (mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
+  if (!isEmbeddedPreview && mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
     drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, scale);
   }
 
-  drawLayers(offsetX, offsetY, scale);  // Отрисовка слоев (токены, зоны и т.д.)
+  drawLayers(offsetX, offsetY, scale);
 }
 
 
@@ -148,15 +148,13 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
   ctx.textAlign = "center";
   ctx.lineWidth = 4;
   ctx.strokeStyle = "white";
-  ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10); // Белый буфер
+  ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10);
   ctx.fillStyle = "black";
-  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);   // Чёрный текст
+  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
 
-
-  // Стрелка
   ctx.strokeStyle = "#c82a2aff";
   ctx.lineWidth = 2;
-  const headlen = 10; // длина стрелочного наконечника
+  const headlen = 10;
   const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
 
   const arrowX1 = sx2 - headlen * Math.cos(angle - Math.PI / 6);
@@ -177,7 +175,6 @@ function drawLayers(offsetX, offsetY, scale) {
     drawGrid(offsetX, offsetY, scale);
   }
 
-  // Отрисовать блюр-зоны (is_visible = false)
   mapData.zones.forEach(z => {
     if (z.is_visible === false) {
       drawBlurredZone(z, offsetX, offsetY, scale);
@@ -234,7 +231,7 @@ function drawToken(token, offsetX, offsetY, scale) {
       img.onload = () => render();
       img.onerror = () => {
         console.warn(`⚠ Не удалось загрузить аватар: ${avatarSrc}`);
-        avatarCache[token.id] = null; // помечаем как битый
+        avatarCache[token.id] = null;
       };
       img.src = avatarSrc;
       avatarCache[token.id] = img;
@@ -246,10 +243,9 @@ function drawToken(token, offsetX, offsetY, scale) {
       ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
       ctx.restore();
     } else {
-      // ничего не рисуем — картинка в загрузке или битая
+
     }
   } else {
-    // fallback-круг
     ctx.beginPath();
     ctx.fillStyle = token.is_player
       ? "#4CAF50"
@@ -262,7 +258,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.fill();
   }
 
-  // подпись
   if (!isEmbeddedPreview) {
     ctx.fillStyle = "white";
     const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
@@ -295,7 +290,6 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
 
   const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
 
-  // Сохраняем контекст
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(transformed[0][0], transformed[0][1]);
