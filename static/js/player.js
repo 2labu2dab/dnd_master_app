@@ -142,7 +142,7 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
 
   const midX = (sx1 + sx2) / 2;
   const midY = (sy1 + sy2) / 2;
-  
+
 
   ctx.font = "bold 16px Inter";
   ctx.textAlign = "center";
@@ -214,11 +214,13 @@ function drawToken(token, offsetX, offsetY, scale) {
 
   ctx.beginPath();
   ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
-  ctx.strokeStyle = token.is_player
-    ? "#4CAF50"
-    : token.is_npc
-    ? "#FFC107"
-    : "#F44336";
+  ctx.strokeStyle = token.is_dead
+    ? "#999"
+    : token.is_player
+      ? "#4CAF50"
+      : token.is_npc
+        ? "#FFC107"
+        : "#F44336";
   ctx.lineWidth = 4;
   ctx.stroke();
 
@@ -240,30 +242,42 @@ function drawToken(token, offsetX, offsetY, scale) {
       ctx.beginPath();
       ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
+      if (token.is_dead) {
+        // Монохромное изображение
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext("2d");
+
+        tempCtx.drawImage(cached, 0, 0, size, size);
+        const imageData = tempCtx.getImageData(0, 0, size, size);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          data[i] = data[i + 1] = data[i + 2] = avg;
+        }
+
+        tempCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(tempCanvas, sx - size / 2, sy - size / 2, size, size);
+      } else {
+        ctx.drawImage(cached, sx - size / 2, sy - size / 2, size, size);
+      }
       ctx.restore();
     } else {
 
     }
   } else {
     ctx.beginPath();
-    ctx.fillStyle = token.is_player
-      ? "#4CAF50"
-      : token.is_npc
-      ? "#FFC107"
-      : token.is_dead
+    ctx.fillStyle = token.is_dead
       ? "#616161"
-      : "#F44336";
+      : token.is_player
+        ? "#4CAF50"
+        : token.is_npc
+          ? "#FFC107"
+          : "#F44336";
     ctx.arc(sx, sy, size / 2, 0, 2 * Math.PI);
     ctx.fill();
-  }
-
-  if (!isEmbeddedPreview) {
-    ctx.fillStyle = "white";
-    const fontSize = Math.max(mapData.grid_settings.cell_size * 0.5 * scale, 8);
-    ctx.font = `${fontSize}px Segoe UI`;
-    ctx.textAlign = "center";
-    ctx.fillText(token.name, sx, sy + size / 2 + fontSize);
   }
 }
 
