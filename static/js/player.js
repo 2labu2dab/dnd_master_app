@@ -96,7 +96,7 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
   ctx.beginPath();
   ctx.moveTo(sx1, sy1);
   ctx.lineTo(sx2, sy2);
-  ctx.strokeStyle = "#4C5BEF";
+  ctx.strokeStyle = "#c82a2aff";
   ctx.lineWidth = 2;
   ctx.setLineDash([6, 4]);
   ctx.stroke();
@@ -110,11 +110,34 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
 
   const midX = (sx1 + sx2) / 2;
   const midY = (sy1 + sy2) / 2;
+  
 
-  ctx.fillStyle = "white";
-  ctx.font = "16px Inter";
+  ctx.font = "bold 16px Inter";
   ctx.textAlign = "center";
-  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "white";
+  ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10); // Белый буфер
+  ctx.fillStyle = "black";
+  ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);   // Чёрный текст
+
+
+  // Стрелка
+  ctx.strokeStyle = "#c82a2aff";
+  ctx.lineWidth = 2;
+  const headlen = 10; // длина стрелочного наконечника
+  const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
+
+  const arrowX1 = sx2 - headlen * Math.cos(angle - Math.PI / 6);
+  const arrowY1 = sy2 - headlen * Math.sin(angle - Math.PI / 6);
+  const arrowX2 = sx2 - headlen * Math.cos(angle + Math.PI / 6);
+  const arrowY2 = sy2 - headlen * Math.sin(angle + Math.PI / 6);
+
+  ctx.beginPath();
+  ctx.moveTo(sx2, sy2);
+  ctx.lineTo(arrowX1, arrowY1);
+  ctx.moveTo(sx2, sy2);
+  ctx.lineTo(arrowX2, arrowY2);
+  ctx.stroke();
 }
 
 function drawLayers(offsetX, offsetY, scale) {
