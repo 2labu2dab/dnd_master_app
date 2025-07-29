@@ -5,15 +5,15 @@
       "id": "find_1753672808969",
       "name": "ывы",
       "position": [
-        400.2198041349292,
-        197.8433079434167
+        136.85250766643577,
+        289.2677811850827
       ],
       "size": 56,
-      "status": false
+      "status": true
     }
   ],
   "grid_settings": {
-    "cell_size": 56,
+    "cell_size": 61,
     "color": "#888888",
     "opacity": 100,
     "visible": true,
@@ -32,10 +32,11 @@
       "is_dead": false,
       "is_npc": false,
       "is_player": true,
+      "is_visible": true,
       "max_health_points": 10,
       "name": "1",
       "position": [
-        386.7834602829162,
+        388.0021762785637,
         323.4319912948858
       ],
       "size": 20
@@ -67,5 +68,5 @@
       ]
     }
   ],
-  "zoom_level": 0.8
+  "zoom_level": 0.8999999999999999
 }

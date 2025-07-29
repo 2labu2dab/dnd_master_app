@@ -633,7 +633,7 @@ large-modal {
   color: #4C5BEF; /* ← Цвет для stroke SVG */
 }
 
-.zone-visibility-toggle {
+.visibility-toggle {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -642,7 +642,7 @@ large-modal {
   color: #333;
 }
 
-.zone-visibility-toggle input[type="checkbox"] {
+.visibility-toggle input[type="checkbox"] {
   appearance: none;
   width: 20px;
   height: 20px;
@@ -654,12 +654,12 @@ large-modal {
   transition: all 0.2s ease;
 }
 
-.zone-visibility-toggle input[type="checkbox"]:checked {
+.visibility-toggle input[type="checkbox"]:checked {
   background-color: #4C5BEF;
   border-color: #4C5BEF;
 }
 
-.zone-visibility-toggle input[type="checkbox"]::after {
+.add-button input[type="checkbox"]::after {
   content: "";
   position: absolute;
   top: 2px;
@@ -673,7 +673,7 @@ large-modal {
   transition: opacity 0.2s ease;
 }
 
-.zone-visibility-toggle input[type="checkbox"]:checked::after {
+.visibility-toggle input[type="checkbox"]:checked::after {
   opacity: 1;
 }
 

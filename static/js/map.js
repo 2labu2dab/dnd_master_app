@@ -295,11 +295,14 @@ function updateSidebar() {
     nameSpan.style.flex = "1";
 
     const statusSpan = document.createElement("span");
+    statusSpan.style.fontSize = "14px";
+    statusSpan.style.flexShrink = "0";
+
     if (find.status) {
       statusSpan.textContent = "Осмотрено";
       statusSpan.style.color = "#4CAF50";
-      statusSpan.style.fontSize = "14px";
-      statusSpan.style.flexShrink = "0";
+    } else {
+      statusSpan.textContent = "";
     }
 
     li.appendChild(nameSpan);
@@ -1253,11 +1256,12 @@ function openFindModal(find = null) {
 
   modal.style.display = "flex";
 
-  if (find) {
+   if (find) {
     editingFindId = find.id;
     title.textContent = "Редактирование находки";
     document.getElementById("findName").value = find.name;
     document.getElementById("findDescription").value = find.description || "";
+    document.getElementById("findVisibleCheckbox").checked = !!find.status; // ⬅️ установка чекбокса
   } else {
     editingFindId = null;
     title.textContent = "Создание находки";
@@ -1453,6 +1457,19 @@ window.onload = () => {
     mapData.ruler_visible_to_players = !current;
     playerRulerToggle.classList.toggle("active", !current);
     saveMapData();
+  });
+
+  const findVisibleCheckbox = document.getElementById("findVisibleCheckbox");
+  findVisibleCheckbox.addEventListener("change", () => {
+    if (!editingFindId) return;
+
+    const find = mapData.finds.find(f => f.id === editingFindId);
+    if (find) {
+      find.status = findVisibleCheckbox.checked;
+      saveMapData();
+      render();
+      updateSidebar();
+    }
   });
 
   document.addEventListener("click", (e) => {
