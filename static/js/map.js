@@ -527,6 +527,9 @@ window.addEventListener("resize", () => {
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return;
+
   const baseScale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
   const scale = baseScale * (mapData.zoom_level || 1);
   const newWidth = mapImage.width * scale;
@@ -1309,6 +1312,8 @@ canvas.addEventListener("mouseup", () => {
   draggingFind = null;
 });
 
+
+let zoomSyncTimeout;
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
@@ -1318,7 +1323,11 @@ canvas.addEventListener("wheel", (e) => {
   zoomLevel = Math.min(Math.max(zoomLevel + delta, 0.1), 5);
   mapData.zoom_level = zoomLevel;
   render();
-  saveMapData();
+
+  clearTimeout(zoomSyncTimeout);
+  zoomSyncTimeout = setTimeout(() => {
+    socket.emit("zoom_update", { zoom_level: zoomLevel }); // отдельное событие
+  }, 200);
 });
 
 document.addEventListener("keydown", (e) => {

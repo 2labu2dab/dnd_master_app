@@ -298,6 +298,11 @@ function drawFind(find, offsetX, offsetY, scale) {
   ctx.fillText(find.name, sx, sy + size / 2 + fontSize);
 }
 
+socket.on("zoom_update", (data) => {
+  zoomLevel = data.zoom_level || 1;
+  render();
+});
+
 function drawBlurredZone(zone, offsetX, offsetY, scale) {
   if (!zone.vertices || zone.vertices.length < 2) return;
 

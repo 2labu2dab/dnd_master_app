@@ -102,6 +102,10 @@ def upload_map():
 def handle_ruler_update(data):
     emit("ruler_update", data, broadcast=True, include_self=False)
 
+@socketio.on("zoom_update")
+def handle_zoom_update(data):
+    emit("zoom_update", data, broadcast=True, include_self=False)
+
     
 
 
