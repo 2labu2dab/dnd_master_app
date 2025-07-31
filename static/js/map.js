@@ -128,6 +128,27 @@ function submitToken() {
     avatar_data: avatarData
   };
 
+  const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
+
+  if (addToCharacters) {
+    if (!mapData.characters) mapData.characters = [];
+
+    const character = {
+      id: `char_${Date.now()}`,
+      name,
+      avatar_data: avatarData,
+      visible_to_players: true,
+    };
+
+    mapData.characters.push(character);
+
+    fetch("/api/map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapData),
+    });
+  }
+
   fetch("/api/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -304,6 +325,57 @@ function updateSidebar() {
     li.appendChild(statusSpan);
     findList.appendChild(li);
   });
+
+  const characterList = document.getElementById("characterList");
+  characterList.innerHTML = "";
+
+  mapData.characters?.forEach(character => {
+    const li = document.createElement("li");
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.gap = "8px";
+    li.style.background = "#2a2a3b";
+    li.style.padding = "6px 10px";
+    li.style.borderRadius = "4px";
+    li.style.marginBottom = "4px";
+    li.style.color = "#ccc";
+
+    // аватар
+    const img = document.createElement("img");
+    img.src = character.avatar_data;
+    img.style.width = "32px";
+    img.style.height = "32px";
+    img.style.borderRadius = "4px";
+    img.style.objectFit = "cover";
+
+    // имя
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = character.name;
+    nameSpan.style.flex = "1";
+    nameSpan.style.overflow = "hidden";
+    nameSpan.style.textOverflow = "ellipsis";
+    nameSpan.style.whiteSpace = "nowrap";
+    nameSpan.style.color = "#ddd";
+
+    // кнопка-глаз
+    const eye = document.createElement("span");
+    eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+    eye.style.cursor = "pointer";
+    eye.title = "Видимость для игроков";
+
+    eye.onclick = () => {
+      character.visible_to_players = !character.visible_to_players;
+      updateSidebar();
+      saveMapData?.(); // если есть такая функция
+    };
+
+    li.appendChild(img);       // аватар
+    li.appendChild(nameSpan);  // имя
+    li.appendChild(eye);
+    characterList.appendChild(li);
+  });
+
+
 
 }
 
@@ -667,6 +739,78 @@ function drawToken(token, offsetX, offsetY, scale) {
   }
 }
 
+function openCharacterModal() {
+  document.getElementById("characterModal").style.display = "flex";
+  document.getElementById("characterName").value = "";
+  const preview = document.getElementById("characterAvatarPreview");
+  preview.src = "";
+  preview.style.display = "none";
+  preview.removeAttribute("data-base64");
+
+  document.getElementById("characterAvatarOverlay").style.display = "block";
+  document.getElementById("characterAvatarMask").style.display = "none";
+  document.getElementById("characterEditIcon").style.display = "none";
+}
+
+function closeCharacterModal() {
+  document.getElementById("characterModal").style.display = "none";
+}
+
+function handleCharacterAvatarUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const img = new Image();
+    img.onload = function () {
+      const canvas = document.createElement("canvas");
+      const size = 256;
+      canvas.width = size;
+      canvas.height = size;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, size, size); // ⬅️ без clip()
+
+      const base64 = canvas.toDataURL("image/png");
+
+      const preview = document.getElementById("characterAvatarPreview");
+      preview.src = base64;
+      preview.style.display = "block";
+      preview.dataset.base64 = base64;
+
+      document.getElementById("characterAvatarOverlay").style.display = "none";
+      document.getElementById("characterAvatarMask").style.display = "none";
+      document.getElementById("characterEditIcon").style.display = "block";
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+
+function submitCharacter() {
+  const name = document.getElementById("characterName").value.trim();
+  const avatar = document.getElementById("characterAvatarPreview").dataset.base64 || "";
+
+  if (!name || !avatar) {
+    alert("Заполните имя и выберите аватар.");
+    return;
+  }
+
+  const character = {
+    id: `char_${Date.now()}`,
+    name,
+    avatar_data: avatar,
+    visible_to_players: true, // 👁️ по умолчанию
+  };
+
+  mapData.characters.push(character);
+  saveMapData();
+  closeCharacterModal();
+  updateSidebar();
+}
+
 function drawFind(find, offsetX, offsetY, scale) {
   const [x, y] = find.position;
   const sx = x * scale + offsetX;
@@ -846,6 +990,7 @@ function closeTokenModal() {
   document.getElementById("avatarOverlay").style.display = "block";
   document.getElementById("avatarMask").style.display = "none";
   document.getElementById("editIcon").style.display = "none";
+  document.getElementById("addToCharactersCheckbox").checked = false;
 }
 
 canvas.addEventListener("mousedown", (e) => {

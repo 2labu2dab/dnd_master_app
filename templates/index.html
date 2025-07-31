@@ -78,7 +78,17 @@
       <canvas id="mapCanvas"></canvas>
     </section>
     <aside id="right-sidebar">
-      <div class="player-tools">
+      <div class="section">
+        <details open>
+          <summary>Портреты персонажей</summary>
+          <button class="add-button" onclick="openCharacterModal()">
+            Добавить портрет
+            <span class="add-icon">+</span>
+          </button>
+          <ul id="characterList"></ul>
+        </details>
+      </div>
+      <div class="player-tools" style="margin-top: auto">
         <div id="playerCornerButtons">
           <div class="left-corner-buttons">
             <button id="playerGridToggle" class="corner-button" title="Сетка для игрока">
@@ -100,6 +110,45 @@
         <iframe id="playerMini" src="/player"></iframe>
       </div>
     </aside>
+  </div>
+  <div id="characterModal" class="modal" style="display:none;">
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeCharacterModal()">&times;</span>
+      <h3>Добавление портрета</h3>
+
+      <div class="token-form">
+        <!-- Аватар -->
+        <div class="avatar-upload" id="characterAvatarUpload">
+          <input type="file" id="characterAvatarInput" accept="image/*" hidden
+            onchange="handleCharacterAvatarUpload(this)">
+          <div class="avatar-upload">
+            <div id="characterAvatarDropzone" onclick="document.getElementById('characterAvatarFile').click()">
+              <img id="characterAvatarPreview" src="" alt="Avatar" style="display: none;" />
+              <div id="characterAvatarMask" class="square-mask" style="display: none;"></div>
+              <div id="characterEditIcon" style="display: none;">✎</div>
+              <input type="file" id="characterAvatarFile" accept="image/*" style="display: none;"
+                onchange="handleCharacterAvatarUpload(event)">
+              <div id="characterAvatarOverlay">
+                <strong>Нажми для выбора</strong><br />
+                <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Имя -->
+        <div class="token-fields">
+          <label>Имя персонажа<br><input type="text" id="characterName"></label>
+        </div>
+      </div>
+      
+
+      <!-- Кнопки -->
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitCharacter()">Сохранить</button>
+        <button class="cancel-btn" onclick="closeCharacterModal()">Отменить</button>
+      </div>
+    </div>
   </div>
   <div id="tokenModal" class="modal" style="display:none;">
     <div class="modal-content large-modal">
@@ -140,6 +189,11 @@
             <label>Макс. ОЗ<br><input type="number" id="tokenHP" value="10"></label>
           </div>
         </div>
+      </div>
+
+      <div class="visibility-toggle">
+        <input type="checkbox" id="addToCharactersCheckbox" />
+        <label for="addToCharactersCheckbox">Добавить в портреты</label>
       </div>
 
       <!-- Кнопки -->

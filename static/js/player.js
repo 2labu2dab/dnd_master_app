@@ -312,7 +312,7 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
   ctx.closePath();
   ctx.clip();
 
-  ctx.filter = "blur(50px)";
+  ctx.filter = "blur(100px)";
   ctx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
   ctx.filter = "none";
   ctx.restore();

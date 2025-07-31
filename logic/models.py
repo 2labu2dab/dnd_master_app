@@ -14,10 +14,10 @@ class Token:
         self.armor_class = armor_class
 
 class Character:
-    def __init__(self, id, name, is_visible):
+    def __init__(self, id, name, visible_to_players):
         self.id = id
         self.name = name
-        self.is_visible = is_visible
+        self.visible_to_players = visible_to_players
 
 class Find:
     def __init__(self, id, name, position, size, status=False, description=""):
