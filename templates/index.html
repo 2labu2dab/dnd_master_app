@@ -14,6 +14,21 @@
   <div id="main">
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
+      <div class="map-selector">
+      <select id="mapSelect" onchange="switchMap(this.value)">
+        {% if maps %}
+          {% for map in maps %}
+          <option value="{{ map.id }}" {% if map.id == current_map %}selected{% endif %}>
+            {{ map.name }}
+          </option>
+          {% endfor %}
+        {% else %}
+          <option value="">Нет карт</option>
+        {% endif %}
+      </select>
+      <button class="icon-button" onclick="createNewMap()" title="Создать новую карту">➕</button>
+      <button class="icon-button" onclick="deleteCurrentMap()" title="Удалить текущую карту">🗑️</button>
+    </div>
       <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*"
           onchange="autoUploadMap(this)" hidden /></label>
       <div class="section">
@@ -287,6 +302,23 @@
     </label>
   </div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<div id="newMapModal" class="modal" style="display: none;">
+  <div class="modal-content small-modal">
+    <span class="close" onclick="closeNewMapModal()">&times;</span>
+    <h3>Создать новую карту</h3>
+    <div class="token-form">
+      <div class="token-fields">
+        <label>Название карты<br>
+          <input type="text" id="newMapName" placeholder="Новая карта">
+        </label>
+      </div>
+    </div>
+    <div class="token-buttons">
+      <button class="save-btn" onclick="submitNewMap()">Создать</button>
+      <button class="cancel-btn" onclick="closeNewMapModal()">Отменить</button>
+    </div>
+  </div>
+</div>
 </body>
 
 </html>

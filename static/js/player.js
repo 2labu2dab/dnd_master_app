@@ -3,21 +3,21 @@
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const isEmbeddedPreview = window !== window.parent;
+let mapData = null;
 let zoomLevel = 1;
+
+let panX = 0;
+let panY = 0;
+const isMiniMap = isEmbeddedPreview; // то есть если встроено — это миникарта
 
 let mapImage = new Image();
 const avatarCache = {};
-const socket = io();
-let mapData = {
-  tokens: [],
-  finds: [],
-  zones: [],
-  map_image: "",
-  ruler_visible_to_players: false,
-  ruler_start: null,
-  ruler_end: null,
-  grid_settings: { cell_size: 20, color: "#888888", visible: true }
-};
+const socket = io();;
+
+const urlParams = new URLSearchParams(window.location.search);
+const mapId = urlParams.get('map_id');
+
+
 
 function resizeCanvasToDisplaySize() {
   const displayWidth = canvas.clientWidth;
@@ -41,80 +41,142 @@ window.addEventListener("resize", () => {
 });
 
 function fetchMap() {
-  fetch(`/api/map?ts=${Date.now()}`)
-    .then(res => res.json())
-    .then(data => {
-      const mapImageEl = document.getElementById("mapDisabledImage");
-
-      if (mapData.player_map_enabled === false) {
-        mapImageEl.style.display = "block";
-        canvas.style.display = "none";
-      } else {
-        mapImageEl.style.display = "none";
-        canvas.style.display = "block";
-      }
-      mapData = data;
-      zoomLevel = mapData.zoom_level;
-      if (!mapData.tokens) mapData.tokens = [];
-      if (!mapData.finds) mapData.finds = [];
-      if (!mapData.zones) mapData.zones = [];
-      if (!mapData.grid_settings) mapData.grid_settings = { cell_size: 20, color: "#888888", visible: true };
-
-      if (mapData.map_image_base64) {
-        mapImage = new Image();
-        mapImage.onload = () => render();
-        mapImage.src = mapData.map_image_base64;
-      } else {
+    if (!mapId) {
         render();
-      }
-    });
+        return;
+    }
+    
+    fetch(`/api/map/${mapId}?ts=${Date.now()}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                console.error(data.error);
+                return;
+            }
+            
+            mapData = data;
+            zoomLevel = mapData.zoom_level || 1;
+            panX = mapData.pan_x || 0;
+            panY = mapData.pan_y || 0;
+            
+            if (mapData.map_image_base64) {
+                mapImage = new Image();
+                mapImage.onload = () => render();
+                mapImage.src = mapData.map_image_base64;
+            } else {
+                render();
+            }
+        });
 }
 
+
 socket.on("map_updated", (data) => {
-  mapData = data;
-  zoomLevel = mapData.zoom_level || 1;
-
-  const mapImageEl = document.getElementById("mapDisabledImage");
-  if (mapData.player_map_enabled === false) {
-    mapImageEl.style.display = "block";
-    canvas.style.display = "none";
-    return;
-  } else {
-    mapImageEl.style.display = "none";
-    canvas.style.display = "block";
-  }
-
-  render();
+    if (data.map_id === mapId) {
+        mapData = data.data;
+        render();
+    }
 });
 
 socket.on("ruler_update", (data) => {
-  mapData.ruler_start = data.ruler_start;
-  mapData.ruler_end = data.ruler_end;
-  render();
+  if (data.map_id === mapId) {
+    mapData.ruler_start = data.ruler_start;
+    mapData.ruler_end = data.ruler_end;
+    render();
+  }
 });
 
+function drawViewBoxOverlay(miniScale) {
+  const mapW = mapImage.width;
+  const mapH = mapImage.height;
+
+  const baseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
+  const fullScale = baseScale * zoomLevel;
+
+  const viewW = canvas.parentElement.clientWidth / fullScale;
+  const viewH = canvas.parentElement.clientHeight / fullScale;
+
+  const viewX = -panX / fullScale;
+  const viewY = -panY / fullScale;
+
+  ctx.strokeStyle = "#ffffffcc";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(
+    viewX * miniScale,
+    viewY * miniScale,
+    viewW * miniScale,
+    viewH * miniScale
+  );
+}
+
+function getMasterCanvasSize() {
+  // Примерно такие же размеры, как у канваса мастера
+  return {
+    width: window.innerWidth - 270 - 270,  // или фиксированное число, если знаешь точный размер
+    height: window.innerHeight
+  };
+}
 
 function render() {
   resizeCanvasToDisplaySize();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const baseScale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
-  const scale = baseScale * zoomLevel;
-  const newWidth = mapImage.width * scale;
-  const newHeight = mapImage.height * scale;
-  const offsetX = (canvas.width - newWidth) / 2;
-  const offsetY = (canvas.height - newHeight) / 2;
-  if (mapImage.complete) {
-    ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
-  } else {
-    console.warn("[render] mapImage еще не загружено полностью");
+
+  const mapW = mapImage.width;
+  const mapH = mapImage.height;
+
+  let scale, offsetX, offsetY;
+
+  if (!mapId || !mapData) {
+        ctx.font = "24px Inter";
+        ctx.fillStyle = "#666";
+        ctx.textAlign = "center";
+        ctx.fillText("Карта не выбрана", canvas.width/2, canvas.height/2);
+        return;
+    }
+    
+    if (mapData.player_map_enabled === false) {
+        document.getElementById("mapDisabledImage").style.display = "block";
+        canvas.style.display = "none";
+        return;
+    }
+    
+    document.getElementById("mapDisabledImage").style.display = "none";
+    canvas.style.display = "block";
+
+  if (isEmbeddedPreview) {
+  // Миникарта: используем те же параметры, что у мастера
+  const masterW = mapData.master_canvas_width || 1380;
+  const masterH = mapData.master_canvas_height || 1080;
+
+  const masterBaseScale = Math.min(masterW / mapW, masterH / mapH);
+  const masterScale = masterBaseScale * zoomLevel;
+
+  // Масштаб миникарты относительно масштаба мастера
+  const scaleRatioW = canvas.width / masterW;
+  const scaleRatioH = canvas.height / masterH;
+
+  scale = masterScale * scaleRatioW;
+
+  // Смещение карты: центрируем с учетом смещения мастера
+  offsetX = panX * scaleRatioW;
+  offsetY = panY * scaleRatioH;
+} else {
+    const baseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
+    scale = baseScale * zoomLevel;
+
+    offsetX = panX;
+    offsetY = panY;
   }
+
+  if (mapImage.complete) {
+    ctx.drawImage(mapImage, offsetX, offsetY, mapW * scale, mapH * scale);
+  }
+
   if (!isEmbeddedPreview && mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
     drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, scale);
   }
 
   drawLayers(offsetX, offsetY, scale);
 }
-
 
 function drawMasterRuler(start, end, offsetX, offsetY, scale) {
   const [x1, y1] = start;
@@ -299,8 +361,12 @@ function drawFind(find, offsetX, offsetY, scale) {
 }
 
 socket.on("zoom_update", (data) => {
-  zoomLevel = data.zoom_level || 1;
-  render();
+  if (data.map_id === mapId) {
+    zoomLevel = data.zoom_level || 1;
+    panX = data.pan_x ?? 0;
+    panY = data.pan_y ?? 0;
+    render();
+  }
 });
 
 function drawBlurredZone(zone, offsetX, offsetY, scale) {

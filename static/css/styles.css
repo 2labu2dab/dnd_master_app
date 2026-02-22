@@ -94,8 +94,8 @@ details[open] > summary::after {
 }
 
 #sidebar {
-  width: 400px;
-  background-color: #252526;
+  width: 21.36%;
+  background-color: #1e1e1e;
   padding: 20px;
   box-sizing: border-box;
   display: flex;
@@ -682,7 +682,7 @@ large-modal {
 }
 
 #right-sidebar {
-  width: 340px;
+  width: 18.16%;
   background-color: #1e1e1e;
   padding: 20px;
   box-sizing: border-box;
@@ -691,7 +691,7 @@ large-modal {
   justify-content: flex-start;
   align-items: stretch;
   gap: 16px;
-  border-left: 1px solid #333;
+  /* border-left: 1px solid #333; */
 }
 
 #characterAvatarDropzone {
@@ -758,3 +758,55 @@ large-modal {
   border-radius: 0; /* 🔲 */
 }
 
+
+.map-selector {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.map-selector select {
+  flex: 1;
+  background: #2a2a3b;
+  color: #ddd;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+.map-selector select:hover {
+  background: #323246;
+}
+
+.map-selector .icon-button {
+  background: #2a2a3b;
+  border: 1px solid #444;
+  color: #ddd;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.map-selector .icon-button:hover {
+  background: #3a3a4f;
+  border-color: #666;
+  transform: scale(1.05);
+}
+
+.map-selector .icon-button:active {
+  transform: scale(0.95);
+}
+
+.modal-content.small-modal {
+  max-width: 400px;
+  min-width: 300px;
+}
