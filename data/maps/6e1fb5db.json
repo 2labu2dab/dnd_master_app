@@ -1,0 +1,30 @@
+{
+  "characters": [],
+  "created": "2026-02-22T19:45:58.765462",
+  "finds": [],
+  "grid_settings": {
+    "cell_size": 100,
+    "color": "#888888",
+    "opacity": 100,
+    "visible": true,
+    "visible_to_players": true
+  },
+  "has_image": true,
+  "modified": "2026-02-22T19:48:03.117892",
+  "name": "2",
+  "pan_x": 0,
+  "pan_y": 0,
+  "player_map_enabled": true,
+  "ruler_end": [
+    832.9523119608103,
+    227.99556856388867
+  ],
+  "ruler_start": [
+    752.9774021286008,
+    1074.7887314931656
+  ],
+  "ruler_visible_to_players": true,
+  "tokens": [],
+  "zones": [],
+  "zoom_level": 1.4000000000000004
+}

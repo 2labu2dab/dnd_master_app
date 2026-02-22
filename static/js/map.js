@@ -5,8 +5,27 @@ const sidebar = document.getElementById("sidebar");
 const rightSidebar = document.getElementById("right-sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
+let isSwitchingMap = false;
 let zoomLevel = 1;
-const socket = io();
+const socket = io({
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000
+});
+socket.on('connect', () => {
+    console.log('Socket connected with ID:', socket.id);
+});
+socket.on('disconnect', () => {
+    console.log('Socket disconnected');
+});
+socket.on('connect_error', (error) => {
+    console.log('Socket connection error:', error);
+});
+
+socket.on('reconnect', (attemptNumber) => {
+    console.log('Socket reconnected after', attemptNumber, 'attempts');
+});
 panX = 0
 panY = 0
 let mapImage = new Image();
@@ -41,6 +60,26 @@ let pendingZoneVertices = null;
 let hoveredSnapVertex = null;
 const avatarCache = {};
 
+let socketId = null;
+
+
+socket.on('connect', () => {
+    socketId = socket.id;
+    console.log('Connected with ID:', socketId);
+});
+
+// В обработчике master_switched_map добавьте проверку
+socket.on("master_switched_map", (data) => {
+    console.log("Master received master_switched_map:", data);
+    // Игнорируем, если это наше же событие (хотя мы должны получать только чужие)
+    // Но на всякий случай проверим
+    if (data.map_id === currentMapId) {
+        console.log("Already on this map, ignoring");
+        return;
+    }
+    
+    // Здесь можно обновить интерфейс если нужно
+});
 
 function syncGridInputs(value) {
   const num = parseInt(value);
@@ -373,6 +412,20 @@ function checkMapExists() {
 }
 
 function switchMap(mapId) {
+    console.log("switchMap called with:", mapId);
+    
+    if (isSwitchingMap) {
+        console.log("Already switching map, ignoring");
+        return;
+    }
+    
+    if (currentMapId === mapId) {
+        console.log("Already on this map, ignoring");
+        return;
+    }
+    
+    isSwitchingMap = true;
+    
     if (!mapId) {
         currentMapId = null;
         mapData = {
@@ -384,36 +437,83 @@ function switchMap(mapId) {
         };
         render();
         updateSidebar();
+        
+        const playerFrame = document.getElementById('playerMini');
+        if (playerFrame) {
+            playerFrame.src = '/player';
+        }
+        
+        socket.emit("switch_map", { map_id: null });
+        isSwitchingMap = false;
         return;
     }
     
     fetch(`/api/map/${mapId}`)
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+        })
         .then(data => {
             if (data.error) {
                 console.error(data.error);
+                isSwitchingMap = false;
                 return;
             }
             
             mapData = data;
             currentMapId = mapId;
             
-            if (mapData.map_image_base64) {
+            zoomLevel = mapData.zoom_level || 1;
+            panX = mapData.pan_x || 0;
+            panY = mapData.pan_y || 0;
+            
+            updateSidebar();
+            
+            const gridSize = mapData.grid_settings.cell_size || 20;
+            document.getElementById("gridSlider").value = gridSize;
+            document.getElementById("gridInput").value = gridSize;
+
+            const gridToggle = document.getElementById("gridToggle");
+            gridToggle.classList.toggle("active", mapData.grid_settings.visible);
+
+            const playerGridToggle = document.getElementById("playerGridToggle");
+            if (mapData.grid_settings.visible_to_players !== false) {
+                playerGridToggle.classList.add("active");
+            } else {
+                playerGridToggle.classList.remove("active");
+            }
+
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
+            
+            // Загружаем изображение карты
+            if (mapData.has_image) {
+                const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
                 mapImage = new Image();
                 mapImage.onload = () => {
                     render();
-                    updateSidebar();
                 };
-                mapImage.src = mapData.map_image_base64;
+                mapImage.src = imageUrl;
             } else {
                 render();
-                updateSidebar();
             }
             
             const playerFrame = document.getElementById('playerMini');
             if (playerFrame) {
                 playerFrame.src = `/player?map_id=${mapId}`;
             }
+            
+            socket.emit("switch_map", { map_id: mapId });
+            
+            setTimeout(() => {
+                isSwitchingMap = false;
+            }, 500);
+        })
+        .catch(err => {
+            console.error("Error switching map:", err);
+            isSwitchingMap = false;
         });
 }
 
@@ -576,58 +676,60 @@ function zonesIntersect(verticesA, verticesB) {
 }
 
 function fetchMap() {
-  fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
-    .then(res => res.json())
-    .then(data => {
-      mapData = data;
-      zoomLevel = mapData.zoom_level || 1;
-      panX = mapData.pan_x || 0;
-      panY = mapData.pan_y || 0;
-      
-      updateSidebar();
+    if (!currentMapId) return;
+    
+    fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
+        .then(res => res.json())
+        .then(data => {
+            mapData = data;
+            zoomLevel = mapData.zoom_level || 1;
+            panX = mapData.pan_x || 0;
+            panY = mapData.pan_y || 0;
+            
+            updateSidebar();
 
-      if (!mapData.tokens) mapData.tokens = [];
-      if (!mapData.finds) mapData.finds = [];
-      if (!mapData.zones) mapData.zones = [];
-      if (!mapData.characters) mapData.characters = [];
-      if (!mapData.grid_settings) {
-        mapData.grid_settings = {
-          cell_size: 20,
-          color: "#888888",
-          visible: false,
-          visible_to_players: true
-        };
-      }
+            if (!mapData.tokens) mapData.tokens = [];
+            if (!mapData.finds) mapData.finds = [];
+            if (!mapData.zones) mapData.zones = [];
+            if (!mapData.characters) mapData.characters = [];
+            if (!mapData.grid_settings) {
+                mapData.grid_settings = {
+                    cell_size: 20,
+                    color: "#888888",
+                    visible: false,
+                    visible_to_players: true
+                };
+            }
 
-      if (mapData.player_map_enabled === undefined) {
-        mapData.player_map_enabled = true;
-      }
-      
-      const gridSize = mapData.grid_settings.cell_size || 20;
-      document.getElementById("gridSlider").value = gridSize;
-      document.getElementById("gridInput").value = gridSize;
+            if (mapData.player_map_enabled === undefined) {
+                mapData.player_map_enabled = true;
+            }
+            
+            const gridSize = mapData.grid_settings.cell_size || 20;
+            document.getElementById("gridSlider").value = gridSize;
+            document.getElementById("gridInput").value = gridSize;
 
-      const gridToggle = document.getElementById("gridToggle");
-      gridToggle.classList.toggle("active", mapData.grid_settings.visible);
+            const gridToggle = document.getElementById("gridToggle");
+            gridToggle.classList.toggle("active", mapData.grid_settings.visible);
 
-      const playerGridToggle = document.getElementById("playerGridToggle");
-      if (mapData.grid_settings.visible_to_players !== false) {
-        playerGridToggle.classList.add("active");
-      } else {
-        playerGridToggle.classList.remove("active");
-      }
+            const playerGridToggle = document.getElementById("playerGridToggle");
+            if (mapData.grid_settings.visible_to_players !== false) {
+                playerGridToggle.classList.add("active");
+            } else {
+                playerGridToggle.classList.remove("active");
+            }
 
-      const playerRulerToggle = document.getElementById("playerRulerToggle");
-      playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-      if (mapData.map_image_base64) {
-        mapImage = new Image();
-        mapImage.onload = () => render();
-        mapImage.src = mapData.map_image_base64;
-      } else {
-        render();
-      }
-    });
+            if (mapData.map_image_base64) {
+                mapImage = new Image();
+                mapImage.onload = () => render();
+                mapImage.src = mapData.map_image_base64;
+            } else {
+                render();
+            }
+        });
 }
 
 function render() {
@@ -1244,22 +1346,30 @@ canvas.addEventListener("mousemove", (e) => {
     render();
     return;
   }
-
   if (isRulerMode && rulerStart) {
     const { scale, offsetX, offsetY } = getTransform();
 
-    mapData.ruler_start = rulerStart;
-    mapData.ruler_end = [
+    const rulerEnd = [
       (e.offsetX - offsetX) / scale,
       (e.offsetY - offsetY) / scale
     ];
+    
+    // Обновляем данные для рендера
+    mapData.ruler_start = rulerStart;
+    mapData.ruler_end = rulerEnd;
 
     render();
 
-    socket.emit("ruler_update", {
-      ruler_start: mapData.ruler_start,
-      ruler_end: mapData.ruler_end
-    });
+    // Используем requestAnimationFrame для throttle отправки
+    if (!window.rulerThrottle) {
+      window.rulerThrottle = setTimeout(() => {
+        socket.emit("ruler_update", {
+          ruler_start: rulerStart,
+          ruler_end: rulerEnd
+        });
+        window.rulerThrottle = null;
+      }, 30); // Отправляем каждые 30ms
+    }
 
     return;
   }
@@ -1426,12 +1536,23 @@ canvas.addEventListener("mouseup", () => {
     });
   }
 
+  // Отправляем финальное положение линейки
+  if (isRulerMode && rulerStart && window.rulerThrottle) {
+    clearTimeout(window.rulerThrottle);
+    socket.emit("ruler_update", {
+      ruler_start: rulerStart,
+      ruler_end: mapData.ruler_end
+    });
+    window.rulerThrottle = null;
+  }
+
   draggingToken = null;
   draggingFind = null;
 });
 
 
 let zoomSyncTimeout;
+
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
@@ -1456,14 +1577,17 @@ canvas.addEventListener("wheel", (e) => {
 
   clearTimeout(zoomSyncTimeout);
   zoomSyncTimeout = setTimeout(() => {
+    // Отправляем данные о масштабе на сервер
     socket.emit("zoom_update", {
-  zoom_level: zoomLevel,
-  pan_x: panX,
-  pan_y: panY
-});
+      map_id: currentMapId,  // Убедитесь, что currentMapId определен
+      zoom_level: zoomLevel,
+      pan_x: panX,
+      pan_y: panY,
+      canvas_width: canvas.width,
+      canvas_height: canvas.height
+    });
   }, 200);
 });
-
 document.addEventListener("keydown", (e) => {
   if (e.key === "Delete") {
     let changed = false;
@@ -1636,25 +1760,26 @@ function updateSliderVisual() {
 
 window.onload = () => {
     fetch("/api/maps")
-          .then(res => res.json())
-          .then(maps => {
-              const select = document.getElementById('mapSelect');
-              select.innerHTML = '';
-              
-              if (maps.length > 0) {
-                  maps.forEach(map => {
-                      const option = document.createElement('option');
-                      option.value = map.id;
-                      option.textContent = map.name;
-                      select.appendChild(option);
-                  });
-                  select.value = maps[0].id;
-                  switchMap(maps[0].id);
-              } else {
-                  select.innerHTML = '<option value="">Нет карт</option>';
-                  switchMap(null);
-              }
-          });
+        .then(res => res.json())
+        .then(maps => {
+            const select = document.getElementById('mapSelect');
+            select.innerHTML = '';
+            
+            if (maps.length > 0) {
+                maps.forEach(map => {
+                    const option = document.createElement('option');
+                    option.value = map.id;
+                    option.textContent = map.name;
+                    select.appendChild(option);
+                });
+                select.value = maps[0].id;
+                // Убираем fetchMap(), оставляем только switchMap
+                switchMap(maps[0].id);
+            } else {
+                select.innerHTML = '<option value="">Нет карт</option>';
+                switchMap(null);
+            }
+        });
   fetchMap();
 
   const toggleBtn = document.getElementById("togglePlayerMini");
@@ -1691,12 +1816,20 @@ window.onload = () => {
   const rulerBtn = document.getElementById("rulerToggle");
   rulerBtn.addEventListener("click", () => {
     isRulerMode = !isRulerMode;
-    rulerStart = null;
-
+    
     if (!isRulerMode) {
       mapData.ruler_start = null;
       mapData.ruler_end = null;
+      
+      // Отправляем обновление линейки
+      socket.emit("ruler_update", {
+        ruler_start: null,
+        ruler_end: null
+      });
+      
       saveMapData();
+    } else {
+      rulerStart = null;
     }
 
     rulerBtn.classList.toggle("active", isRulerMode);
@@ -1749,3 +1882,31 @@ window.onload = () => {
 
   updateSliderVisual();
 };
+
+socket.on("map_created", (data) => {
+    console.log("Master received map_created:", data);
+    
+    // Обновляем селект карт
+    const select = document.getElementById('mapSelect');
+    select.innerHTML = '';
+    
+    data.maps.forEach(map => {
+        const option = document.createElement('option');
+        option.value = map.id;
+        option.textContent = map.name;
+        if (map.id === data.current_map) option.selected = true;
+        select.appendChild(option);
+    });
+    
+    // Устанавливаем currentMapId без вызова switchMap
+    currentMapId = data.current_map;
+    
+    // Загружаем данные карты
+    fetchMap();
+    
+    // Обновляем iframe игрока
+    const playerFrame = document.getElementById('playerMini');
+    if (playerFrame) {
+        playerFrame.src = `/player?map_id=${data.current_map}`;
+    }
+});
