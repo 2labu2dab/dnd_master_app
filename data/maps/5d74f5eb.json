@@ -1,0 +1,24 @@
+{
+  "characters": [],
+  "created": "2026-02-22T20:30:36.021023",
+  "finds": [],
+  "grid_settings": {
+    "cell_size": 20,
+    "color": "#888888",
+    "opacity": 100,
+    "visible": false,
+    "visible_to_players": false
+  },
+  "has_image": true,
+  "modified": "2026-02-22T20:33:19.420024",
+  "name": "Покои наложниц",
+  "pan_x": 0,
+  "pan_y": 0,
+  "player_map_enabled": true,
+  "ruler_end": null,
+  "ruler_start": null,
+  "ruler_visible_to_players": false,
+  "tokens": [],
+  "zones": [],
+  "zoom_level": 1
+}

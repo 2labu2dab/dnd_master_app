@@ -181,12 +181,21 @@ function autoUploadMap(input) {
                 });
                 if (maps.length > 0) {
                     select.value = maps[0].id;
-                    switchMap(maps[0].id);
+                    
+                    // Важно: обновляем currentMapId если он изменился
+                    if (currentMapId !== maps[0].id) {
+                        switchMap(maps[0].id);
+                    } else {
+                        // Если это та же карта, просто обновляем изображение
+                        fetchMap();
+                    }
                 }
             });
+            
+        // Сбрасываем input, чтобы можно было загрузить тот же файл снова
+        input.value = '';
     });
 }
-
 function getOpenEyeSVG() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg>`;
 }
@@ -681,6 +690,9 @@ function fetchMap() {
     fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
         .then(res => res.json())
         .then(data => {
+            const oldHasImage = mapData?.has_image;
+            const oldImageSrc = mapImage?.src;
+            
             mapData = data;
             zoomLevel = mapData.zoom_level || 1;
             panX = mapData.pan_x || 0;
@@ -722,11 +734,27 @@ function fetchMap() {
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-            if (mapData.map_image_base64) {
-                mapImage = new Image();
-                mapImage.onload = () => render();
-                mapImage.src = mapData.map_image_base64;
-            } else {
+            // Загружаем изображение карты
+            if (mapData.has_image) {
+              const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
+              
+              // Проверяем, нужно ли перезагружать изображение
+              if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
+                  mapImage = new Image();
+                  mapImage.onload = () => {
+                      render();
+                      // Уведомляем игроков о новом изображении
+                      socket.emit("notify_image_loaded", {
+                          map_id: currentMapId,
+                          image_url: imageUrl
+                      });
+                  };
+                  mapImage.src = imageUrl;
+              } else {
+                  render();
+              }
+          } else {
+                mapImage = new Image(); // Сбрасываем изображение
                 render();
             }
         });
@@ -1347,31 +1375,32 @@ canvas.addEventListener("mousemove", (e) => {
     return;
   }
   if (isRulerMode && rulerStart) {
-    const { scale, offsetX, offsetY } = getTransform();
+      const { scale, offsetX, offsetY } = getTransform();
 
-    const rulerEnd = [
-      (e.offsetX - offsetX) / scale,
-      (e.offsetY - offsetY) / scale
-    ];
-    
-    // Обновляем данные для рендера
-    mapData.ruler_start = rulerStart;
-    mapData.ruler_end = rulerEnd;
+      const rulerEnd = [
+          (e.offsetX - offsetX) / scale,
+          (e.offsetY - offsetY) / scale
+      ];
+      
+      // Обновляем данные для рендера
+      mapData.ruler_start = rulerStart;
+      mapData.ruler_end = rulerEnd;
 
-    render();
+      render();
 
-    // Используем requestAnimationFrame для throttle отправки
-    if (!window.rulerThrottle) {
-      window.rulerThrottle = setTimeout(() => {
-        socket.emit("ruler_update", {
-          ruler_start: rulerStart,
-          ruler_end: rulerEnd
-        });
-        window.rulerThrottle = null;
-      }, 30); // Отправляем каждые 30ms
-    }
+      // Используем setTimeout для throttle отправки
+      if (!window.rulerThrottle) {
+          window.rulerThrottle = setTimeout(() => {
+              socket.emit("ruler_update", {
+                  map_id: currentMapId,  // Обязательно передаем map_id!
+                  ruler_start: rulerStart,
+                  ruler_end: rulerEnd
+              });
+              window.rulerThrottle = null;
+          }, 30);
+      }
 
-    return;
+      return;
   }
 
   if (draggingToken || draggingFind) {
@@ -1529,22 +1558,24 @@ canvas.addEventListener("contextmenu", (e) => {
 
 canvas.addEventListener("mouseup", () => {
   if (draggingToken || draggingFind) {
-    fetch("/api/map", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mapData),
-    });
-  }
+        fetch("/api/map", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(mapData),
+        });
+    }
 
   // Отправляем финальное положение линейки
   if (isRulerMode && rulerStart && window.rulerThrottle) {
-    clearTimeout(window.rulerThrottle);
-    socket.emit("ruler_update", {
-      ruler_start: rulerStart,
-      ruler_end: mapData.ruler_end
-    });
-    window.rulerThrottle = null;
-  }
+        clearTimeout(window.rulerThrottle);
+        socket.emit("ruler_update", {
+            map_id: currentMapId,  // Обязательно передаем map_id!
+            ruler_start: rulerStart,
+            ruler_end: mapData.ruler_end
+        });
+        window.rulerThrottle = null;
+    }
+
 
   draggingToken = null;
   draggingFind = null;
@@ -1793,12 +1824,22 @@ window.onload = () => {
     mapData.player_map_enabled = !enabled;
 
     updateMiniToggleIcon();
+    
+    // Сохраняем на сервере
+    saveMapData();
+    
+    // Дополнительно отправляем через сокет для немедленного обновления игрока
+    socket.emit("player_visibility_change", {
+        map_id: currentMapId,
+        player_map_enabled: mapData.player_map_enabled
+        });
+  });
 
-    fetch("/api/map", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mapData),
-    });
+  socket.on("player_visibility_change", (data) => {
+      if (data.map_id === currentMapId) {
+          mapData.player_map_enabled = data.player_map_enabled;
+          updateMiniToggleIcon();
+      }
   });
 
   updateMiniToggleIcon();
@@ -1854,11 +1895,21 @@ window.onload = () => {
 
   const playerRulerToggle = document.getElementById("playerRulerToggle");
   playerRulerToggle.addEventListener("click", () => {
-    const current = mapData.ruler_visible_to_players ?? false;
-    mapData.ruler_visible_to_players = !current;
-    playerRulerToggle.classList.toggle("active", !current);
-    saveMapData();
-  });
+        const current = mapData.ruler_visible_to_players ?? false;
+        mapData.ruler_visible_to_players = !current;
+        playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
+        
+        console.log("Ruler visibility for players changed to:", mapData.ruler_visible_to_players);
+        
+        // Сохраняем через обычный saveMapData
+        saveMapData();
+        
+        // Отправляем специальное событие для немедленного обновления игроков
+        socket.emit("ruler_visibility_change", {
+            map_id: currentMapId,
+            ruler_visible_to_players: mapData.ruler_visible_to_players
+        });
+    });
 
   const findVisibleCheckbox = document.getElementById("findVisibleCheckbox");
   findVisibleCheckbox.addEventListener("change", () => {
@@ -1908,5 +1959,35 @@ socket.on("map_created", (data) => {
     const playerFrame = document.getElementById('playerMini');
     if (playerFrame) {
         playerFrame.src = `/player?map_id=${data.current_map}`;
+    }
+});
+
+socket.on("map_image_updated", (data) => {
+    console.log("Master received map_image_updated:", data);
+    
+    if (data.map_id === currentMapId) {
+        // Обновляем изображение карты
+        if (data.map_image_base64) {
+            mapImage = new Image();
+            mapImage.onload = () => {
+                render();
+            };
+            mapImage.src = data.map_image_base64;
+            
+            // Обновляем mapData
+            mapData.has_image = true;
+        }
+    }
+});
+
+socket.on("request_image_reload", (data) => {
+    if (data.map_id === currentMapId) {
+        // Перезагружаем изображение
+        const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
+        mapImage = new Image();
+        mapImage.onload = () => {
+            render();
+        };
+        mapImage.src = imageUrl;
     }
 });

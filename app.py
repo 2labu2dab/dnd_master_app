@@ -9,6 +9,7 @@ import time
 from PIL import Image
 import io
 import base64
+import uuid
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -318,7 +319,17 @@ def upload_map():
         data["has_image"] = True
         save_map_data(data, map_id)
         
-        # Отправляем обновление всем
+        # Получаем изображение в base64 для мастера
+        image_base64 = load_map_image(map_id)
+        
+        # Отправляем обновление мастеру (с base64 для немедленного отображения)
+        socketio.emit("map_image_updated", {
+            "map_id": map_id,
+            "map_image_base64": image_base64,
+            "has_image": True
+        }, room=request.sid)
+        
+        # Подготавливаем данные для игроков
         player_data = {
             "map_id": map_id,
             "tokens": data.get("tokens", []),
@@ -331,9 +342,29 @@ def upload_map():
             "image_url": f"/api/map/image/{map_id}?t={int(time.time())}"
         }
         
-        socketio.emit("map_updated", player_data)
+        # Отправляем ВСЕМ игрокам (включая того, кто уже подключен)
+        socketio.emit("map_updated", player_data, broadcast=True)
+        
+        # Также отправляем специальное событие для принудительной перезагрузки изображения
+        socketio.emit("force_image_reload", {
+            "map_id": map_id,
+            "image_url": f"/api/map/image/{map_id}?t={int(time.time())}"
+        }, broadcast=True)
     
     return redirect("/")
+
+@socketio.on("notify_image_loaded")
+def handle_notify_image_loaded(data):
+    """Обработчик уведомления о загрузке изображения мастером"""
+    map_id = data.get('map_id')
+    image_url = data.get('image_url')
+    
+    if map_id and image_url:
+        # Отправляем всем игрокам
+        emit("force_image_reload", {
+            "map_id": map_id,
+            "image_url": image_url
+        }, broadcast=True, include_self=False)
 
 @socketio.on("connect")
 def handle_connect():
@@ -346,12 +377,11 @@ def handle_disconnect():
 @socketio.on("ruler_update")
 def handle_ruler_update(data):
     """Обработчик обновления линейки с throttle"""
-    map_id = session.get('current_map_id')
+    # Всегда берем map_id из данных, не из сессии!
+    map_id = data.get('map_id')
     if not map_id:
-        # Пробуем получить map_id из данных
-        map_id = data.get('map_id')
-        if not map_id:
-            return
+        print("No map_id in ruler_update")
+        return
     
     client_id = request.sid
     current_time = time.time()
@@ -440,6 +470,62 @@ def handle_map_sync(data):
                 "pan_y": map_data.get("pan_y", 0)
             })
 
+@socketio.on("player_visibility_change")
+def handle_player_visibility_change(data):
+    """Обработчик изменения видимости карты для игроков"""
+    map_id = data.get('map_id')
+    if not map_id:
+        return
+    
+    # Отправляем всем игрокам
+    emit("map_visibility_change", {
+        "map_id": map_id,
+        "player_map_enabled": data.get("player_map_enabled", True)
+    }, broadcast=True, include_self=False)
+
+@socketio.on("request_map_image")
+def handle_request_map_image(data):
+    """Обработчик запроса изображения карты"""
+    map_id = data.get('map_id')
+    if map_id:
+        image_base64 = load_map_image(map_id)
+        if image_base64:
+            emit("map_image_updated", {
+                "map_id": map_id,
+                "map_image_base64": image_base64,
+                "has_image": True
+            }, room=request.sid)
+
+@socketio.on("map_image_updated_to_player")
+def handle_map_image_updated_to_player(data):
+    """Обработчик уведомления об обновлении изображения карты"""
+    map_id = data.get('map_id')
+    if map_id:
+        # Передаем всем игрокам
+        emit("map_image_updated_to_player", {
+            "map_id": map_id,
+            "has_image": data.get("has_image", True)
+        }, broadcast=True, include_self=False)
+@socketio.on("ruler_visibility_change")
+def handle_ruler_visibility_change(data):
+    """Обработчик изменения видимости линейки для игроков"""
+    map_id = data.get('map_id')
+    if not map_id:
+        return
+    
+    print(f"Ruler visibility change for map {map_id}: {data.get('ruler_visible_to_players')}")
+    
+    # Обновляем данные карты
+    map_data = load_map_data(map_id)
+    if map_data:
+        map_data["ruler_visible_to_players"] = data.get("ruler_visible_to_players", False)
+        save_map_data(map_data, map_id)
+    
+    # Отправляем всем игрокам
+    emit("ruler_visibility_change", {
+        "map_id": map_id,
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False)
+    }, broadcast=True, include_self=False)
 if __name__ == "__main__":
     # Создаем необходимые директории
     os.makedirs("data", exist_ok=True)

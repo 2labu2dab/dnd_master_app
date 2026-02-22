@@ -1,6 +1,6 @@
 {
   "characters": [],
-  "created": "2026-02-22T19:45:11.295874",
+  "created": "2026-02-22T20:30:58.968372",
   "finds": [],
   "grid_settings": {
     "cell_size": 20,
@@ -10,17 +10,15 @@
     "visible_to_players": false
   },
   "has_image": true,
-  "modified": "2026-02-22T19:46:06.804633",
-  "name": "1",
-  "pan_x": -36.59479236041716,
-  "pan_y": -62.7039627039627,
-  "player_map_enabled": true,
+  "modified": "2026-02-22T20:33:13.156585",
+  "name": "Монастырь",
+  "pan_x": 0,
+  "pan_y": 0,
+  "player_map_enabled": false,
   "ruler_end": null,
   "ruler_start": null,
   "ruler_visible_to_players": false,
   "tokens": [],
   "zones": [],
-  "zoom_level": 1.6000000000000005,
-  "master_canvas_width": 1161,
-  "master_canvas_height": 911
+  "zoom_level": 1.7000000000000006
 }
