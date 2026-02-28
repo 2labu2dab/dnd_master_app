@@ -600,7 +600,6 @@ def handle_map_sync(data):
                 "pan_x": map_data.get("pan_x", 0),
                 "pan_y": map_data.get("pan_y", 0)
             })
-
 @socketio.on("player_visibility_change")
 def handle_player_visibility_change(data):
     """Обработчик изменения видимости карты для игроков"""
@@ -613,6 +612,11 @@ def handle_player_visibility_change(data):
     # Загружаем данные карты, чтобы получить актуальную информацию об изображении
     map_data = load_map_data(map_id)
     has_image = map_data.get("has_image", False) if map_data else False
+    
+    # Сохраняем новое значение в данные карты
+    if map_data:
+        map_data["player_map_enabled"] = data.get("player_map_enabled", True)
+        save_map_data(map_data, map_id)
     
     # Подготавливаем данные для отправки
     visibility_data = {
@@ -627,6 +631,58 @@ def handle_player_visibility_change(data):
     
     # Отправляем всем игрокам
     emit("map_visibility_change", visibility_data, broadcast=True, include_self=False)
+    
+    # Если карта стала видимой, также отправляем полные данные
+    if data.get("player_map_enabled", True) and map_data:
+        # Подготавливаем полные данные карты для игроков
+        tokens_for_players = []
+        for token in map_data.get("tokens", []):
+            token_copy = token.copy()
+            if token_copy.get("has_avatar"):
+                from utils.storage import get_token_avatar_url
+                token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
+            token_copy.pop("avatar_data", None)
+            tokens_for_players.append(token_copy)
+        
+        full_update = {
+            "map_id": map_id,
+            "tokens": tokens_for_players,
+            "zones": map_data.get("zones", []),
+            "finds": map_data.get("finds", []),
+            "grid_settings": map_data.get("grid_settings", {}),
+            "ruler_visible_to_players": map_data.get("ruler_visible_to_players", False),
+            "ruler_start": map_data.get("ruler_start"),
+            "ruler_end": map_data.get("ruler_end"),
+            "player_map_enabled": True,
+            "has_image": has_image
+        }
+        
+        if has_image:
+            full_update["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        
+        # Небольшая задержка перед отправкой полных данных
+        socketio.sleep(0.1)
+        emit("map_updated", full_update, broadcast=True, include_self=False)
+
+@socketio.on("force_map_update")
+def handle_force_map_update(data):
+    """Принудительное обновление карты для игроков"""
+    map_id = data.get('map_id')
+    if not map_id:
+        return
+    
+    print(f"Forcing map update for map {map_id}")
+    
+    # Отправляем всем игрокам
+    emit("map_updated", data, broadcast=True, include_self=False)
+    
+    # Также отправляем событие о видимости для надёжности
+    emit("map_visibility_change", {
+        "map_id": map_id,
+        "player_map_enabled": True,
+        "has_image": data.get("has_image", False),
+        "image_url": data.get("image_url")
+    }, broadcast=True, include_self=False)
 
 @socketio.on("request_map_image")
 def handle_request_map_image(data):
