@@ -2,7 +2,8 @@ from flask import Flask, render_template, jsonify, request, redirect, session, s
 from flask_socketio import SocketIO, emit
 from utils.storage import (
     load_map_data, save_map_data, list_maps, create_new_map, 
-    delete_map, load_map_image, get_image_filepath, save_map_image
+    delete_map, load_map_image, get_image_filepath, save_map_image,
+    save_token_avatar, get_token_avatar_url, TOKENS_AVATARS_DIR  # Добавьте эти импорты
 )
 import os
 import time
@@ -27,6 +28,37 @@ socketio = SocketIO(
 
 # Кэш для throttle
 last_ruler_updates = {}
+
+import os
+
+print("=" * 50)
+print("Starting server...")
+print(f"Current working directory: {os.getcwd()}")
+
+# Создаем папки и проверяем права
+data_dir = "data"
+token_avatars_dir = os.path.join(data_dir, "token_avatars")
+
+# Создаем папки
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(token_avatars_dir, exist_ok=True)
+
+print(f"Data dir exists: {os.path.exists(data_dir)}")
+print(f"Data dir writable: {os.access(data_dir, os.W_OK)}")
+print(f"Token avatars dir exists: {os.path.exists(token_avatars_dir)}")
+print(f"Token avatars dir writable: {os.access(token_avatars_dir, os.W_OK)}")
+
+# Пробуем создать тестовый файл
+test_file = os.path.join(token_avatars_dir, "test.txt")
+try:
+    with open(test_file, 'w') as f:
+        f.write("test")
+    print("✓ Test file created successfully")
+    os.remove(test_file)
+    print("✓ Test file removed")
+except Exception as e:
+    print(f"✗ Failed to create test file: {e}")
+print("=" * 50)
 
 @app.route("/")
 def index():
@@ -58,6 +90,24 @@ def get_map(map_id):
     image_base64 = load_map_image(map_id)
     if image_base64:
         data["map_image_base64"] = image_base64
+    
+    # Добавляем URL аватаров для токенов
+    if "tokens" in data:
+        for token in data["tokens"]:
+            if token.get("has_avatar"):
+                from utils.storage import get_token_avatar_url
+                token["avatar_url"] = get_token_avatar_url(token["id"])
+                print(f"Token {token['id']} avatar URL in get_map: {token['avatar_url']}")  # Для отладки
+            # Удаляем старые данные аватара если они есть
+            token.pop("avatar_data", None)
+    
+    # Добавляем URL аватаров для персонажей
+    if "characters" in data:
+        for character in data["characters"]:
+            if character.get("has_avatar"):
+                from utils.storage import get_token_avatar_url
+                character["avatar_url"] = get_token_avatar_url(character["id"])
+            character.pop("avatar_data", None)
     
     old_map_id = session.get('current_map_id')
     session['current_map_id'] = map_id
@@ -153,6 +203,35 @@ def delete_map_route(map_id):
         return jsonify({"status": "ok", "maps": list_maps()})
     return jsonify({"status": "error"}), 404
 
+@app.route("/api/token/avatar/<token_id>", methods=["DELETE"])
+def delete_token_avatar(token_id):
+    """Удалить аватар токена"""
+    from utils.storage import delete_token_avatar
+    if delete_token_avatar(token_id):
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "error"}), 404
+
+@app.route("/api/token/avatar/<token_id>")
+def get_token_avatar(token_id):
+    """Получить аватар токена как файл"""
+    from utils.storage import get_token_avatar_filepath
+    image_path = get_token_avatar_filepath(token_id)
+    print(f"Looking for token avatar at: {image_path}")
+    print(f"File exists: {os.path.exists(image_path)}")
+    
+    if os.path.exists(image_path):
+        print(f"File size: {os.path.getsize(image_path)} bytes")
+        return send_file(image_path, mimetype='image/png')
+    
+    # Если файл не найден, проверим содержимое папки
+    print(f"Files in token_avatars dir:")
+    token_avatars_dir = os.path.dirname(image_path)
+    if os.path.exists(token_avatars_dir):
+        for f in os.listdir(token_avatars_dir):
+            print(f"  - {f}")
+    
+    return "", 404
+
 @app.route("/api/tokens", methods=["GET"])
 def get_tokens():
     map_id = session.get('current_map_id')
@@ -179,27 +258,70 @@ def get_finds():
 
 @app.route("/api/token", methods=["POST"])
 def add_token():
-    token = request.get_json()
-    avatar_data = token.pop("avatar_data", None)
-
+    print("\n" + "="*50)
+    print("TOKEN API CALLED")
+    print("="*50)
+    
+    # Получаем данные запроса ТОЛЬКО ОДИН РАЗ
+    try:
+        token = request.get_json()
+        print(f"Received JSON data: {token}")
+    except Exception as e:
+        print(f"Error parsing JSON: {e}")
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    # Извлекаем avatar_data из полученных данных
+    avatar_data = token.pop("avatar_data", None) if token else None
+    
+    print(f"Token data: {token}")
+    print(f"Avatar data present: {bool(avatar_data)}")
+    print(f"Avatar data type: {type(avatar_data)}")
     if avatar_data:
-        token["avatar_data"] = avatar_data
-
+        print(f"Avatar data length: {len(avatar_data)}")
+        print(f"Avatar data preview: {avatar_data[:100]}...")
+    
     map_id = session.get('current_map_id')
     if not map_id:
+        print("No map selected")
         return jsonify({"error": "No map selected"}), 400
         
     data = load_map_data(map_id)
     if not data:
+        print(f"Map {map_id} not found")
         return jsonify({"error": "Map not found"}), 404
-        
+    
+    # Сохраняем аватар как файл, если он есть
+    if avatar_data:
+        print(f"\n=== Calling save_token_avatar for token {token['id']} ===")
+        success = save_token_avatar(avatar_data, token["id"])
+        if success:
+            token["has_avatar"] = True
+            print(f"✓ Avatar saved successfully")
+        else:
+            token["has_avatar"] = False
+            print(f"✗ Failed to save avatar")
+    else:
+        token["has_avatar"] = False
+        print("No avatar data provided")
+    
     data.setdefault("tokens", []).append(token)
     save_map_data(data, map_id)
+    
+    # Подготавливаем данные для игроков (без base64)
+    tokens_for_players = []
+    for t in data.get("tokens", []):
+        token_copy = t.copy()
+        if token_copy.get("has_avatar"):
+            # Для игроков добавляем URL аватара
+            from utils.storage import get_token_avatar_url
+            token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
+            print(f"Token {token_copy['id']} avatar URL: {token_copy['avatar_url']}")
+        tokens_for_players.append(token_copy)
     
     # Отправляем обновление всем игрокам
     player_data = {
         "map_id": map_id,
-        "tokens": data.get("tokens", []),
+        "tokens": tokens_for_players,
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
@@ -531,6 +653,7 @@ if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
     os.makedirs("data/maps", exist_ok=True)
     os.makedirs("data/images", exist_ok=True)
+    os.makedirs("data/token_avatars", exist_ok=True)
     
     # Запускаем приложение
     os.makedirs("data", exist_ok=True)

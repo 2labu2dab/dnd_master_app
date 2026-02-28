@@ -446,69 +446,68 @@ function drawGrid(offsetX, offsetY, scale) {
 
 // Оптимизированная отрисовка токена с кэшированием аватаров
 function drawToken(token, offsetX, offsetY, scale) {
-    const [x, y] = token.position;
-    const sx = x * scale + offsetX;
-    const sy = y * scale + offsetY;
-    const size = mapData.grid_settings.cell_size * scale;
-    const radius = size / 2;
+  const [x, y] = token.position;
+  const sx = x * scale + offsetX;
+  const sy = y * scale + offsetY;
+  const size = mapData.grid_settings.cell_size * scale;
+  const radius = size / 2;
 
-    ctx.beginPath();
-    ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
+  ctx.beginPath();
+  ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
+  
+  // Используем avatar_url для загрузки аватара
+  const avatarSrc = token.avatar_url || token.avatar_data;
+  
+  if (avatarSrc) {
+    let cachedImg = avatarCache.get(token.id);
     
-    const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
-    
-    if (avatarSrc) {
-        let cachedImg = avatarCache.get(token.id);
-        
-        if (!cachedImg) {
-            cachedImg = new Image();
-            cachedImg.onload = () => requestRender();
-            cachedImg.onerror = () => {
-                console.warn(`Failed to load avatar for token ${token.name}`);
-                avatarCache.set(token.id, null);
-            };
-            cachedImg.src = avatarSrc;
-            avatarCache.set(token.id, cachedImg);
-        }
-        
-        if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
-            ctx.save();
-            ctx.clip();
-            
-            if (token.is_dead) {
-                // Оптимизированная обработка мертвых токенов
-                ctx.globalAlpha = 0.7;
-                ctx.filter = 'grayscale(100%)';
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
-                ctx.filter = 'none';
-                ctx.globalAlpha = 1;
-            } else {
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
-            }
-            
-            ctx.restore();
-        }
-    } else {
-        ctx.fillStyle = token.is_dead
-            ? "#616161"
-            : token.is_player
-                ? "#4CAF50"
-                : token.is_npc
-                    ? "#FFC107"
-                    : "#F44336";
-        ctx.fill();
+    if (!cachedImg) {
+      cachedImg = new Image();
+      cachedImg.onload = () => requestRender();
+      cachedImg.onerror = () => {
+        console.warn(`Failed to load avatar for token ${token.name}`);
+        avatarCache.set(token.id, null);
+      };
+      cachedImg.src = avatarSrc;
+      avatarCache.set(token.id, cachedImg);
     }
     
-    // Рисуем обводку
-    ctx.strokeStyle = token.is_dead
-        ? "#999"
-        : token.is_player
-            ? "#4CAF50"
-            : token.is_npc
-                ? "#FFC107"
-                : "#F44336";
-    ctx.lineWidth = 4;
-    ctx.stroke();
+    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+      ctx.save();
+      ctx.clip();
+      
+      if (token.is_dead) {
+        ctx.globalAlpha = 0.7;
+        ctx.filter = 'grayscale(100%)';
+        ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+      }
+      
+      ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = token.is_dead
+      ? "#616161"
+      : token.is_player
+        ? "#4CAF50"
+        : token.is_npc
+          ? "#FFC107"
+          : "#F44336";
+    ctx.fill();
+  }
+  
+  ctx.strokeStyle = token.is_dead
+    ? "#999"
+    : token.is_player
+      ? "#4CAF50"
+      : token.is_npc
+        ? "#FFC107"
+        : "#F44336";
+  ctx.lineWidth = 4;
+  ctx.stroke();
 }
 
 // Остальные функции оставляем без изменений...

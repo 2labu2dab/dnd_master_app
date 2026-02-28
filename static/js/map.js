@@ -100,20 +100,29 @@ function syncGridInputs(value) {
 }
 
 function submitToken() {
+  console.log("submitToken called");
+  console.log("Token name:", document.getElementById("tokenName").value);
+  
   const name = document.getElementById("tokenName").value;
-  const avatarData = document.getElementById("avatarPreview").dataset.base64 || null;
+  const avatarPreview = document.getElementById("avatarPreview");
+  const avatarData = avatarPreview.dataset.base64 || null;
+  
+  console.log("Avatar data present:", !!avatarData);
+  console.log("Avatar data length:", avatarData ? avatarData.length : 0);
+  
   const ac = parseInt(document.getElementById("tokenAC").value);
   const hp = parseInt(document.getElementById("tokenHP").value);
   const type = document.querySelector(".type-btn.active")?.dataset.type;
-  const preview = document.getElementById("avatarRawPreview");
-
+  
   if (!name || !type) return alert("Заполните все поля");
 
-  const centerX = mapImage.width / 2;
-  const centerY = mapImage.height / 2;
+  const centerX = mapImage.width ? mapImage.width / 2 : 500;
+  const centerY = mapImage.height ? mapImage.height / 2 : 500;
 
+  const tokenId = `token_${Date.now()}`;
+  
   const token = {
-    id: `token_${Date.now()}`,
+    id: tokenId,
     name,
     position: [centerX, centerY],
     size: mapData.grid_settings.cell_size,
@@ -123,41 +132,61 @@ function submitToken() {
     armor_class: ac,
     health_points: hp,
     max_health_points: hp,
-    avatar_data: avatarData
+    has_avatar: !!avatarData
   };
 
   const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
 
-  if (addToCharacters) {
-    if (!mapData.characters) mapData.characters = [];
+  // ВАЖНО: Добавляем avatar_data в тело запроса отдельно от token
+  const requestBody = {
+    ...token,
+    avatar_data: avatarData  // avatar_data добавляем отдельно
+  };
 
-    const character = {
-      id: `char_${Date.now()}`,
-      name,
-      avatar_data: avatarData,
-      visible_to_players: true,
-    };
+  console.log("Sending token with avatar:", !!avatarData);
 
-    mapData.characters.push(character);
-
-    fetch("/api/map", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mapData),
-    });
-  }
-
+  // Сначала отправляем токен на сервер
   fetch("/api/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(token),
+    body: JSON.stringify(requestBody),  // Отправляем объект с avatar_data
+  }).then(response => {
+    console.log("Response status:", response.status);
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+    return response.json();
+  }).then(() => {
+    if (addToCharacters) {
+      // Создаем персонажа из токена
+      if (!mapData.characters) mapData.characters = [];
+
+      const character = {
+        id: `char_${Date.now()}`,
+        name,
+        avatar_url: avatarData ? `/api/token/avatar/${tokenId}` : null,
+        has_avatar: !!avatarData,
+        visible_to_players: true,
+      };
+
+      mapData.characters.push(character);
+
+      // Сохраняем персонажа
+      return fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mapData),
+      });
+    }
   }).then(() => {
     closeTokenModal();
     fetchMap();
     updateSidebar();
+  }).catch(error => {
+    console.error('Error:', error);
+    alert('Ошибка при создании токена');
   });
 }
-
 
 function autoUploadMap(input) {
     const formData = new FormData();
@@ -916,6 +945,55 @@ function drawToken(token, offsetX, offsetY, scale) {
 
   ctx.beginPath();
   ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
+  
+  // Используем avatar_url если есть
+  const avatarSrc = token.avatar_url || token.avatar_data;
+  
+  if (avatarSrc) {
+    if (!avatarCache[token.id]) {
+      const img = new Image();
+      img.onload = () => {
+        console.log(`Avatar loaded for token ${token.id}`); // Для отладки
+        render();
+      };
+      img.onerror = () => {
+        console.warn(`⚠ Не удалось загрузить аватар токена ${token.name} по URL: ${avatarSrc}`);
+        avatarCache[token.id] = null;
+      };
+      img.src = avatarSrc;
+      avatarCache[token.id] = img;
+    } else if (avatarCache[token.id] instanceof HTMLImageElement && 
+               avatarCache[token.id].complete && 
+               avatarCache[token.id].naturalWidth > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.clip();
+
+      if (token.is_dead) {
+        ctx.globalAlpha = 0.7;
+        ctx.filter = 'grayscale(100%)';
+        ctx.drawImage(avatarCache[token.id], sx - radius, sy - radius, size, size);
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.drawImage(avatarCache[token.id], sx - radius, sy - radius, size, size);
+      }
+
+      ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = token.is_dead
+      ? "#616161"
+      : token.is_player
+        ? "#4CAF50"
+        : token.is_npc
+          ? "#FFC107"
+          : "#F44336";
+    ctx.fill();
+  }
+
+  // Обводка
   ctx.strokeStyle = token.is_dead
     ? "#999"
     : token.is_player
@@ -925,61 +1003,6 @@ function drawToken(token, offsetX, offsetY, scale) {
         : "#F44336";
   ctx.lineWidth = 4;
   ctx.stroke();
-
-  const avatarSrc = token.avatar_data || (token.avatar ? `/static/${token.avatar}` : null);
-  const cached = avatarCache[token.id];
-
-  if (avatarSrc) {
-    if (!cached) {
-      const img = new Image();
-      img.onload = () => render();
-      img.onerror = () => {
-        console.warn(`⚠ Не удалось загрузить аватар токена ${token.name}`);
-        avatarCache[token.id] = null;
-      };
-      img.src = avatarSrc;
-      avatarCache[token.id] = img;
-    } else if (cached instanceof HTMLImageElement && cached.complete && cached.naturalWidth > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-      ctx.clip();
-
-      if (token.is_dead) {
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = size;
-        tempCanvas.height = size;
-        const tempCtx = tempCanvas.getContext("2d");
-
-        tempCtx.drawImage(cached, 0, 0, size, size);
-        const imageData = tempCtx.getImageData(0, 0, size, size);
-        const data = imageData.data;
-
-        for (let i = 0; i < data.length; i += 4) {
-          const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-          data[i] = data[i + 1] = data[i + 2] = avg;
-        }
-
-        tempCtx.putImageData(imageData, 0, 0);
-        ctx.drawImage(tempCanvas, sx - radius, sy - radius);
-      } else {
-        ctx.drawImage(cached, sx - radius, sy - radius, size, size);
-      }
-
-      ctx.restore();
-    }
-  } else {
-    ctx.beginPath();
-    ctx.fillStyle = token.is_dead
-      ? "#616161"
-      : token.is_player
-        ? "#4CAF50"
-        : token.is_npc
-          ? "#FFC107"
-          : "#F44336";
-    ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
-    ctx.fill();
-  }
 
   if (selectedTokenId === token.id) {
     ctx.beginPath();
@@ -1623,6 +1646,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Delete") {
     let changed = false;
     if (selectedTokenId) {
+      // Удаляем аватар токена на сервере
+      fetch(`/api/token/avatar/${selectedTokenId}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Error deleting token avatar:', err));
+      
       mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
       selectedTokenId = null;
       changed = true;
