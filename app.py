@@ -143,9 +143,20 @@ def save_map():
     save_map_data(data, map_id)
     
     # Подготавливаем данные для игроков (исключаем zoom/pan данные)
+    # ВАЖНО: добавляем URL аватаров для токенов
+    tokens_for_players = []
+    for token in data.get("tokens", []):
+        token_copy = token.copy()
+        if token_copy.get("has_avatar"):
+            from utils.storage import get_token_avatar_url
+            token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
+        # Удаляем avatar_data если есть (не нужно в player)
+        token_copy.pop("avatar_data", None)
+        tokens_for_players.append(token_copy)
+    
     player_data = {
         "map_id": map_id,
-        "tokens": data.get("tokens", []),
+        "tokens": tokens_for_players,  # ← Используем обработанные токены
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
@@ -309,13 +320,11 @@ def add_token():
     
     # Подготавливаем данные для игроков (без base64)
     tokens_for_players = []
-    for t in data.get("tokens", []):
-        token_copy = t.copy()
+    for token in data.get("tokens", []):
+        token_copy = token.copy()
         if token_copy.get("has_avatar"):
-            # Для игроков добавляем URL аватара
             from utils.storage import get_token_avatar_url
             token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
-            print(f"Token {token_copy['id']} avatar URL: {token_copy['avatar_url']}")
         tokens_for_players.append(token_copy)
     
     # Отправляем обновление всем игрокам
@@ -599,11 +608,25 @@ def handle_player_visibility_change(data):
     if not map_id:
         return
     
-    # Отправляем всем игрокам
-    emit("map_visibility_change", {
+    print(f"Player visibility changed for map {map_id}: {data.get('player_map_enabled')}")
+    
+    # Загружаем данные карты, чтобы получить актуальную информацию об изображении
+    map_data = load_map_data(map_id)
+    has_image = map_data.get("has_image", False) if map_data else False
+    
+    # Подготавливаем данные для отправки
+    visibility_data = {
         "map_id": map_id,
-        "player_map_enabled": data.get("player_map_enabled", True)
-    }, broadcast=True, include_self=False)
+        "player_map_enabled": data.get("player_map_enabled", True),
+        "has_image": has_image
+    }
+    
+    # Если карта стала видимой и есть изображение, добавляем URL
+    if data.get("player_map_enabled", True) and has_image:
+        visibility_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+    
+    # Отправляем всем игрокам
+    emit("map_visibility_change", visibility_data, broadcast=True, include_self=False)
 
 @socketio.on("request_map_image")
 def handle_request_map_image(data):
