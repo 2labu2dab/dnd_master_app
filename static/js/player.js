@@ -8,6 +8,7 @@ let zoomLevel = 1;
 let panX = 0;
 let panY = 0;
 const isMiniMap = isEmbeddedPreview;
+const playerChannel = new BroadcastChannel('dnd_map_channel');
 
 let mapImage = new Image();
 const avatarCache = new Map(); // Используем Map для лучшей производительности
@@ -37,33 +38,45 @@ function requestRender() {
 // Получаем map_id
 let mapId = window.MAP_ID || null;
 
-if (mapId) {
-    // Запрашиваем синхронизацию при подключении
-    socket.on('connect', () => {
-        console.log('Socket connected, requesting sync for map:', mapId);
-        socket.emit("request_map_sync", { map_id: mapId });
-        
-        // Также запрашиваем изображение если нужно
-        setTimeout(() => {
-            if (mapData && mapData.has_image && (!mapImage.src || !mapImage.complete)) {
-                socket.emit("request_map_image", { map_id: mapId });
-            }
-        }, 500);
-    });
-}
+console.log("Initial mapId from window.MAP_ID:", mapId);
 
 if (!mapId) {
     const urlParams = new URLSearchParams(window.location.search);
     mapId = urlParams.get('map_id');
+    console.log("Map ID from URL:", mapId);
 }
 
 if (!mapId && window.parent && window.parent.currentMapId) {
     mapId = window.parent.currentMapId;
+    console.log("Map ID from parent:", mapId);
 }
+
+console.log("Final mapId:", mapId);
+
+// Сохраняем в window для отладки
+window.playerMapId = mapId;
 
 // Загружаем карту при старте
 if (mapId) {
+    // Очищаем кэш изображения
+    mapImage = new Image();
+    
+    // Загружаем карту
     fetchMap();
+    
+    // Настраиваем сокет
+    if (socket) {
+        socket.on('connect', () => {
+            console.log('Socket connected, requesting sync for map:', mapId);
+            socket.emit("request_map_sync", { map_id: mapId });
+            
+            setTimeout(() => {
+                if (mapData && mapData.has_image && (!mapImage.src || !mapImage.complete)) {
+                    socket.emit("request_map_image", { map_id: mapId });
+                }
+            }, 500);
+        });
+    }
 } else {
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -122,11 +135,25 @@ function fetchMap() {
             panY = mapData.pan_y || 0;
             
             console.log("Map data loaded, has_image:", mapData.has_image);
+            console.log("Player map enabled:", mapData.player_map_enabled);
 
             if (mapData.ruler_visible_to_players === undefined) {
                 mapData.ruler_visible_to_players = false;
             }
-                    
+            
+            // Показываем или скрываем disabled.png
+            const disabledImg = document.getElementById("mapDisabledImage");
+            if (disabledImg) {
+                disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
+            }
+            
+            if (!mapData.player_map_enabled) {
+                canvas.style.display = "none";
+                return;
+            } else {
+                canvas.style.display = "block";
+            }
+            
             // Загружаем изображение если есть
             if (mapData.has_image) {
                 const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
@@ -157,12 +184,12 @@ function fetchMap() {
             ctx.fillText("Ошибка загрузки карты", canvas.width/2, canvas.height/2);
         });
 }
+
 // Оптимизированные обработчики socket.io
 socket.on("map_updated", (data) => {
     console.log("Map updated received:", data.map_id, "current:", mapId);
     
     if (data.map_id === mapId) {
-        const hadImage = mapData?.has_image;
         const wasEnabled = mapData?.player_map_enabled;
         
         if (!mapData) {
@@ -186,6 +213,20 @@ socket.on("map_updated", (data) => {
         });
         
         console.log("Has image changed?", oldHasImage, "->", mapData.has_image);
+        console.log("Player map enabled:", mapData.player_map_enabled);
+        
+        // Показываем или скрываем disabled.png
+        const disabledImg = document.getElementById("mapDisabledImage");
+        if (disabledImg) {
+            disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
+        }
+        
+        if (!mapData.player_map_enabled) {
+            canvas.style.display = "none";
+            return;
+        } else {
+            canvas.style.display = "block";
+        }
         
         // Проверяем, появилось ли изображение
         if (mapData.has_image && (!oldHasImage || !mapImage.src)) {
@@ -207,21 +248,6 @@ socket.on("map_updated", (data) => {
             // Изображение удалено
             mapImage = new Image();
             requestRender();
-        }
-        
-        // Проверяем, изменилась ли видимость
-        if (wasEnabled !== mapData.player_map_enabled) {
-            console.log("Visibility changed to:", mapData.player_map_enabled);
-            if (mapData.player_map_enabled && mapData.has_image && !mapImage.src) {
-                // Карта стала видимой, но изображение не загружено
-                const imageUrl = data.image_url || `/api/map/image/${mapId}?t=${Date.now()}`;
-                const newImage = new Image();
-                newImage.onload = () => {
-                    mapImage = newImage;
-                    requestRender();
-                };
-                newImage.src = imageUrl;
-            }
         }
         
         requestRender();
@@ -301,6 +327,17 @@ socket.on("master_switched_map", (data) => {
 
 // Оптимизированная функция рендера
 function render() {
+    console.log("RENDER CALLED", {
+        mapId: mapId,
+        hasMapData: !!mapData,
+        player_map_enabled: mapData?.player_map_enabled,
+        has_image: mapData?.has_image,
+        mapImageComplete: mapImage?.complete,
+        mapImageNaturalWidth: mapImage?.naturalWidth,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height
+    });
+    
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -313,13 +350,19 @@ function render() {
     }
     
     if (mapData.player_map_enabled === false) {
-        document.getElementById("mapDisabledImage").style.display = "block";
+        const disabledImg = document.getElementById("mapDisabledImage");
+        if (disabledImg) {
+            disabledImg.style.display = "block";
+        }
         canvas.style.display = "none";
-        return;
+    return;
+    } else {
+        const disabledImg = document.getElementById("mapDisabledImage");
+        if (disabledImg) {
+            disabledImg.style.display = "none";
+        }
+        canvas.style.display = "block";
     }
-    
-    document.getElementById("mapDisabledImage").style.display = "none";
-    canvas.style.display = "block";
 
     // Проверяем, есть ли изображение и загружено ли оно
     if (mapData.has_image) {
@@ -390,6 +433,15 @@ function render() {
         drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, scale);
     }
 }
+
+socket.on("request_map_sync", (data) => {
+    if (data.map_id === mapId) {
+        // Просто перерендериваем
+        requestRender();
+    }
+});
+
+
 // Оптимизированная отрисовка слоев
 function drawLayers(offsetX, offsetY, scale) {
     // Сначала рисуем сетку (фон)
@@ -597,27 +649,176 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
 }
 
 socket.on("map_visibility_change", (data) => {
+    console.log("Map visibility change received:", data);
+    
     if (data.map_id === mapId) {
         const wasEnabled = mapData?.player_map_enabled;
+        
+        if (!mapData) {
+            mapData = {};
+        }
+        
+        // Сохраняем старое значение has_image для сравнения
+        const oldHasImage = mapData.has_image;
+        
         mapData.player_map_enabled = data.player_map_enabled;
         
-        if (data.player_map_enabled && !wasEnabled && mapData?.has_image) {
-            // Карта стала видимой - загружаем изображение
-            const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
-            mapImage = new Image();
-            mapImage.onload = () => {
+        // Обновляем флаг наличия изображения, если он пришел
+        if (data.has_image !== undefined) {
+            mapData.has_image = data.has_image;
+        }
+        
+        console.log(`Visibility changed: was ${wasEnabled}, now ${mapData.player_map_enabled}`);
+        console.log(`Has image: ${mapData.has_image}`);
+        
+        // Показываем или скрываем disabled.png
+        const disabledImg = document.getElementById("mapDisabledImage");
+        if (disabledImg) {
+            disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
+        }
+        
+        if (mapData.player_map_enabled) {
+            // Карта стала видимой
+            canvas.style.display = "block";
+            
+            // Проверяем, есть ли у нас уже данные карты и изображение
+            const hasMapData = mapData && Object.keys(mapData).length > 0;
+            const hasImageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
+            
+            console.log("Current state:", { 
+                hasMapData, 
+                hasImageLoaded, 
+                mapImageSrc: mapImage?.src,
+                mapDataHasImage: mapData?.has_image 
+            });
+            
+            // Если у нас уже есть данные карты и изображение загружено, просто рендерим
+            if (hasMapData && hasImageLoaded) {
+                console.log("Map data and image already present, just rendering");
                 requestRender();
-            };
-            mapImage.onerror = () => {
-                console.error("Failed to load map image");
-            };
-            mapImage.src = imageUrl;
-        } else if (!data.player_map_enabled && wasEnabled) {
-            // Карта стала невидимой - очищаем изображение для экономии памяти
-            mapImage = new Image();
+                return;
+            }
+            
+            // Если есть данные карты, но нет изображения, а карта должна иметь изображение
+            if (hasMapData && mapData.has_image && !hasImageLoaded) {
+                console.log("Map data present but image not loaded, loading image...");
+                const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+                const newImage = new Image();
+                newImage.onload = () => {
+                    console.log("Map image loaded successfully");
+                    mapImage = newImage;
+                    requestRender();
+                };
+                newImage.onerror = (err) => {
+                    console.error("Failed to load map image:", err);
+                    requestRender();
+                };
+                newImage.src = imageUrl;
+                return;
+            }
+            
+            // Если нет данных карты или они неполные, запрашиваем полные данные
+            console.log("Requesting full map data...");
+            
+            fetch(`/api/map/${mapId}?ts=${Date.now()}`)
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    return res.json();
+                })
+                .then(fullData => {
+                    console.log("Full map data received:", fullData);
+                    
+                    // Обновляем все данные, но сохраняем существующие если нужно
+                    Object.assign(mapData, fullData);
+                    
+                    // Обновляем флаг видимости из данных, если он там есть
+                    if (fullData.player_map_enabled !== undefined) {
+                        mapData.player_map_enabled = fullData.player_map_enabled;
+                    }
+                    
+                    if (mapData.has_image) {
+                        // Если есть изображение, загружаем его
+                        const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+                        console.log("Loading map image:", imageUrl);
+                        
+                        // Проверяем, не загружено ли уже это изображение
+                        if (mapImage && mapImage.src === imageUrl && mapImage.complete) {
+                            console.log("Image already loaded with same URL");
+                            requestRender();
+                        } else {
+                            const newImage = new Image();
+                            newImage.onload = () => {
+                                console.log("Map image loaded successfully");
+                                mapImage = newImage;
+                                requestRender();
+                            };
+                            newImage.onerror = (err) => {
+                                console.error("Failed to load map image:", err);
+                                requestRender();
+                            };
+                            newImage.src = imageUrl;
+                        }
+                    } else {
+                        // Нет изображения - просто рендерим (покажет сообщение)
+                        requestRender();
+                    }
+                })
+                .catch(err => {
+                    console.error("Error fetching full map data:", err);
+                    requestRender();
+                });
+            
+            // Также пробуем загрузить изображение напрямую, если есть URL
+            if (data.image_url) {
+                console.log("Loading map image from URL:", data.image_url);
+                // Проверяем, не загружено ли уже
+                if (mapImage && mapImage.src === data.image_url && mapImage.complete) {
+                    console.log("Image already loaded from URL");
+                } else {
+                    const newImage = new Image();
+                    newImage.onload = () => {
+                        console.log("Map image loaded from URL");
+                        mapImage = newImage;
+                        requestRender();
+                    };
+                    newImage.onerror = (err) => {
+                        console.error("Failed to load map image from URL:", err);
+                    };
+                    newImage.src = data.image_url;
+                }
+            }
+        } else {
+            // Карта стала невидимой
+            console.log("Map became invisible");
+            canvas.style.display = "none";
+            // НЕ очищаем изображение, чтобы при повторном включении быстро показать
+            // mapImage = new Image(); // закомментировано
         }
         
         requestRender();
+    }
+});
+
+socket.on("force_map_update", (data) => {
+    console.log("Force map update received:", data);
+    
+    if (data.map_id === mapId) {
+        // Обновляем данные
+        Object.assign(mapData, data);
+        
+        // Если есть изображение, загружаем его
+        if (data.has_image && data.image_url) {
+            const newImage = new Image();
+            newImage.onload = () => {
+                mapImage = newImage;
+                requestRender();
+            };
+            newImage.src = data.image_url;
+        } else {
+            requestRender();
+        }
     }
 });
 
@@ -669,5 +870,33 @@ socket.on("force_image_reload", (data) => {
             console.error("Failed to reload map image:", err);
         };
         newImage.src = data.image_url;
+    }
+});
+
+// Принудительно запрашиваем синхронизацию после полной загрузки
+window.addEventListener('load', () => {
+    console.log("Player page fully loaded");
+    if (mapId) {
+        setTimeout(() => {
+            console.log("Requesting map sync after load");
+            if (socket && socket.connected) {
+                socket.emit("request_map_sync", { map_id: mapId });
+            }
+            // Также запрашиваем данные через REST API
+            fetchMap();
+        }, 1000);
+    }
+});
+
+
+playerChannel.addEventListener('message', (event) => {
+    console.log("Player received message:", event.data);
+    
+    if (event.data.type === 'reload_player' && event.data.map_id === mapId) {
+        console.log("Master requested reload, reloading page...");
+        // Перезагружаем страницу через небольшую задержку
+        setTimeout(() => {
+            window.location.reload();
+        }, 100);
     }
 });

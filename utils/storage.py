@@ -284,13 +284,13 @@ def save_map_data(data, map_id):
         # Удаляем base64 из данных для сохранения в JSON
         del data["map_image_base64"]
     
-    # Убедимся, что у токенов сохраняются has_avatar и avatar_url
+    # Убедимся, что у токенов сохраняются has_avatar
     if "tokens" in data:
         for token in data["tokens"]:
             # Удаляем avatar_data если он есть (он не должен сохраняться)
             token.pop("avatar_data", None)
-            # avatar_url генерируется на лету, не сохраняем его
-            token.pop("avatar_url", None)
+            # НЕ удаляем avatar_url - пусть сохраняется в JSON
+            # token.pop("avatar_url", None)  # ← ЗАКОММЕНТИРОВАТЬ или УДАЛИТЬ эту строку
     
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

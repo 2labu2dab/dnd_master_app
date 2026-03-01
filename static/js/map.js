@@ -6,6 +6,7 @@ const rightSidebar = document.getElementById("right-sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let isSwitchingMap = false;
+const playerChannel = new BroadcastChannel('dnd_map_channel');
 let zoomLevel = 1;
 const socket = io({
     reconnection: true,
@@ -1847,21 +1848,32 @@ window.onload = () => {
     toggleBtn.innerHTML = mapData.player_map_enabled !== false ? getOpenEyeSVG() : getClosedEyeSVG();
   }
 
-  toggleBtn.addEventListener("click", () => {
+    toggleBtn.addEventListener("click", () => {
     const enabled = mapData.player_map_enabled !== false;
     mapData.player_map_enabled = !enabled;
+    
+    console.log("Toggling player visibility to:", mapData.player_map_enabled);
 
     updateMiniToggleIcon();
     
     // Сохраняем на сервере
     saveMapData();
     
-    // Дополнительно отправляем через сокет для немедленного обновления игрока
+    // Отправляем через сокет
     socket.emit("player_visibility_change", {
         map_id: currentMapId,
         player_map_enabled: mapData.player_map_enabled
-        });
-  });
+    });
+    
+    // === НОВОЕ: отправляем сигнал всем вкладкам игрока о необходимости перезагрузки ===
+    playerChannel.postMessage({
+        type: 'reload_player',
+        map_id: currentMapId,
+        enabled: mapData.player_map_enabled
+    });
+    console.log("Sent reload signal to player tabs");
+    // ===============================================
+});
 
   socket.on("player_visibility_change", (data) => {
       if (data.map_id === currentMapId) {
