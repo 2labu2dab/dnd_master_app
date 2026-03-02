@@ -1,3 +1,4 @@
+# app.py
 from flask import Flask, render_template, jsonify, request, redirect, session, send_file
 from flask_socketio import SocketIO, emit
 from utils.storage import (

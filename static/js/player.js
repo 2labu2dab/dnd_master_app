@@ -452,7 +452,6 @@ function drawLayers(offsetX, offsetY, scale) {
 
     // Затем зоны
     if (mapData.zones && mapData.zones.length) {
-        // Используем обычный цикл вместо forEach для производительности
         for (let i = 0; i < mapData.zones.length; i++) {
             const zone = mapData.zones[i];
             if (zone.is_visible === false) {
@@ -461,12 +460,25 @@ function drawLayers(offsetX, offsetY, scale) {
         }
     }
 
-    // Затем токены
+    // Затем токены - ТОЛЬКО те, которые НЕ находятся в скрытых зонах
     if (mapData.tokens && mapData.tokens.length) {
         for (let i = 0; i < mapData.tokens.length; i++) {
             const token = mapData.tokens[i];
+            
+            // Проверяем видимость токена (по умолчанию true)
             if (token.is_visible !== false) {
-                drawToken(token, offsetX, offsetY, scale);
+                // Получаем позицию токена в мировых координатах
+                const tokenPosition = token.position;
+                
+                // Проверяем, находится ли токен в какой-либо скрытой зоне
+                const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
+                
+                // Рисуем токен ТОЛЬКО если он НЕ в скрытой зоне
+                if (!isInHiddenZone) {
+                    drawToken(token, offsetX, offsetY, scale);
+                } else {
+                    console.log(`Token ${token.name} hidden because it's in a hidden zone`);
+                }
             }
         }
     }
@@ -900,3 +912,36 @@ playerChannel.addEventListener('message', (event) => {
         }, 100);
     }
 });
+
+
+function isPointInAnyZone(point, zones) {
+    if (!zones || !zones.length) return false;
+    
+    for (let i = 0; i < zones.length; i++) {
+        const zone = zones[i];
+        // Проверяем только невидимые зоны (те, которые скрыты от игроков)
+        if (zone.is_visible === false && zone.vertices && zone.vertices.length >= 3) {
+            if (pointInPolygon(point, zone.vertices)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Вспомогательная функция для проверки точки в полигоне
+function pointInPolygon(point, vertices) {
+    const [x, y] = point;
+    let inside = false;
+    
+    for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+        const xi = vertices[i][0], yi = vertices[i][1];
+        const xj = vertices[j][0], yj = vertices[j][1];
+        
+        const intersect = ((yi > y) !== (yj > y)) &&
+            (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    
+    return inside;
+}
