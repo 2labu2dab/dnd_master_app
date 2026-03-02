@@ -1209,8 +1209,48 @@ function drawZone(zone, offsetX, offsetY, scale) {
 }
 
 function addZone() {
-  drawingZone = true;
-  currentZoneVertices = [];
+    drawingZone = true;
+    currentZoneVertices = [];
+    updateCanvasCursor(); // Добавьте эту строку
+    
+    // Опционально: показать подсказку пользователю
+    showZoneDrawingHint();
+}
+
+function showZoneDrawingHint() {
+    // Создаем временную подсказку
+    const hint = document.createElement('div');
+    hint.id = 'drawing-hint';
+    hint.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border-left: 4px solid #2196F3;
+        ">
+            <strong>Режим рисования зоны</strong><br>
+            <small>Кликните для добавления точек • ПКМ для завершения</small>
+        </div>
+    `;
+    
+    // Удаляем старую подсказку если есть
+    const oldHint = document.getElementById('drawing-hint');
+    if (oldHint) oldHint.remove();
+    
+    document.body.appendChild(hint);
+    
+    // Автоматически скрываем через 5 секунд
+    setTimeout(() => {
+        const hint = document.getElementById('drawing-hint');
+        if (hint) hint.remove();
+    }, 5000);
 }
 
 function onGridSizeChange(value) {
@@ -1280,21 +1320,22 @@ canvas.addEventListener("mousedown", (e) => {
   }
 
   if (drawingZone) {
-    if (e.button === 0) {
-      let x = (mouseX - offsetX) / scale;
-      let y = (mouseY - offsetY) / scale;
+          if (e.button === 0) { // Левая кнопка мыши
+              let x = (mouseX - offsetX) / scale;
+              let y = (mouseY - offsetY) / scale;
 
-      if (hoveredSnapVertex) {
-        [x, y] = hoveredSnapVertex;
+              if (hoveredSnapVertex) {
+                  [x, y] = hoveredSnapVertex;
+              }
+
+              x = Math.max(0, Math.min(x, mapImage.width));
+              y = Math.max(0, Math.min(y, mapImage.height));
+
+              currentZoneVertices.push([x, y]);
+              render();
+          }
+          return; // Важно: добавляем return чтобы не продолжалась обработка
       }
-
-      x = Math.max(0, Math.min(x, mapImage.width));
-      y = Math.max(0, Math.min(y, mapImage.height));
-
-      currentZoneVertices.push([x, y]);
-      render();
-    }
-  }
 
   selectedTokenId = null;
   selectedFindId = null;
@@ -1378,26 +1419,28 @@ canvas.addEventListener("mousemove", (e) => {
   lastMouseY = mouseY;
 
   if (drawingZone) {
-    let x = (mouseX - offsetX) / scale;
-    let y = (mouseY - offsetY) / scale;
-    let found = null;
-    const snapRadius = 10 / scale;
+        let x = (mouseX - offsetX) / scale;
+        let y = (mouseY - offsetY) / scale;
+        let found = null;
+        const snapRadius = 10 / scale;
 
-    for (const zone of mapData.zones) {
-      for (const [vx, vy] of zone.vertices) {
-        const dist = Math.hypot(x - vx, y - vy);
-        if (dist < snapRadius) {
-          found = [vx, vy];
-          break;
+        for (const zone of mapData.zones) {
+            for (const [vx, vy] of zone.vertices) {
+                const dist = Math.hypot(x - vx, y - vy);
+                if (dist < snapRadius) {
+                    found = [vx, vy];
+                    break;
+            }
+            }
+            if (found) break;
         }
-      }
-      if (found) break;
-    }
 
-    hoveredSnapVertex = found;
-    render();
-    return;
-  }
+        hoveredSnapVertex = found;
+        render();
+        return;
+    }
+    updateCanvasCursor();
+  
   if (isRulerMode && rulerStart) {
       const { scale, offsetX, offsetY } = getTransform();
 
@@ -1510,33 +1553,47 @@ canvas.addEventListener("contextmenu", (e) => {
   }
 
   if (drawingZone) {
-    e.preventDefault();
+        // Завершение рисования зоны
+        if (currentZoneVertices.length < 3) {
+            alert("Зона должна иметь минимум 3 точки.");
+            // Сброс режима рисования
+            drawingZone = false;
+            currentZoneVertices = [];
+            updateCanvasCursor(); // Добавьте эту строку
+            
+            // Удаляем подсказку
+            const hint = document.getElementById('drawing-hint');
+            if (hint) hint.remove();
+            
+            return;
+        }
+        
+        const newZoneVertices = [...currentZoneVertices];
+        pendingZoneVertices = [...currentZoneVertices];
+        drawingZone = false;
+        currentZoneVertices = [];
+        updateCanvasCursor(); // Добавьте эту строку
+        
+        // Удаляем подсказку
+        const hint = document.getElementById('drawing-hint');
+        if (hint) hint.remove();
+        
+        document.getElementById("zoneName").value = "";
+        document.getElementById("zoneDescription").value = "";
+        document.getElementById("zoneModalTitle").textContent = "Создание зоны";
+        document.getElementById("zoneModal").style.display = "flex";
+        document.getElementById("zoneVisibleCheckbox").checked = true;
 
-    if (currentZoneVertices.length < 3) {
-      alert("Зона должна иметь минимум 3 точки.");
-      return;
+        const hasIntersection = mapData.zones.some(z =>
+            z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
+        );
+
+        if (hasIntersection) {
+            alert("Новая зона пересекается с существующей! Измените форму.");
+            return;
+        }
+        return;
     }
-    const newZoneVertices = [...currentZoneVertices];
-    pendingZoneVertices = [...currentZoneVertices];
-    drawingZone = false;
-    currentZoneVertices = [];
-
-    document.getElementById("zoneName").value = "";
-    document.getElementById("zoneDescription").value = "";
-    document.getElementById("zoneModalTitle").textContent = "Создание зоны";
-    document.getElementById("zoneModal").style.display = "flex";
-    document.getElementById("zoneVisibleCheckbox").checked = true;
-
-    const hasIntersection = mapData.zones.some(z =>
-      z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
-    );
-
-    if (hasIntersection) {
-      alert("Новая зона пересекается с существующей! Измените форму.");
-      return;
-    }
-    return;
-  }
 
   for (const find of mapData.finds) {
     const [x, y] = find.position;
@@ -1581,7 +1638,7 @@ canvas.addEventListener("contextmenu", (e) => {
 });
 
 canvas.addEventListener("mouseup", () => {
-  if (draggingToken || draggingFind) {
+    if (draggingToken || draggingFind) {
         fetch("/api/map", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1589,22 +1646,21 @@ canvas.addEventListener("mouseup", () => {
         });
     }
 
-  // Отправляем финальное положение линейки
-  if (isRulerMode && rulerStart && window.rulerThrottle) {
+    // Отправляем финальное положение линейки
+    if (isRulerMode && rulerStart && window.rulerThrottle) {
         clearTimeout(window.rulerThrottle);
         socket.emit("ruler_update", {
-            map_id: currentMapId,  // Обязательно передаем map_id!
+            map_id: currentMapId,
             ruler_start: rulerStart,
             ruler_end: mapData.ruler_end
         });
         window.rulerThrottle = null;
     }
 
-
-  draggingToken = null;
-  draggingFind = null;
+    draggingToken = null;
+    draggingFind = null;
+    updateCanvasCursor(); // Добавьте эту строку
 });
-
 
 let zoomSyncTimeout;
 
@@ -1644,6 +1700,19 @@ canvas.addEventListener("wheel", (e) => {
   }, 200);
 });
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+        if (drawingZone) {
+            drawingZone = false;
+            currentZoneVertices = [];
+            updateCanvasCursor();
+            
+            // Удаляем подсказку
+            const hint = document.getElementById('drawing-hint');
+            if (hint) hint.remove();
+            
+            render();
+        }
+    }
   if (e.key === "Delete") {
     let changed = false;
     if (selectedTokenId) {
@@ -2031,3 +2100,18 @@ socket.on("request_image_reload", (data) => {
         mapImage.src = imageUrl;
     }
 });
+
+function updateCanvasCursor() {
+    canvas.classList.remove('zone-drawing-mode', 'ruler-mode', 'token-dragging');
+    
+    if (drawingZone) {
+        canvas.classList.add('zone-drawing-mode');
+    } else if (isRulerMode) {
+        canvas.classList.add('ruler-mode');
+    } else if (draggingToken || draggingFind) {
+        canvas.classList.add('token-dragging');
+    } else {
+        // Возвращаем стандартный курсор
+        canvas.style.cursor = 'default';
+    }
+}

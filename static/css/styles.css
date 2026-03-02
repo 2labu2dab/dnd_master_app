@@ -810,3 +810,17 @@ large-modal {
   max-width: 400px;
   min-width: 300px;
 }
+
+
+/* Курсоры для canvas */
+canvas.zone-drawing-mode {
+    cursor: crosshair !important;
+}
+
+canvas.token-dragging {
+    cursor: grabbing !important;
+}
+
+canvas.ruler-mode {
+    cursor: copy !important;
+}
