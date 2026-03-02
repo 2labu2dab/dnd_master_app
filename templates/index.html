@@ -30,8 +30,14 @@
       <button class="icon-button" onclick="createNewMap()" title="Создать новую карту">➕</button>
       <button class="icon-button" onclick="deleteCurrentMap()" title="Удалить текущую карту">🗑️</button>
     </div>
-      <label id="map-label">Загрузить карту<input type="file" name="map_image" accept="image/*"
-          onchange="autoUploadMap(this)" hidden /></label>
+      <label id="map-label">
+        Загрузить карту
+        <input type="file" name="map_image" accept="image/*"
+          onchange="autoUploadMap(this)" hidden />
+      </label>
+      <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px;">
+        Колесо — зум, <span style="color:#e5e7eb;">средняя кнопка</span> — перетаскивание карты.
+      </div>
       <div class="section">
         <details open>
           <summary>Сетка</summary>
@@ -300,6 +306,23 @@
       <span class="token-dead-toggle"></span>
       <span>Мёртв</span>
     </label>
+
+    <div style="margin-top: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 6px;">
+      <div>
+        <span>ОЗ:</span>
+        <input type="number" id="contextHpInput" style="width: 60px; margin-left: 6px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
+        <span style="margin: 0 4px;">/</span>
+        <input type="number" id="contextHpMaxInput" style="width: 60px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
+      </div>
+      <div>
+        <span>КД:</span>
+        <input type="number" id="contextAcInput" style="width: 60px; margin-left: 6px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
+      </div>
+    </div>
+
+    <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+      <button id="contextSaveTokenBtn" class="save-btn" style="padding: 4px 12px; font-size: 12px;">Сохранить</button>
+    </div>
   </div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 <div id="newMapModal" class="modal" style="display: none;">

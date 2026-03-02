@@ -124,14 +124,14 @@ def get_map(map_id):
             # Удаляем старые данные аватара если они есть
             token.pop("avatar_data", None)
 
-    # Добавляем URL аватаров для персонажей
+    # Персонажи (портреты): оставляем avatar_data, чтобы аватары не терялись между перезапусками
+    # и дополнительно, при наличии has_avatar, можем добавить avatar_url для будущего использования
     if "characters" in data:
         for character in data["characters"]:
             if character.get("has_avatar"):
                 from utils.storage import get_token_avatar_url
 
                 character["avatar_url"] = get_token_avatar_url(character["id"])
-            character.pop("avatar_data", None)
 
     old_map_id = session.get("current_map_id")
     session["current_map_id"] = map_id
@@ -341,7 +341,9 @@ def add_token():
         success = save_token_avatar(avatar_data, token["id"])
         if success:
             token["has_avatar"] = True
-            print(f"✓ Avatar saved successfully")
+            # Сразу добавляем URL аватара, чтобы не ждать повторной загрузки карты
+            token["avatar_url"] = get_token_avatar_url(token["id"])
+            print(f"✓ Avatar saved successfully, URL: {token['avatar_url']}")
         else:
             token["has_avatar"] = False
             print(f"✗ Failed to save avatar")
@@ -357,8 +359,6 @@ def add_token():
     for token in data.get("tokens", []):
         token_copy = token.copy()
         if token_copy.get("has_avatar"):
-            from utils.storage import get_token_avatar_url
-
             token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
         tokens_for_players.append(token_copy)
 
@@ -592,13 +592,7 @@ def handle_ruler_update(data):
 
     last_ruler_updates[client_id] = current_time
 
-    # Сохраняем в данные карты
-    map_data = load_map_data(map_id)
-    if map_data:
-        map_data["ruler_start"] = data.get("ruler_start")
-        map_data["ruler_end"] = data.get("ruler_end")
-        save_map_data(map_data, map_id)
-
+    # Больше не сохраняем линейку в JSON — только рассылаем событие
     # Отправляем всем, кроме отправителя
     emit(
         "ruler_update",

@@ -27,8 +27,13 @@ socket.on('connect_error', (error) => {
 socket.on('reconnect', (attemptNumber) => {
     console.log('Socket reconnected after', attemptNumber, 'attempts');
 });
-panX = 0
-panY = 0
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let panStartMouseX = 0;
+let panStartMouseY = 0;
+let panStartPanX = 0;
+let panStartPanY = 0;
 let mapImage = new Image();
 let mapData = {
   tokens: [],
@@ -397,7 +402,10 @@ function updateSidebar() {
 
     // аватар
     const img = document.createElement("img");
-    img.src = character.avatar_data;
+    const avatarSrc = character.avatar_url || character.avatar_data;
+    if (avatarSrc) {
+      img.src = avatarSrc;
+    }
     img.style.width = "32px";
     img.style.height = "32px";
     img.style.borderRadius = "4px";
@@ -815,7 +823,8 @@ function render() {
   const newWidth = mapImage.width * scale;
   const newHeight = mapImage.height * scale;
 
-  if (mapData.map_image_base64 && mapImage.complete) {
+  // Всегда рисуем изображение, если оно загружено
+  if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
     ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
   }
 
@@ -843,10 +852,18 @@ function render() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    const dx = (sx2 - sx1) / scale;
-    const dy = (sy2 - sy1) / scale;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const cells = dist / mapData.grid_settings.cell_size;
+    // Координаты линейки в системе карты
+    const dxWorld = (sx2 - sx1) / scale;
+    const dyWorld = (sy2 - sy1) / scale;
+    const cell = mapData.grid_settings.cell_size || 20;
+
+    const dxCells = Math.abs(dxWorld) / cell;
+    const dyCells = Math.abs(dyWorld) / cell;
+
+    // Как в Civilization: минимальное число ходов по квадратам
+    // (диагональ и ортогональ стоят одинаково — считаем max по осям)
+    const steps = Math.max(dxCells, dyCells);
+    const cells = Math.max(1, Math.round(steps));
     const feet = cells * 5;
 
     const midX = (sx1 + sx2) / 2;
@@ -896,6 +913,18 @@ function drawTempZone(offsetX, offsetY, scale) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+
+  // Показ первой точки многоугольника, чтобы было понятно, где замкнётся зона
+  const [firstX, firstY] = currentZoneVertices[0];
+  const fx = firstX * scale + offsetX;
+  const fy = firstY * scale + offsetY;
+  ctx.beginPath();
+  ctx.arc(fx, fy, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = "#00ffff";
+  ctx.strokeStyle = "#0066ff";
+  ctx.lineWidth = 2;
+  ctx.fill();
+  ctx.stroke();
   if (hoveredSnapVertex) {
     const [hx, hy] = hoveredSnapVertex;
     const px = hx * scale + offsetX;
@@ -919,20 +948,32 @@ function drawLayers(offsetX, offsetY, scale) {
 }
 
 function drawGrid(offsetX, offsetY, scale) {
-  const size = mapData.grid_settings.cell_size * scale;
+  const cell = mapData.grid_settings.cell_size;
   ctx.strokeStyle = mapData.grid_settings.color;
   ctx.lineWidth = 1;
 
-  for (let x = offsetX % size; x < canvas.width; x += size) {
+  // Рисуем сетку в координатах карты (world‑space),
+  // чтобы она была «приклеена» к картинке и не съезжала при зуме.
+
+  // Вертикальные линии
+  for (let x = 0; x <= mapImage.width; x += cell) {
+    const sx = offsetX + x * scale; // экранная координата
+    if (sx < 0 || sx > canvas.width) continue;
+
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
+    ctx.moveTo(sx, Math.max(0, offsetY));
+    ctx.lineTo(sx, Math.min(canvas.height, offsetY + mapImage.height * scale));
     ctx.stroke();
   }
-  for (let y = offsetY % size; y < canvas.height; y += size) {
+
+  // Горизонтальные линии
+  for (let y = 0; y <= mapImage.height; y += cell) {
+    const sy = offsetY + y * scale;
+    if (sy < 0 || sy > canvas.height) continue;
+
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
+    ctx.moveTo(Math.max(0, offsetX), sy);
+    ctx.lineTo(Math.min(canvas.width, offsetX + mapImage.width * scale), sy);
     ctx.stroke();
   }
 }
@@ -1077,6 +1118,7 @@ function submitCharacter() {
     id: `char_${Date.now()}`,
     name,
     avatar_data: avatar,
+    has_avatar: true,
     visible_to_players: true, // 👁️ по умолчанию
   };
 
@@ -1311,6 +1353,7 @@ function closeTokenModal() {
 canvas.addEventListener("mousedown", (e) => {
   const [mouseX, mouseY] = [e.offsetX, e.offsetY];
   const { scale, offsetX, offsetY } = getTransform();
+
   if (isRulerMode) {
     const x = (mouseX - offsetX) / scale;
     const y = (mouseY - offsetY) / scale;
@@ -1389,6 +1432,19 @@ canvas.addEventListener("mousedown", (e) => {
     }
   }
 
+  // Средняя кнопка мыши — панорамирование карты (как в доте),
+  // только если кликнули не по объекту
+  if (!clicked && e.button === 1 && !isRulerMode && !drawingZone) {
+    isPanning = true;
+    panStartMouseX = e.clientX;
+    panStartMouseY = e.clientY;
+    panStartPanX = panX;
+    panStartPanY = panY;
+    updateCanvasCursor();
+    e.preventDefault();
+    return;
+  }
+
   render();
 });
 
@@ -1440,6 +1496,27 @@ canvas.addEventListener("mousemove", (e) => {
         return;
     }
     updateCanvasCursor();
+  
+  // Перемещение карты средней кнопкой мыши
+  if (isPanning) {
+    panX = panStartPanX + (e.clientX - panStartMouseX);
+    panY = panStartPanY + (e.clientY - panStartMouseY);
+    render();
+
+    clearTimeout(zoomSyncTimeout);
+    zoomSyncTimeout = setTimeout(() => {
+      socket.emit("zoom_update", {
+        map_id: currentMapId,
+        zoom_level: zoomLevel,
+        pan_x: panX,
+        pan_y: panY,
+        canvas_width: canvas.width,
+        canvas_height: canvas.height
+      });
+    }, 200);
+
+    return;
+  }
   
   if (isRulerMode && rulerStart) {
       const { scale, offsetX, offsetY } = getTransform();
@@ -1508,6 +1585,10 @@ function renderTokenContextMenu(token, x, y) {
   const nameElem = document.getElementById("contextTokenName");
   const statsElem = document.getElementById("contextTokenStats");
   const checkbox = document.getElementById("contextIsDeadCheckbox");
+  const hpInput = document.getElementById("contextHpInput");
+  const hpMaxInput = document.getElementById("contextHpMaxInput");
+  const acInput = document.getElementById("contextAcInput");
+  const saveBtn = document.getElementById("contextSaveTokenBtn");
 
   nameElem.textContent = token.name;
   statsElem.textContent = `КД: ${token.armor_class}, HP: ${token.health_points}/${token.max_health_points}`;
@@ -1528,6 +1609,48 @@ function renderTokenContextMenu(token, x, y) {
     render();
     updateSidebar();
   };
+
+  // Заполняем поля редактирования
+  if (hpInput) {
+    hpInput.value = token.health_points ?? token.max_health_points ?? 10;
+  }
+  if (hpMaxInput) {
+    hpMaxInput.value = token.max_health_points ?? token.health_points ?? 10;
+  }
+  if (acInput) {
+    acInput.value = token.armor_class ?? 10;
+  }
+
+  // Обработчик сохранения изменений
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const newHp = parseInt(hpInput.value, 10);
+      const newHpMax = parseInt(hpMaxInput.value, 10);
+      const newAc = parseInt(acInput.value, 10);
+
+      if (!Number.isNaN(newHp)) {
+        token.health_points = newHp;
+      }
+      if (!Number.isNaN(newHpMax) && newHpMax > 0) {
+        token.max_health_points = newHpMax;
+        if (token.health_points > newHpMax) {
+          token.health_points = newHpMax;
+        }
+      }
+      if (!Number.isNaN(newAc) && newAc > 0) {
+        token.armor_class = newAc;
+      }
+
+      // Обновляем состояние «мёртв» в зависимости от HP
+      token.is_dead = token.health_points <= 0;
+      checkbox.checked = token.is_dead;
+
+      saveMapData();
+      render();
+      updateSidebar();
+      menu.style.display = "none";
+    };
+  }
 
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
@@ -1659,7 +1782,18 @@ canvas.addEventListener("mouseup", () => {
 
     draggingToken = null;
     draggingFind = null;
+
+    if (isPanning) {
+      isPanning = false;
+    }
     updateCanvasCursor(); // Добавьте эту строку
+});
+
+canvas.addEventListener("mouseleave", () => {
+  if (isPanning) {
+    isPanning = false;
+    updateCanvasCursor();
+  }
 });
 
 let zoomSyncTimeout;
@@ -2102,7 +2236,7 @@ socket.on("request_image_reload", (data) => {
 });
 
 function updateCanvasCursor() {
-    canvas.classList.remove('zone-drawing-mode', 'ruler-mode', 'token-dragging');
+    canvas.classList.remove('zone-drawing-mode', 'ruler-mode', 'token-dragging', 'map-panning');
     
     if (drawingZone) {
         canvas.classList.add('zone-drawing-mode');
@@ -2110,6 +2244,8 @@ function updateCanvasCursor() {
         canvas.classList.add('ruler-mode');
     } else if (draggingToken || draggingFind) {
         canvas.classList.add('token-dragging');
+    } else if (isPanning) {
+        canvas.classList.add('map-panning');
     } else {
         // Возвращаем стандартный курсор
         canvas.style.cursor = 'default';

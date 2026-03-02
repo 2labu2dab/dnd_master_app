@@ -12,7 +12,7 @@ body {
   margin: 0;
   padding: 0;
   font-family: "Segoe UI", sans-serif;
-  background-color: #1e1e1e;
+  background: radial-gradient(circle at top, #2c3e50 0, #111827 45%, #050816 100%);
   color: #e0e0e0;
 }
 
@@ -95,26 +95,42 @@ details[open] > summary::after {
 
 #sidebar {
   width: 21.36%;
-  background-color: #1e1e1e;
+  background: linear-gradient(180deg, #111827 0%, #020617 100%);
   padding: 20px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   overflow-y: auto;
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 4px 0 18px rgba(0, 0, 0, 0.45);
 }
 
 #sidebar h2 {
   font-size: 18px;
-  margin-bottom: 15px;
-  color: #ffffff;
+  margin: 0 0 4px 0;
+  color: #f9fafb;
+}
+
+#sidebar h2::after {
+  content: "Мастер карты";
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: #9ca3af;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 
 #canvas-container {
   flex: 1;
   position: relative;
-  background-color: #1e1e1e;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(251, 191, 36, 0.1), transparent 60%),
+    #020617;
 }
 
 #mapCanvas {
@@ -122,12 +138,16 @@ details[open] > summary::after {
   height: 100%;
   display: block;
   cursor: crosshair;
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.16) 1px, transparent 0);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
 }
 
 .modal {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(0,0,0,0.5);
+  background-color: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
   z-index: 999;
   display: flex;
   align-items: center;
@@ -135,19 +155,22 @@ details[open] > summary::after {
 }
 
 .modal-content {
-  background: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  min-width: 300px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.3);
+  background: #0b1120;
+  padding: 22px 24px;
+  border-radius: 16px;
+  min-width: 320px;
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(148, 163, 184, 0.25);
   position: relative;
+  color: #e5e7eb;
 }
 
 .modal-content h3 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  margin-bottom: 20px;
-  color: #222;
+  margin-bottom: 18px;
+  color: #f9fafb;
 }
 
 .modal-content .close {
@@ -156,6 +179,13 @@ details[open] > summary::after {
   top: 5px;
   font-size: 20px;
   cursor: pointer;
+  color: #6b7280;
+  transition: color 0.15s ease, transform 0.1s ease;
+}
+
+.modal-content .close:hover {
+  color: #e5e7eb;
+  transform: scale(1.05);
 }
 
 .add-button {
@@ -358,14 +388,14 @@ large-modal {
 .token-fields {
   flex: 1;
   font-size: 14px;
-  color: #333;
+  color: #e5e7eb;
 }
 
 .token-fields label {
   display: block;
   margin-bottom: 24px;
   font-size: 14px;
-  color: #555;
+  color: #9ca3af;
 }
 
 .token-fields input {
@@ -373,16 +403,16 @@ large-modal {
   padding: 0;
   margin-top: 4px;
   border: none;
-  border-bottom: 1px solid #ccc;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.6);
   background: transparent;
   font-size: 16px;
   font-family: 'Inter', sans-serif;
-  color: #222;
+  color: #f9fafb;
   outline: none;
 }
 
 .token-fields input:focus {
-  border-bottom: 1px solid #4C5BEF;
+  border-bottom: 1px solid #4b6bfb;
 }
 
 .token-fields input#tokenName {
@@ -407,13 +437,25 @@ large-modal {
 }
 
 .save-btn {
-  background-color: #4C5BEF;
+  background: linear-gradient(135deg, #4b6bfb, #22c55e);
   color: white;
   padding: 8px 20px;
   font-size: 14px;
   border: none;
   border-radius: 9999px;
   cursor: pointer;
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+}
+
+.save-btn:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 10px 26px rgba(34, 197, 94, 0.55);
+}
+
+.save-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
 }
 
 .cancel-btn {
@@ -683,7 +725,7 @@ large-modal {
 
 #right-sidebar {
   width: 18.16%;
-  background-color: #1e1e1e;
+  background: linear-gradient(180deg, #020617 0%, #020617 60%, #020617 100%);
   padding: 20px;
   box-sizing: border-box;
   display: flex;
@@ -691,7 +733,8 @@ large-modal {
   justify-content: flex-start;
   align-items: stretch;
   gap: 16px;
-  /* border-left: 1px solid #333; */
+  border-left: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.45);
 }
 
 #characterAvatarDropzone {
@@ -823,4 +866,8 @@ canvas.token-dragging {
 
 canvas.ruler-mode {
     cursor: copy !important;
+}
+
+canvas.map-panning {
+  cursor: grab !important;
 }

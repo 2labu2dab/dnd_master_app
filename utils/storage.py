@@ -243,8 +243,6 @@ def create_new_map(name="Новая карта"):
         "finds": [],
         "has_image": False,  # Флаг наличия изображения
         "ruler_visible_to_players": False,
-        "ruler_start": None,
-        "ruler_end": None,
         "grid_settings": {
             "visible": True,
             "visible_to_players": True,
@@ -317,6 +315,10 @@ def save_map_data(data, map_id):
             data["has_image"] = True
         # Удаляем base64 из данных для сохранения в JSON
         del data["map_image_base64"]
+
+    # Линейку не сохраняем в JSON — она временная
+    data.pop("ruler_start", None)
+    data.pop("ruler_end", None)
 
     # Убедимся, что у токенов сохраняются has_avatar
     if "tokens" in data:

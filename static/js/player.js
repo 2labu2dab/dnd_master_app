@@ -434,11 +434,19 @@ function render() {
     }
 }
 
-socket.on("request_map_sync", (data) => {
-    if (data.map_id === mapId) {
-        // Просто перерендериваем
-        requestRender();
+socket.on("map_sync", (data) => {
+    console.log("map_sync received:", data);
+    
+    if (!data || data.map_id !== mapId) {
+        return;
     }
+
+    // Обновляем только параметры камеры, не трогая остальные данные карты
+    zoomLevel = data.zoom_level ?? zoomLevel ?? 1;
+    panX = data.pan_x ?? panX ?? 0;
+    panY = data.pan_y ?? panY ?? 0;
+
+    requestRender();
 });
 
 
@@ -607,8 +615,15 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
 
   const dx = (x2 - x1);
   const dy = (y2 - y1);
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const cells = dist / mapData.grid_settings.cell_size;
+  const cell = mapData.grid_settings.cell_size || 20;
+
+  const dxCells = Math.abs(dx) / cell;
+  const dyCells = Math.abs(dy) / cell;
+
+  // Как в Civilization для квадратной сетки:
+  // считаем количество шагов по тайлам, диагональ = 1 шаг.
+  const steps = Math.max(dxCells, dyCells);
+  const cells = Math.max(1, Math.round(steps));
   const feet = cells * 5;
 
   const midX = (sx1 + sx2) / 2;
