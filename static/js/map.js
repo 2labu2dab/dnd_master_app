@@ -1176,7 +1176,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     if (!avatarCache[token.id]) {
       const img = new Image();
       img.onload = () => {
-        console.log(`Avatar loaded for token ${token.id}`); // Для отладки
         render();
       };
       img.onerror = () => {
@@ -1371,7 +1370,7 @@ function drawFind(find, offsetX, offsetY, scale) {
   const sx = x * scale + offsetX;
   const sy = y * scale + offsetY;
   const size = mapData.grid_settings.cell_size * scale;
-  const radius = size / 2;
+  const radius = size / 4;
 
   ctx.save();
 
@@ -2237,7 +2236,7 @@ function submitFind() {
       name,
       description,
       position: [centerX, centerY],
-      size: mapData.grid_settings.cell_size,
+      size: mapData.grid_settings.cell_size / 4 ,
       status: false
     };
 

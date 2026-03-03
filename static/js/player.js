@@ -542,7 +542,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     if (!cachedImg) {
       cachedImg = new Image();
       cachedImg.onload = () => {
-        console.log(`Avatar loaded for token ${token.id}`);
         requestRender();
       };
       cachedImg.onerror = () => {
