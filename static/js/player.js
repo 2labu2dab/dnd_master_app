@@ -533,11 +533,20 @@ function drawToken(token, offsetX, offsetY, scale) {
   if (avatarSrc) {
     let cachedImg = avatarCache.get(token.id);
     
+    // Проверяем, нужно ли обновить кэш (если URL изменился)
+    if (cachedImg && cachedImg.src !== avatarSrc) {
+      avatarCache.delete(token.id);
+      cachedImg = null;
+    }
+    
     if (!cachedImg) {
       cachedImg = new Image();
-      cachedImg.onload = () => requestRender();
+      cachedImg.onload = () => {
+        console.log(`Avatar loaded for token ${token.id}`);
+        requestRender();
+      };
       cachedImg.onerror = () => {
-        console.warn(`Failed to load avatar for token ${token.name}`);
+        console.warn(`Failed to load avatar for token ${token.name}: ${avatarSrc}`);
         avatarCache.set(token.id, null);
       };
       cachedImg.src = avatarSrc;
@@ -960,3 +969,40 @@ function pointInPolygon(point, vertices) {
     
     return inside;
 }
+
+socket.on("token_avatar_updated", (data) => {
+    console.log("Token avatar updated received:", data);
+    
+    if (data.map_id === mapId) {
+        // Очищаем кэш для этого токена
+        if (avatarCache.has(data.token_id)) {
+            avatarCache.delete(data.token_id);
+            console.log(`Avatar cache cleared for token ${data.token_id}`);
+        }
+        
+        // Обновляем данные токена если они уже есть
+        if (mapData && mapData.tokens) {
+            const token = mapData.tokens.find(t => t.id === data.token_id);
+            if (token) {
+                token.avatar_url = data.avatar_url;
+                console.log(`Token ${data.token_id} avatar URL updated to: ${data.avatar_url}`);
+            }
+        }
+        
+        // Запрашиваем перерендер
+        requestRender();
+    }
+});
+
+socket.on("force_avatar_reload", (data) => {
+    console.log("Force avatar reload received:", data);
+    
+    if (data.map_id === mapId) {
+        // Очищаем весь кэш аватаров
+        avatarCache.clear();
+        console.log("All avatar cache cleared");
+        
+        // Запрашиваем обновление данных карты
+        fetchMap();
+    }
+});

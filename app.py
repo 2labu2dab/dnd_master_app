@@ -48,10 +48,6 @@ last_ruler_updates = {}
 
 import os
 
-print("=" * 50)
-print("Starting server...")
-print(f"Current working directory: {os.getcwd()}")
-
 # Создаем папки и проверяем права
 data_dir = "data"
 token_avatars_dir = os.path.join(data_dir, "token_avatars")
@@ -60,22 +56,16 @@ token_avatars_dir = os.path.join(data_dir, "token_avatars")
 os.makedirs(data_dir, exist_ok=True)
 os.makedirs(token_avatars_dir, exist_ok=True)
 
-print(f"Data dir exists: {os.path.exists(data_dir)}")
-print(f"Data dir writable: {os.access(data_dir, os.W_OK)}")
-print(f"Token avatars dir exists: {os.path.exists(token_avatars_dir)}")
-print(f"Token avatars dir writable: {os.access(token_avatars_dir, os.W_OK)}")
 
 # Пробуем создать тестовый файл
 test_file = os.path.join(token_avatars_dir, "test.txt")
 try:
     with open(test_file, "w") as f:
         f.write("test")
-    print("✓ Test file created successfully")
     os.remove(test_file)
-    print("✓ Test file removed")
+
 except Exception as e:
     print(f"✗ Failed to create test file: {e}")
-print("=" * 50)
 
 
 @app.route("/")
@@ -163,31 +153,29 @@ def save_map():
     if not map_id:
         return jsonify({"error": "No map selected"}), 400
 
-    # Сохраняем данные (изображение будет обработано в save_map_data)
+    # Сохраняем данные
     save_map_data(data, map_id)
 
-    # Подготавливаем данные для игроков (исключаем zoom/pan данные)
-    # ВАЖНО: добавляем URL аватаров для токенов
+    # Подготавливаем данные для игроков с актуальными URL аватаров
     tokens_for_players = []
     for token in data.get("tokens", []):
         token_copy = token.copy()
         if token_copy.get("has_avatar"):
             from utils.storage import get_token_avatar_url
-
-            token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
-        # Удаляем avatar_data если есть (не нужно в player)
+            # Добавляем timestamp для сброса кэша
+            base_url = get_token_avatar_url(token_copy['id'])
+            token_copy["avatar_url"] = f"{base_url}?t={int(time.time())}"
+            print(f"Token {token_copy['id']} avatar URL: {token_copy['avatar_url']}")  # Отладка
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
 
     player_data = {
         "map_id": map_id,
-        "tokens": tokens_for_players,  # ← Используем обработанные токены
+        "tokens": tokens_for_players,
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
         "ruler_start": data.get("ruler_start"),
         "ruler_end": data.get("ruler_end"),
         "player_map_enabled": data.get("player_map_enabled", True),
@@ -196,13 +184,10 @@ def save_map():
 
     # Если есть изображение, добавляем URL для загрузки
     if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
+        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
 
     socketio.emit("map_updated", player_data)
     return jsonify({"status": "ok"})
-
 
 @app.route("/api/map/new", methods=["POST"])
 def new_map():
@@ -856,6 +841,127 @@ def handle_ruler_visibility_change(data):
         include_self=False,
     )
 
+@app.route("/api/token/<token_id>", methods=["PUT"])
+def update_token(token_id):
+    """Обновить существующий токен"""
+    print(f"\n=== Updating token {token_id} ===")
+    
+    try:
+        token = request.get_json()
+        print(f"Received token data: {token}")
+    except Exception as e:
+        print(f"Error parsing JSON: {e}")
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    # Извлекаем avatar_data из полученных данных
+    avatar_data = token.pop("avatar_data", None) if token else None
+
+    map_id = session.get("current_map_id")
+    if not map_id:
+        print("No map selected")
+        return jsonify({"error": "No map selected"}), 400
+
+    data = load_map_data(map_id)
+    if not data:
+        print(f"Map {map_id} not found")
+        return jsonify({"error": "Map not found"}), 404
+
+    # Находим и обновляем токен
+    tokens = data.get("tokens", [])
+    token_found = False
+    avatar_changed = False
+    
+    for i, t in enumerate(tokens):
+        if t.get("id") == token_id:
+            # Сохраняем старые значения для сравнения
+            old_has_avatar = t.get("has_avatar", False)
+            old_avatar_url = t.get("avatar_url")
+            
+            # Обновляем токен
+            tokens[i] = token
+            token_found = True
+            
+            # Обрабатываем аватар
+            if avatar_data:
+                print(f"Saving new avatar for token {token_id}")
+                success = save_token_avatar(avatar_data, token_id)
+                if success:
+                    token["has_avatar"] = True
+                    # Обновляем URL с timestamp для сброса кэша
+                    timestamp = int(time.time())
+                    token["avatar_url"] = f"/api/token/avatar/{token_id}?t={timestamp}"
+                    print(f"✓ Avatar updated successfully, new URL: {token['avatar_url']}")
+                    avatar_changed = True
+                else:
+                    token["has_avatar"] = False
+                    print(f"✗ Failed to save avatar")
+            elif old_has_avatar and not avatar_data:
+                # Если был аватар, а теперь нет - удаляем его
+                print(f"Removing avatar for token {token_id}")
+                delete_token_avatar(token_id)
+                token["has_avatar"] = False
+                token.pop("avatar_url", None)
+                avatar_changed = True
+            elif old_has_avatar and avatar_data is None:
+                # Сохраняем существующий аватар
+                token["has_avatar"] = True
+                token["avatar_url"] = old_avatar_url
+            
+            break
+
+    if not token_found:
+        return jsonify({"error": "Token not found"}), 404
+
+    # Сохраняем обновленные данные
+    save_map_data(data, map_id)
+
+    # Подготавливаем данные для игроков
+    tokens_for_players = []
+    for t in data.get("tokens", []):
+        token_copy = t.copy()
+        if token_copy.get("has_avatar"):
+            # Добавляем timestamp для сброса кэша
+            timestamp = int(time.time())
+            token_copy["avatar_url"] = f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
+        token_copy.pop("avatar_data", None)
+        tokens_for_players.append(token_copy)
+
+    # Отправляем обновление всем игрокам
+    player_data = {
+        "map_id": map_id,
+        "tokens": tokens_for_players,
+        "zones": data.get("zones", []),
+        "finds": data.get("finds", []),
+        "grid_settings": data.get("grid_settings", {}),
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "player_map_enabled": data.get("player_map_enabled", True),
+        "has_image": data.get("has_image", False),
+    }
+
+    if data.get("has_image"):
+        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+
+    # Отправляем обновление всем
+    socketio.emit("map_updated", player_data)
+    
+    # Если аватар изменился, отправляем специальное событие для очистки кэша
+    if avatar_changed:
+        timestamp = int(time.time())
+        socketio.emit("token_avatar_updated", {
+            "map_id": map_id,
+            "token_id": token_id,
+            "avatar_url": f"/api/token/avatar/{token_id}?t={timestamp}"
+        })
+        print(f"Sent token_avatar_updated event for token {token_id}")
+    
+    return jsonify({"status": "token updated"})
+
+@socketio.on("force_avatar_reload")
+def handle_force_avatar_reload(data):
+    """Принудительная перезагрузка аватаров для всех игроков"""
+    map_id = data.get("map_id")
+    if map_id:
+        emit("force_avatar_reload", {"map_id": map_id}, broadcast=True, include_self=False)
 
 if __name__ == "__main__":
     # Создаем необходимые директории

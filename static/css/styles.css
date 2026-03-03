@@ -871,3 +871,171 @@ canvas.ruler-mode {
 canvas.map-panning {
   cursor: grab !important;
 }
+
+/* Контекстное меню */
+.context-menu {
+  position: absolute;
+  background: #1a1f2e;
+  border-radius: 12px;
+  padding: 8px 0;
+  min-width: 240px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  z-index: 1000;
+  color: #e5e7eb;
+  font-family: 'Inter', sans-serif;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.context-menu-header span:first-child {
+  font-weight: 600;
+  font-size: 15px;
+  color: white;
+}
+
+.context-token-type {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+}
+
+.context-menu-section {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.context-menu-section:last-child {
+  border-bottom: none;
+}
+
+.context-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #d1d5db;
+}
+
+.context-checkbox:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.context-checkbox input[type="checkbox"] {
+  display: none;
+}
+
+.checkbox-custom {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #4b5563;
+  border-radius: 4px;
+  display: inline-block;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.context-checkbox input[type="checkbox"]:checked + .checkbox-custom {
+  background: #4C5BEF;
+  border-color: #4C5BEF;
+}
+
+.context-checkbox input[type="checkbox"]:checked + .checkbox-custom::after {
+  content: "✓";
+  position: absolute;
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.context-input-group {
+  margin: 8px 0;
+}
+
+.context-input-group label {
+  display: block;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+.input-with-button input {
+  flex: 1;
+  background: #2a2f3f;
+  border: 1px solid #3f4555;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: white;
+  font-size: 13px;
+  outline: none;
+}
+
+.input-with-button input:focus {
+  border-color: #4C5BEF;
+}
+
+.context-action-btn {
+  background: #4C5BEF;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.context-action-btn:hover {
+  background: #3e4cd4;
+}
+
+.context-menu-item {
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  color: #e5e7eb;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-item.delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.context-icon {
+  font-size: 16px;
+  opacity: 0.7;
+}

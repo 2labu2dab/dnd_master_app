@@ -286,44 +286,109 @@
   </div>
   <div id="zoneTooltip" style="display: none;"></div>
 
-  <div id="tokenContextMenu" style="
-    position: absolute;
-    display: none;
-    background: white;
-    border-radius: 12px;
-    padding: 12px 16px;
-    z-index: 1000;
-    color: #1e1e2f;
-    font-family: Inter, sans-serif;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    min-width: 200px;
-  ">
-    <div id="contextTokenName" style="font-weight: 600; font-size: 15px; margin-bottom: 4px;"></div>
-    <div id="contextTokenStats" style="font-size: 13px; color: #666; margin-bottom: 10px;"></div>
-
-    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-      <input type="checkbox" id="contextIsDeadCheckbox" hidden />
-      <span class="token-dead-toggle"></span>
+<div id="tokenContextMenu" class="context-menu" style="display: none;">
+  <div class="context-menu-header">
+    <span id="contextTokenName"></span>
+    <span id="contextTokenType" class="context-token-type"></span>
+  </div>
+  
+  <div class="context-menu-section">
+    <label class="context-checkbox">
+      <input type="checkbox" id="contextTokenVisible">
+      <span class="checkbox-custom"></span>
+      <span>Виден игрокам</span>
+    </label>
+    
+    <label class="context-checkbox">
+      <input type="checkbox" id="contextTokenDead">
+      <span class="checkbox-custom"></span>
       <span>Мёртв</span>
     </label>
+  </div>
 
-    <div style="margin-top: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 6px;">
-      <div>
-        <span>ОЗ:</span>
-        <input type="number" id="contextHpInput" style="width: 60px; margin-left: 6px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
-        <span style="margin: 0 4px;">/</span>
-        <input type="number" id="contextHpMaxInput" style="width: 60px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
-      </div>
-      <div>
-        <span>КД:</span>
-        <input type="number" id="contextAcInput" style="width: 60px; margin-left: 6px; border-radius: 6px; border: 1px solid #ccc; padding: 2px 4px; font-size: 13px;" />
+  <div class="context-menu-section">
+    <div class="context-input-group">
+      <label>Урон:</label>
+      <div class="input-with-button">
+        <input type="number" id="contextDamageInput" placeholder="0" min="0">
+        <button class="context-action-btn" id="contextApplyDamage">Применить</button>
       </div>
     </div>
-
-    <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
-      <button id="contextSaveTokenBtn" class="save-btn" style="padding: 4px 12px; font-size: 12px;">Сохранить</button>
+    
+    <div class="context-input-group">
+      <label>Хилл:</label>
+      <div class="input-with-button">
+        <input type="number" id="contextHealInput" placeholder="0" min="0">
+        <button class="context-action-btn" id="contextApplyHeal">Применить</button>
+      </div>
+    </div>
+    
+    <div class="context-input-group">
+      <label>КД:</label>
+      <div class="input-with-button">
+        <input type="number" id="contextAcInput" value="10" min="1">
+        <button class="context-action-btn" id="contextApplyAc">Изменить</button>
+      </div>
     </div>
   </div>
+
+  <div class="context-menu-section">
+    <button class="context-menu-item" id="contextEditToken">
+      <span class="context-icon">✎</span> Редактировать
+    </button>
+    <button class="context-menu-item delete" id="contextDeleteToken">
+      <span class="context-icon">🗑️</span> Удалить
+    </button>
+  </div>
+</div>
+
+<!-- Контекстное меню для находки -->
+<div id="findContextMenu" class="context-menu" style="display: none;">
+  <div class="context-menu-header">
+    <span id="contextFindName"></span>
+  </div>
+  
+  <div class="context-menu-section">
+    <label class="context-checkbox">
+      <input type="checkbox" id="contextFindInspected">
+      <span class="checkbox-custom"></span>
+      <span>Осмотрено</span>
+    </label>
+  </div>
+
+  <div class="context-menu-section">
+    <button class="context-menu-item" id="contextEditFind">
+      <span class="context-icon">✎</span> Редактировать
+    </button>
+    <button class="context-menu-item delete" id="contextDeleteFind">
+      <span class="context-icon">🗑️</span> Удалить
+    </button>
+  </div>
+</div>
+
+<!-- Контекстное меню для зоны -->
+<div id="zoneContextMenu" class="context-menu" style="display: none;">
+  <div class="context-menu-header">
+    <span id="contextZoneName"></span>
+  </div>
+  
+  <div class="context-menu-section">
+    <label class="context-checkbox">
+      <input type="checkbox" id="contextZoneVisible">
+      <span class="checkbox-custom"></span>
+      <span>Видна игрокам</span>
+    </label>
+  </div>
+
+  <div class="context-menu-section">
+    <button class="context-menu-item" id="contextEditZone">
+      <span class="context-icon">✎</span> Редактировать
+    </button>
+    <button class="context-menu-item delete" id="contextDeleteZone">
+      <span class="context-icon">🗑️</span> Удалить
+    </button>
+  </div>
+</div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 <div id="newMapModal" class="modal" style="display: none;">
   <div class="modal-content small-modal">
