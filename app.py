@@ -1125,4 +1125,10 @@ if __name__ == "__main__":
 
     # Запускаем приложение
     os.makedirs("data", exist_ok=True)
-    socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(
+        app,
+        host="0.0.0.0",   # ВАЖНО
+        port=5000,
+        debug=True,
+        allow_unsafe_werkzeug=True
+    )
