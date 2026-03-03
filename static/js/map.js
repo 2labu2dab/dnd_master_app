@@ -237,6 +237,9 @@ function createNewToken(name, ac, hp, type, avatarData) {
 
   const tokenId = `token_${Date.now()}`;
   
+  // Создаем URL для аватара сразу
+  const avatarUrl = avatarData ? `/api/token/avatar/${tokenId}?t=${Date.now()}` : null;
+  
   const token = {
     id: tokenId,
     name,
@@ -249,15 +252,15 @@ function createNewToken(name, ac, hp, type, avatarData) {
     health_points: hp,
     max_health_points: hp,
     has_avatar: !!avatarData,
+    avatar_url: avatarUrl, // Добавляем URL сразу
     is_visible: true
   };
 
   const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
   let characterId = null;
   
-  // Если нужно добавить в портреты, создаем ID персонажа заранее
   if (addToCharacters) {
-    characterId = `char_${Date.now() + 1}`; // +1 чтобы гарантированно отличался от tokenId
+    characterId = `char_${Date.now() + 1}`;
   }
 
   const requestBody = {
@@ -267,7 +270,6 @@ function createNewToken(name, ac, hp, type, avatarData) {
 
   console.log("Creating token with data:", requestBody);
 
-  // Сначала создаем токен
   fetch("/api/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -279,30 +281,44 @@ function createNewToken(name, ac, hp, type, avatarData) {
     }
     return response.json();
   })
-  .then(() => {
-    console.log("Token created successfully");
+  .then(data => {
+    console.log("Token created successfully, response:", data);
     
-    // Сразу добавляем токен в локальные данные для отображения
+    // Если сервер вернул avatar_url, используем его
+    if (data.avatar_url) {
+      token.avatar_url = data.avatar_url;
+    }
+    
+    // Добавляем токен в локальные данные
     if (!mapData.tokens) mapData.tokens = [];
     mapData.tokens.push(token);
     
-    // Если нужно добавить в портреты, создаем персонажа
+    // Если есть аватар, сразу создаем и кэшируем изображение
+    if (avatarData && token.avatar_url) {
+      const img = new Image();
+      img.onload = () => {
+        avatarCache[tokenId] = img;
+        render(); // Перерендериваем после загрузки
+      };
+      img.onerror = () => {
+        console.warn(`Failed to load avatar for new token ${tokenId}`);
+      };
+      img.src = token.avatar_url;
+    }
+    
+    // Сразу рендерим с новым токеном
+    render();
+    updateSidebar();
+    
     if (addToCharacters && avatarData) {
       return createCharacterFromToken(name, avatarData, characterId)
         .then(() => {
-          // После создания персонажа, обновляем данные карты
           return fetchMap();
         });
-    } else {
-      // Если персонаж не создается, просто обновляем рендер
-      render();
-      updateSidebar();
-      return Promise.resolve();
     }
   })
   .then(() => {
     closeTokenModal();
-    // Не вызываем fetchMap здесь, так как мы либо уже вызвали её, либо рендерим локально
   })
   .catch(error => {
     console.error('Error:', error);
@@ -1173,23 +1189,35 @@ function drawToken(token, offsetX, offsetY, scale) {
   const avatarSrc = token.avatar_url || token.avatar_data;
   
   if (avatarSrc) {
+    // Проверяем, есть ли изображение в кэше
     if (!avatarCache[token.id]) {
+      // Если нет, создаем новое и загружаем
       const img = new Image();
       img.onload = () => {
-        render();
+        avatarCache[token.id] = img;
+        render(); // Перерендериваем после загрузки
       };
       img.onerror = () => {
         console.warn(`⚠ Не удалось загрузить аватар токена ${token.name} по URL: ${avatarSrc}`);
         avatarCache[token.id] = null;
       };
       img.src = avatarSrc;
-      avatarCache[token.id] = img;
+      avatarCache[token.id] = 'loading'; // Временно помечаем как загружающийся
+      
+      // Пока загружается, рисуем цветной круг
+      ctx.fillStyle = token.is_dead
+        ? "#616161"
+        : token.is_player
+          ? "#4CAF50"
+          : token.is_npc
+            ? "#FFC107"
+            : "#F44336";
+      ctx.fill();
     } else if (avatarCache[token.id] instanceof HTMLImageElement && 
                avatarCache[token.id].complete && 
                avatarCache[token.id].naturalWidth > 0) {
+      // Изображение уже загружено, рисуем его
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
       ctx.clip();
 
       if (token.is_dead) {
@@ -1203,8 +1231,19 @@ function drawToken(token, offsetX, offsetY, scale) {
       }
 
       ctx.restore();
+    } else {
+      // Изображение еще загружается или ошибка, рисуем цветной круг
+      ctx.fillStyle = token.is_dead
+        ? "#616161"
+        : token.is_player
+          ? "#4CAF50"
+          : token.is_npc
+            ? "#FFC107"
+            : "#F44336";
+      ctx.fill();
     }
   } else {
+    // Нет аватара, рисуем цветной круг
     ctx.fillStyle = token.is_dead
       ? "#616161"
       : token.is_player

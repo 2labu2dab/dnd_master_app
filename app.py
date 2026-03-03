@@ -1,33 +1,35 @@
 # app.py
-from flask import (
-    Flask,
-    render_template,
-    jsonify,
-    request,
-    redirect,
-    session,
-    send_file,
-)
-from flask_socketio import SocketIO, emit
-from utils.storage import (
-    load_map_data,
-    save_map_data,
-    list_maps,
-    create_new_map,
-    delete_map,
-    load_map_image,
-    get_image_filepath,
-    save_map_image,
-    save_token_avatar,
-    get_token_avatar_url,
-    TOKENS_AVATARS_DIR,  # Добавьте эти импорты
-)
+import base64
+import io
 import os
 import time
-from PIL import Image
-import io
-import base64
 import uuid
+
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+)
+from flask_socketio import SocketIO, emit
+from PIL import Image
+
+from utils.storage import (
+    TOKENS_AVATARS_DIR,  # Добавьте эти импорты
+    create_new_map,
+    delete_map,
+    get_image_filepath,
+    get_token_avatar_url,
+    list_maps,
+    load_map_data,
+    load_map_image,
+    save_map_data,
+    save_map_image,
+    save_token_avatar,
+)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your-secret-key-here"
@@ -106,8 +108,11 @@ def get_map(map_id):
         for character in data["characters"]:
             if character.get("has_avatar"):
                 from utils.storage import get_portrait_url
+
                 character["portrait_url"] = get_portrait_url(character["id"])
-                print(f"Character {character['id']} portrait URL: {character['portrait_url']}")
+                print(
+                    f"Character {character['id']} portrait URL: {character['portrait_url']}"
+                )
             # Удаляем старые данные аватара если они есть
             character.pop("avatar_data", None)
 
@@ -116,6 +121,7 @@ def get_map(map_id):
         for token in data["tokens"]:
             if token.get("has_avatar"):
                 from utils.storage import get_token_avatar_url
+
                 token["avatar_url"] = get_token_avatar_url(token["id"])
                 print(f"Token {token['id']} avatar URL: {token['avatar_url']}")
             token.pop("avatar_data", None)
@@ -159,7 +165,8 @@ def save_map():
         token_copy = token.copy()
         if token_copy.get("has_avatar"):
             from utils.storage import get_token_avatar_url
-            base_url = get_token_avatar_url(token_copy['id'])
+
+            base_url = get_token_avatar_url(token_copy["id"])
             token_copy["avatar_url"] = f"{base_url}?t={int(time.time())}"
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
@@ -170,7 +177,8 @@ def save_map():
         character_copy = character.copy()
         if character_copy.get("has_avatar"):
             from utils.storage import get_portrait_url
-            base_url = get_portrait_url(character_copy['id'])
+
+            base_url = get_portrait_url(character_copy["id"])
             character_copy["portrait_url"] = f"{base_url}?t={int(time.time())}"
         character_copy.pop("avatar_data", None)
         characters_for_players.append(character_copy)
@@ -182,7 +190,9 @@ def save_map():
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "ruler_visible_to_players": data.get(
+            "ruler_visible_to_players", False
+        ),
         "ruler_start": data.get("ruler_start"),
         "ruler_end": data.get("ruler_end"),
         "player_map_enabled": data.get("player_map_enabled", True),
@@ -191,10 +201,13 @@ def save_map():
 
     # Если есть изображение, добавляем URL для загрузки
     if data.get("has_image"):
-        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        player_data["image_url"] = (
+            f"/api/map/image/{map_id}?t={int(time.time())}"
+        )
 
     socketio.emit("map_updated", player_data)
     return jsonify({"status": "ok"})
+
 
 @app.route("/api/map/new", methods=["POST"])
 def new_map():
@@ -299,7 +312,7 @@ def add_token():
     print("TOKEN API CALLED")
     print("=" * 50)
 
-    # Получаем данные запроса ТОЛЬКО ОДИН РАЗ
+    # Получаем данные запроса
     try:
         token = request.get_json()
         print(f"Received JSON data: {token}")
@@ -312,10 +325,6 @@ def add_token():
 
     print(f"Token data: {token}")
     print(f"Avatar data present: {bool(avatar_data)}")
-    print(f"Avatar data type: {type(avatar_data)}")
-    if avatar_data:
-        print(f"Avatar data length: {len(avatar_data)}")
-        print(f"Avatar data preview: {avatar_data[:100]}...")
 
     map_id = session.get("current_map_id")
     if not map_id:
@@ -328,17 +337,21 @@ def add_token():
         return jsonify({"error": "Map not found"}), 404
 
     # Сохраняем аватар как файл, если он есть
+    avatar_url = None
     if avatar_data:
         print(f"\n=== Calling save_token_avatar for token {token['id']} ===")
         success = save_token_avatar(avatar_data, token["id"])
         if success:
             token["has_avatar"] = True
-            # Сразу добавляем URL аватара, чтобы не ждать повторной загрузки карты
-            token["avatar_url"] = get_token_avatar_url(token["id"])
-            print(f"✓ Avatar saved successfully, URL: {token['avatar_url']}")
-            
+            # Сразу добавляем URL аватара с timestamp
+            timestamp = int(time.time())
+            avatar_url = f"/api/token/avatar/{token['id']}?t={timestamp}"
+            token["avatar_url"] = avatar_url
+            print(f"✓ Avatar saved successfully, URL: {avatar_url}")
+
             # Проверяем, что файл действительно создан
             from utils.storage import get_token_avatar_filepath
+
             filepath = get_token_avatar_filepath(token["id"])
             print(f"Avatar file exists: {os.path.exists(filepath)}")
         else:
@@ -351,12 +364,12 @@ def add_token():
     # Добавляем токен в данные
     data.setdefault("tokens", []).append(token)
     print(f"Tokens count after adding: {len(data['tokens'])}")
-    
+
     # Сохраняем данные
     save_map_data(data, map_id)
     print(f"Map data saved for map {map_id}")
 
-    # Подготавливаем данные для игроков (без base64)
+    # Подготавливаем данные для игроков
     tokens_for_players = []
     for t in data.get("tokens", []):
         token_copy = t.copy()
@@ -382,8 +395,13 @@ def add_token():
 
     socketio.emit("map_updated", player_data)
     print("Map updated event sent to players")
-    
-    return jsonify({"status": "token added"})
+
+    # Возвращаем URL аватара в ответе
+    return jsonify({
+        "status": "token added",
+        "token_id": token["id"],
+        "avatar_url": avatar_url
+    })
 
 
 @app.route("/favicon.ico")
@@ -857,11 +875,12 @@ def handle_ruler_visibility_change(data):
         include_self=False,
     )
 
+
 @app.route("/api/token/<token_id>", methods=["PUT"])
 def update_token(token_id):
     """Обновить существующий токен"""
     print(f"\n=== Updating token {token_id} ===")
-    
+
     try:
         token = request.get_json()
         print(f"Received token data: {token}")
@@ -886,30 +905,30 @@ def update_token(token_id):
     tokens = data.get("tokens", [])
     token_found = False
     avatar_changed = False
-    
+
     for i, t in enumerate(tokens):
         if t.get("id") == token_id:
             # Сохраняем старые значения для сравнения
             old_has_avatar = t.get("has_avatar", False)
             old_avatar_url = t.get("avatar_url")
-            
+
             # Сохраняем существующий аватар, если не передан новый
             if old_has_avatar and not avatar_data:
                 # Сохраняем флаг наличия аватара
                 token["has_avatar"] = True
                 token["avatar_url"] = old_avatar_url
                 print(f"Keeping existing avatar for token {token_id}")
-            
+
             # Обновляем остальные поля токена
             # Важно: сохраняем id, position и другие поля, которые могли не прийти
             token["id"] = token_id
             if "position" not in token and "position" in t:
                 token["position"] = t["position"]
-            
+
             # Обновляем токен
             tokens[i] = token
             token_found = True
-            
+
             # Обрабатываем новый аватар, если он передан
             if avatar_data:
                 print(f"Saving new avatar for token {token_id}")
@@ -918,13 +937,17 @@ def update_token(token_id):
                     token["has_avatar"] = True
                     # Обновляем URL с timestamp для сброса кэша
                     timestamp = int(time.time())
-                    token["avatar_url"] = f"/api/token/avatar/{token_id}?t={timestamp}"
-                    print(f"✓ Avatar updated successfully, new URL: {token['avatar_url']}")
+                    token["avatar_url"] = (
+                        f"/api/token/avatar/{token_id}?t={timestamp}"
+                    )
+                    print(
+                        f"✓ Avatar updated successfully, new URL: {token['avatar_url']}"
+                    )
                     avatar_changed = True
                 else:
                     token["has_avatar"] = False
                     print(f"✗ Failed to save avatar")
-            
+
             break
 
     if not token_found:
@@ -940,7 +963,9 @@ def update_token(token_id):
         if token_copy.get("has_avatar"):
             # Добавляем timestamp для сброса кэша
             timestamp = int(time.time())
-            token_copy["avatar_url"] = f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
+            token_copy["avatar_url"] = (
+                f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
+            )
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
 
@@ -951,35 +976,48 @@ def update_token(token_id):
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "ruler_visible_to_players": data.get(
+            "ruler_visible_to_players", False
+        ),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        player_data["image_url"] = (
+            f"/api/map/image/{map_id}?t={int(time.time())}"
+        )
 
     # Отправляем обновление всем
     socketio.emit("map_updated", player_data)
-    
+
     # Если аватар изменился, отправляем специальное событие для очистки кэша
     if avatar_changed:
         timestamp = int(time.time())
-        socketio.emit("token_avatar_updated", {
-            "map_id": map_id,
-            "token_id": token_id,
-            "avatar_url": f"/api/token/avatar/{token_id}?t={timestamp}"
-        })
+        socketio.emit(
+            "token_avatar_updated",
+            {
+                "map_id": map_id,
+                "token_id": token_id,
+                "avatar_url": f"/api/token/avatar/{token_id}?t={timestamp}",
+            },
+        )
         print(f"Sent token_avatar_updated event for token {token_id}")
-    
+
     return jsonify({"status": "token updated"})
+
 
 @socketio.on("force_avatar_reload")
 def handle_force_avatar_reload(data):
     """Принудительная перезагрузка аватаров для всех игроков"""
     map_id = data.get("map_id")
     if map_id:
-        emit("force_avatar_reload", {"map_id": map_id}, broadcast=True, include_self=False)
+        emit(
+            "force_avatar_reload",
+            {"map_id": map_id},
+            broadcast=True,
+            include_self=False,
+        )
 
 
 @app.route("/api/token/<token_id>", methods=["DELETE"])
@@ -999,40 +1037,42 @@ def delete_token(token_id):
     # Удаляем токен из данных
     tokens = data.get("tokens", [])
     data["tokens"] = [t for t in tokens if t.get("id") != token_id]
-    
+
     save_map_data(data, map_id)
 
     # Отправляем обновление игрокам
-    socketio.emit("map_updated", {
-        "map_id": map_id,
-        "tokens": data.get("tokens", [])
-    })
+    socketio.emit(
+        "map_updated", {"map_id": map_id, "tokens": data.get("tokens", [])}
+    )
 
     return jsonify({"status": "token deleted"})
+
 
 @app.route("/api/portrait/<portrait_id>")
 def get_portrait(portrait_id):
     """Получить портрет персонажа как файл"""
     from utils.storage import get_portrait_filepath
-    
+
     image_path = get_portrait_filepath(portrait_id)
     print(f"Looking for portrait at: {image_path}")
     print(f"File exists: {os.path.exists(image_path)}")
-    
+
     if os.path.exists(image_path):
         print(f"File size: {os.path.getsize(image_path)} bytes")
         return send_file(image_path, mimetype="image/png")
-    
+
     return "", 404
+
 
 @app.route("/api/portrait/<portrait_id>", methods=["DELETE"])
 def delete_portrait(portrait_id):
     """Удалить портрет персонажа"""
     from utils.storage import delete_portrait_image
-    
+
     if delete_portrait_image(portrait_id):
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404
+
 
 @app.route("/api/portrait/upload", methods=["POST"])
 def upload_portrait():
@@ -1040,38 +1080,41 @@ def upload_portrait():
     try:
         if "portrait" not in request.files:
             return jsonify({"error": "No file"}), 400
-        
+
         file = request.files["portrait"]
         character_id = request.form.get("character_id")
-        
+
         if not character_id:
             return jsonify({"error": "No character ID"}), 400
-        
+
         if file.filename == "":
             return jsonify({"error": "No selected file"}), 400
-        
+
         # Проверяем размер файла (макс 5MB)
         file.seek(0, os.SEEK_END)
         file_length = file.tell()
         file.seek(0)
-        
+
         if file_length > 5 * 1024 * 1024:  # 5MB
             return jsonify({"error": "File too large"}), 400
-        
+
         # Сохраняем портрет
         from utils.storage import save_portrait_image
-        
+
         if save_portrait_image(file.read(), character_id):
-            return jsonify({
-                "status": "ok",
-                "portrait_url": f"/api/portrait/{character_id}"
-            })
-        
+            return jsonify(
+                {
+                    "status": "ok",
+                    "portrait_url": f"/api/portrait/{character_id}",
+                }
+            )
+
         return jsonify({"error": "Failed to save portrait"}), 500
-        
+
     except Exception as e:
         print(f"Error uploading portrait: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     # Создаем необходимые директории

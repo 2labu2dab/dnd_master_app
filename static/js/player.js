@@ -452,68 +452,94 @@ socket.on("map_sync", (data) => {
 
 // Оптимизированная отрисовка слоев
 function drawLayers(offsetX, offsetY, scale) {
-    // Сначала рисуем сетку (фон)
-    if (!isEmbeddedPreview && mapData.grid_settings.visible && 
-        mapData.grid_settings.visible_to_players) {
-        drawGrid(offsetX, offsetY, scale);
-    }
+  // Проверяем, загружено ли изображение
+  const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
+  
+  // Сначала рисуем сетку, но только если есть изображение
+  if (!isEmbeddedPreview && 
+      mapData.grid_settings.visible && 
+      mapData.grid_settings.visible_to_players &&
+      imageLoaded) {  // Добавляем проверку наличия изображения
+    drawGrid(offsetX, offsetY, scale);
+  }
 
-    // Затем зоны
-    if (mapData.zones && mapData.zones.length) {
-        for (let i = 0; i < mapData.zones.length; i++) {
-            const zone = mapData.zones[i];
-            if (zone.is_visible === false) {
-                drawBlurredZone(zone, offsetX, offsetY, scale);
-            }
-        }
+  // Затем зоны
+  if (mapData.zones && mapData.zones.length) {
+    for (let i = 0; i < mapData.zones.length; i++) {
+      const zone = mapData.zones[i];
+      if (zone.is_visible === false) {
+        drawBlurredZone(zone, offsetX, offsetY, scale);
+      }
     }
+  }
 
-    // Затем токены - ТОЛЬКО те, которые НЕ находятся в скрытых зонах
-    if (mapData.tokens && mapData.tokens.length) {
-        for (let i = 0; i < mapData.tokens.length; i++) {
-            const token = mapData.tokens[i];
-            
-            // Проверяем видимость токена (по умолчанию true)
-            if (token.is_visible !== false) {
-                // Получаем позицию токена в мировых координатах
-                const tokenPosition = token.position;
-                
-                // Проверяем, находится ли токен в какой-либо скрытой зоне
-                const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
-                
-                // Рисуем токен ТОЛЬКО если он НЕ в скрытой зоне
-                if (!isInHiddenZone) {
-                    drawToken(token, offsetX, offsetY, scale);
-                } else {
-                    console.log(`Token ${token.name} hidden because it's in a hidden zone`);
-                }
-            }
+  // Затем токены
+  if (mapData.tokens && mapData.tokens.length) {
+    for (let i = 0; i < mapData.tokens.length; i++) {
+      const token = mapData.tokens[i];
+      
+      if (token.is_visible !== false) {
+        const tokenPosition = token.position;
+        const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
+        
+        if (!isInHiddenZone) {
+          drawToken(token, offsetX, offsetY, scale);
         }
+      }
     }
+  }
 }
 
 // Оптимизированная отрисовка сетки
 function drawGrid(offsetX, offsetY, scale) {
-    const size = mapData.grid_settings.cell_size * scale;
-    ctx.strokeStyle = mapData.grid_settings.color || "#888";
-    ctx.lineWidth = 1;
+  const cell = mapData.grid_settings.cell_size;
+  ctx.strokeStyle = mapData.grid_settings.color || "#888";
+  ctx.lineWidth = 1;
+  
+  // Получаем размеры изображения в экранных координатах
+  const mapScreenWidth = mapImage.width * scale;
+  const mapScreenHeight = mapImage.height * scale;
+  
+  // Вычисляем границы изображения на холсте
+  const mapLeft = offsetX;
+  const mapRight = offsetX + mapScreenWidth;
+  const mapTop = offsetY;
+  const mapBottom = offsetY + mapScreenHeight;
+  
+  // Сохраняем текущее состояние контекста
+  ctx.save();
+  
+  // Обрезаем область рисования только до размеров изображения
+  ctx.beginPath();
+  ctx.rect(mapLeft, mapTop, mapScreenWidth, mapScreenHeight);
+  ctx.clip();
+  
+  // Рисуем сетку только внутри изображения
+  ctx.beginPath();
+  
+  // Вертикальные линии
+  for (let x = 0; x <= mapImage.width; x += cell) {
+    const sx = offsetX + x * scale;
+    // Проверяем, попадает ли линия в видимую область холста
+    if (sx < 0 || sx > canvas.width) continue;
     
-    // Сохраняем текущий путь для оптимизации
-    ctx.beginPath();
+    ctx.moveTo(sx, Math.max(mapTop, 0));
+    ctx.lineTo(sx, Math.min(mapBottom, canvas.height));
+  }
+  
+  // Горизонтальные линии
+  for (let y = 0; y <= mapImage.height; y += cell) {
+    const sy = offsetY + y * scale;
+    if (sy < 0 || sy > canvas.height) continue;
     
-    // Вертикальные линии
-    for (let x = offsetX % size; x < canvas.width; x += size) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-    }
-    
-    // Горизонтальные линии
-    for (let y = offsetY % size; y < canvas.height; y += size) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-    }
-    
-    ctx.stroke();
+    ctx.moveTo(Math.max(mapLeft, 0), sy);
+    ctx.lineTo(Math.min(mapRight, canvas.width), sy);
+  }
+  
+  ctx.stroke();
+  
+  // Восстанавливаем состояние контекста (снимаем clip)
+  ctx.restore();
 }
 
 // Оптимизированная отрисовка токена с кэшированием аватаров
