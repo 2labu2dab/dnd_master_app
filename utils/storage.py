@@ -327,7 +327,13 @@ def save_map_data(data, map_id):
             # Удаляем avatar_data если он есть (он не должен сохраняться)
             token.pop("avatar_data", None)
             # НЕ удаляем avatar_url - пусть сохраняется в JSON
-            # token.pop("avatar_url", None)  # ← ЗАКОММЕНТИРОВАТЬ или УДАЛИТЬ эту строку
+
+    # Убедимся, что у персонажей сохраняются has_avatar
+    if "characters" in data:
+        for character in data["characters"]:
+            # Удаляем avatar_data если он есть
+            character.pop("avatar_data", None)
+            # НЕ удаляем portrait_url - пусть сохраняется в JSON
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

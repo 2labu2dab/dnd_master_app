@@ -336,6 +336,11 @@ def add_token():
             # Сразу добавляем URL аватара, чтобы не ждать повторной загрузки карты
             token["avatar_url"] = get_token_avatar_url(token["id"])
             print(f"✓ Avatar saved successfully, URL: {token['avatar_url']}")
+            
+            # Проверяем, что файл действительно создан
+            from utils.storage import get_token_avatar_filepath
+            filepath = get_token_avatar_filepath(token["id"])
+            print(f"Avatar file exists: {os.path.exists(filepath)}")
         else:
             token["has_avatar"] = False
             print(f"✗ Failed to save avatar")
@@ -343,15 +348,21 @@ def add_token():
         token["has_avatar"] = False
         print("No avatar data provided")
 
+    # Добавляем токен в данные
     data.setdefault("tokens", []).append(token)
+    print(f"Tokens count after adding: {len(data['tokens'])}")
+    
+    # Сохраняем данные
     save_map_data(data, map_id)
+    print(f"Map data saved for map {map_id}")
 
     # Подготавливаем данные для игроков (без base64)
     tokens_for_players = []
-    for token in data.get("tokens", []):
-        token_copy = token.copy()
+    for t in data.get("tokens", []):
+        token_copy = t.copy()
         if token_copy.get("has_avatar"):
             token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
+        token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
 
     # Отправляем обновление всем игрокам
@@ -361,19 +372,17 @@ def add_token():
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
+        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
 
     socketio.emit("map_updated", player_data)
+    print("Map updated event sent to players")
+    
     return jsonify({"status": "token added"})
 
 

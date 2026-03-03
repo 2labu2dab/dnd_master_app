@@ -122,173 +122,246 @@ function submitToken() {
   if (!name || !type) return alert("Заполните все поля");
 
   if (editingTokenId) {
-    // Редактирование существующего токена
-    const token = mapData.tokens.find(t => t.id === editingTokenId);
-    if (token) {
-      // Сохраняем старые значения
-      const oldAvatar = token.avatar_url;
-      const oldAvatarData = token.avatar_data;
-      const oldHasAvatar = token.has_avatar;
-      
-      // Определяем, изменился ли аватар
-      const avatarChangedNow = avatarData && avatarData !== oldAvatarData;
-      
-      // Обновляем данные токена
-      token.name = name;
-      token.armor_class = ac;
-      token.max_health_points = hp;
-      // Не сбрасываем текущие HP, только если они больше нового максимума
-      if (token.health_points > hp) {
-        token.health_points = hp;
-      }
-      token.is_player = type === "player";
-      token.is_npc = type === "npc";
-      
-      // Если аватар изменился, обновляем его
-      if (avatarChangedNow) {
-        token.has_avatar = true;
-        token.avatar_data = avatarData;
-        console.log("Avatar changed for token:", editingTokenId);
-      } else {
-        // Если аватар не изменился, сохраняем старый
-        token.has_avatar = oldHasAvatar;
-        token.avatar_url = oldAvatar;
-      }
-      
-      console.log("Updating token:", token);
-      
-      // Подготавливаем данные для отправки
-      const requestBody = {
-        id: token.id,
-        name: token.name,
-        armor_class: token.armor_class,
-        max_health_points: token.max_health_points,
-        health_points: token.health_points,
-        is_player: token.is_player,
-        is_npc: token.is_npc,
-        position: token.position,
-        size: token.size,
-        is_dead: token.is_dead,
-        is_visible: token.is_visible,
-        has_avatar: token.has_avatar
-      };
-      
-      // Добавляем avatar_data только если он изменился
-      if (avatarChangedNow) {
-        requestBody.avatar_data = avatarData;
-      }
-      
-      // Отправляем запрос на обновление
-      fetch(`/api/token/${editingTokenId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        return response.json();
-      })
-      .then(() => {
-        console.log("Token updated successfully");
-        closeTokenModal();
-
-        // Если аватар изменился, очищаем кэш
-        if (avatarChangedNow && avatarCache[editingTokenId]) {
-          delete avatarCache[editingTokenId];
-        }
-        
-        // Обновляем данные карты
-        if (avatarChangedNow) {
-          // Если аватар изменился, перезагружаем полные данные
-          fetchMap();
-          
-          // Также отправляем специальное событие для принудительной перезагрузки аватаров у игроков
-          socket.emit("force_avatar_reload", { 
-            map_id: currentMapId 
-          });
-        } else {
-          // Иначе просто рендерим
-          render();
-          updateSidebar();
-        }
-      })
-      .catch(error => {
-        console.error('Error updating token:', error);
-        alert('Ошибка при обновлении токена');
-      });
-    }
+    // Редактирование существующего токена (код остается без изменений)
+    editExistingToken(name, ac, hp, type, avatarData);
   } else {
-    // Создание нового токена (код остается без изменений)
-    const centerX = mapImage.width ? mapImage.width / 2 : 500;
-    const centerY = mapImage.height ? mapImage.height / 2 : 500;
-
-    const tokenId = `token_${Date.now()}`;
-    
-    const token = {
-      id: tokenId,
-      name,
-      position: [centerX, centerY],
-      size: mapData.grid_settings.cell_size,
-      is_dead: false,
-      is_player: type === "player",
-      is_npc: type === "npc",
-      armor_class: ac,
-      health_points: hp,
-      max_health_points: hp,
-      has_avatar: !!avatarData,
-      is_visible: true
-    };
-
-    const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
-
-    const requestBody = {
-      ...token,
-      avatar_data: avatarData
-    };
-
-    fetch("/api/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    }).then(response => {
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      return response.json();
-    }).then(() => {
-      if (addToCharacters) {
-        if (!mapData.characters) mapData.characters = [];
-
-        const character = {
-          id: `char_${Date.now()}`,
-          name,
-          avatar_url: avatarData ? `/api/token/avatar/${tokenId}` : null,
-          has_avatar: !!avatarData,
-          visible_to_players: true,
-        };
-
-        mapData.characters.push(character);
-        return fetch("/api/map", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(mapData),
-        });
-      }
-    }).then(() => {
-      closeTokenModal();
-      fetchMap();
-      updateSidebar();
-    }).catch(error => {
-      console.error('Error:', error);
-      alert('Ошибка при создании токена');
-    });
+    // Создание нового токена
+    createNewToken(name, ac, hp, type, avatarData);
   }
   
   editingTokenId = null;
-  avatarChanged = false; // Сбрасываем флаг
+  avatarChanged = false;
 }
+
+function editExistingToken(name, ac, hp, type, avatarData) {
+  const token = mapData.tokens.find(t => t.id === editingTokenId);
+  if (!token) return;
+
+  // Сохраняем старые значения
+  const oldAvatar = token.avatar_url;
+  const oldAvatarData = token.avatar_data;
+  const oldHasAvatar = token.has_avatar;
+  
+  // Определяем, изменился ли аватар
+  const avatarChangedNow = avatarData && avatarData !== oldAvatarData;
+  
+  // Обновляем данные токена
+  token.name = name;
+  token.armor_class = ac;
+  token.max_health_points = hp;
+  if (token.health_points > hp) {
+    token.health_points = hp;
+  }
+  token.is_player = type === "player";
+  token.is_npc = type === "npc";
+  
+  // Если аватар изменился, обновляем его
+  if (avatarChangedNow) {
+    token.has_avatar = true;
+    token.avatar_data = avatarData;
+    console.log("Avatar changed for token:", editingTokenId);
+  } else {
+    // Если аватар не изменился, сохраняем старый
+    token.has_avatar = oldHasAvatar;
+    token.avatar_url = oldAvatar;
+  }
+  
+  console.log("Updating token:", token);
+  
+  // Подготавливаем данные для отправки
+  const requestBody = {
+    id: token.id,
+    name: token.name,
+    armor_class: token.armor_class,
+    max_health_points: token.max_health_points,
+    health_points: token.health_points,
+    is_player: token.is_player,
+    is_npc: token.is_npc,
+    position: token.position,
+    size: token.size,
+    is_dead: token.is_dead,
+    is_visible: token.is_visible,
+    has_avatar: token.has_avatar
+  };
+  
+  // Добавляем avatar_data только если он изменился
+  if (avatarChangedNow) {
+    requestBody.avatar_data = avatarData;
+  }
+  
+  // Отправляем запрос на обновление
+  fetch(`/api/token/${editingTokenId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+    return response.json();
+  })
+  .then(() => {
+    console.log("Token updated successfully");
+    closeTokenModal();
+
+    // Если аватар изменился, очищаем кэш
+    if (avatarChangedNow && avatarCache[editingTokenId]) {
+      delete avatarCache[editingTokenId];
+    }
+    
+    // Обновляем данные карты
+    if (avatarChangedNow) {
+      // Если аватар изменился, перезагружаем полные данные
+      fetchMap();
+      
+      // Также отправляем специальное событие для принудительной перезагрузки аватаров у игроков
+      socket.emit("force_avatar_reload", { 
+        map_id: currentMapId 
+      });
+    } else {
+      // Иначе просто рендерим
+      render();
+      updateSidebar();
+    }
+  })
+  .catch(error => {
+    console.error('Error updating token:', error);
+    alert('Ошибка при обновлении токена');
+  });
+}
+
+function createNewToken(name, ac, hp, type, avatarData) {
+  const centerX = mapImage.width ? mapImage.width / 2 : 500;
+  const centerY = mapImage.height ? mapImage.height / 2 : 500;
+
+  const tokenId = `token_${Date.now()}`;
+  
+  const token = {
+    id: tokenId,
+    name,
+    position: [centerX, centerY],
+    size: mapData.grid_settings.cell_size,
+    is_dead: false,
+    is_player: type === "player",
+    is_npc: type === "npc",
+    armor_class: ac,
+    health_points: hp,
+    max_health_points: hp,
+    has_avatar: !!avatarData,
+    is_visible: true
+  };
+
+  const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
+  let characterId = null;
+  
+  // Если нужно добавить в портреты, создаем ID персонажа заранее
+  if (addToCharacters) {
+    characterId = `char_${Date.now() + 1}`; // +1 чтобы гарантированно отличался от tokenId
+  }
+
+  const requestBody = {
+    ...token,
+    avatar_data: avatarData
+  };
+
+  console.log("Creating token with data:", requestBody);
+
+  // Сначала создаем токен
+  fetch("/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Network response was not ok: ' + response.status);
+    }
+    return response.json();
+  })
+  .then(() => {
+    console.log("Token created successfully");
+    
+    // Сразу добавляем токен в локальные данные для отображения
+    if (!mapData.tokens) mapData.tokens = [];
+    mapData.tokens.push(token);
+    
+    // Если нужно добавить в портреты, создаем персонажа
+    if (addToCharacters && avatarData) {
+      return createCharacterFromToken(name, avatarData, characterId)
+        .then(() => {
+          // После создания персонажа, обновляем данные карты
+          return fetchMap();
+        });
+    } else {
+      // Если персонаж не создается, просто обновляем рендер
+      render();
+      updateSidebar();
+      return Promise.resolve();
+    }
+  })
+  .then(() => {
+    closeTokenModal();
+    // Не вызываем fetchMap здесь, так как мы либо уже вызвали её, либо рендерим локально
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    alert('Ошибка при создании токена: ' + error.message);
+  });
+}
+
+function createCharacterFromToken(name, avatarData, characterId) {
+  console.log("Creating character from token with ID:", characterId);
+  
+  if (!mapData.characters) mapData.characters = [];
+
+  const character = {
+    id: characterId,
+    name,
+    has_avatar: true,
+    visible_to_players: true,
+  };
+
+  mapData.characters.push(character);
+  
+  // Сохраняем данные карты с новым персонажем
+  return saveMapData()
+    .then(() => {
+      // Затем загружаем портрет на сервер отдельным запросом
+      const formData = new FormData();
+      const blob = dataURLtoBlob(avatarData);
+      formData.append("portrait", blob, `${characterId}.png`);
+      formData.append("character_id", characterId);
+      
+      return fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+      });
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error("Failed to upload portrait: " + response.status);
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log("Portrait created from token successfully:", data);
+      
+      // Обновляем URL портрета в данных персонажа
+      const character = mapData.characters.find(c => c.id === characterId);
+      if (character && data.portrait_url) {
+        character.portrait_url = data.portrait_url;
+      }
+      
+      // Обновляем сайдбар
+      updateSidebar();
+    })
+    .catch(error => {
+      console.error("Error creating character from token:", error);
+      // Не прерываем выполнение, просто логируем ошибку
+    });
+}
+
 
 function autoUploadMap(input) {
     const formData = new FormData();
