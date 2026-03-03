@@ -12,7 +12,7 @@ IMAGES_DIR = os.path.join(DATA_DIR, "images")  # Новая папка для и
 TOKENS_AVATARS_DIR = os.path.join(
     DATA_DIR, "token_avatars"
 )  # Папка для аватаров токенов
-
+PORTRAITS_DIR = os.path.join("data", "portrait_images")
 
 def ensure_dirs():
     """Создать необходимые директории"""
@@ -22,6 +22,7 @@ def ensure_dirs():
     os.makedirs(
         TOKENS_AVATARS_DIR, exist_ok=True
     )  # Добавляем создание папки для аватаров
+    os.makedirs(PORTRAITS_DIR, exist_ok=True)
 
 
 def get_token_avatar_filepath(token_id):
@@ -330,3 +331,90 @@ def save_map_data(data, map_id):
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+def save_portrait_image(image_data, portrait_id):
+    """
+    Сохранить изображение портрета как файл
+    
+    Args:
+        image_data: base64 строка с изображением или бинарные данные
+        portrait_id: ID портрета
+    
+    Returns:
+        bool: True если успешно, False если ошибка
+    """
+    try:
+        # Создаем директорию если её нет
+        os.makedirs(PORTRAITS_DIR, exist_ok=True)
+        
+        # Определяем путь к файлу
+        filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
+        
+        # Если image_data - строка base64, конвертируем в бинарные данные
+        if isinstance(image_data, str) and image_data.startswith('data:image'):
+            # Извлекаем base64 часть
+            base64_data = image_data.split(',')[1] if ',' in image_data else image_data
+            import base64
+            image_binary = base64.b64decode(base64_data)
+        elif isinstance(image_data, bytes):
+            image_binary = image_data
+        else:
+            # Если это уже готовый файл или другой формат
+            print(f"Unsupported image data type: {type(image_data)}")
+            return False
+        
+        # Сохраняем файл
+        with open(filepath, 'wb') as f:
+            f.write(image_binary)
+        
+        print(f"✓ Portrait saved: {filepath}")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Error saving portrait: {e}")
+        return False
+
+def get_portrait_filepath(portrait_id):
+    """
+    Получить путь к файлу портрета
+    
+    Args:
+        portrait_id: ID портрета
+    
+    Returns:
+        str: путь к файлу
+    """
+    return os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
+
+def get_portrait_url(portrait_id):
+    """
+    Получить URL для загрузки портрета
+    
+    Args:
+        portrait_id: ID портрета
+    
+    Returns:
+        str: URL для загрузки портрета
+    """
+    return f"/api/portrait/{portrait_id}"
+
+def delete_portrait_image(portrait_id):
+    """
+    Удалить файл портрета
+    
+    Args:
+        portrait_id: ID портрета
+    
+    Returns:
+        bool: True если успешно, False если ошибка
+    """
+    try:
+        filepath = get_portrait_filepath(portrait_id)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"✓ Portrait deleted: {filepath}")
+            return True
+        return False
+    except Exception as e:
+        print(f"✗ Error deleting portrait: {e}")
+        return False

@@ -101,27 +101,24 @@ def get_map(map_id):
     if image_base64:
         data["map_image_base64"] = image_base64
 
+    # Добавляем URL портретов для персонажей
+    if "characters" in data:
+        for character in data["characters"]:
+            if character.get("has_avatar"):
+                from utils.storage import get_portrait_url
+                character["portrait_url"] = get_portrait_url(character["id"])
+                print(f"Character {character['id']} portrait URL: {character['portrait_url']}")
+            # Удаляем старые данные аватара если они есть
+            character.pop("avatar_data", None)
+
     # Добавляем URL аватаров для токенов
     if "tokens" in data:
         for token in data["tokens"]:
             if token.get("has_avatar"):
                 from utils.storage import get_token_avatar_url
-
                 token["avatar_url"] = get_token_avatar_url(token["id"])
-                print(
-                    f"Token {token['id']} avatar URL in get_map: {token['avatar_url']}"
-                )  # Для отладки
-            # Удаляем старые данные аватара если они есть
+                print(f"Token {token['id']} avatar URL: {token['avatar_url']}")
             token.pop("avatar_data", None)
-
-    # Персонажи (портреты): оставляем avatar_data, чтобы аватары не терялись между перезапусками
-    # и дополнительно, при наличии has_avatar, можем добавить avatar_url для будущего использования
-    if "characters" in data:
-        for character in data["characters"]:
-            if character.get("has_avatar"):
-                from utils.storage import get_token_avatar_url
-
-                character["avatar_url"] = get_token_avatar_url(character["id"])
 
     old_map_id = session.get("current_map_id")
     session["current_map_id"] = map_id
@@ -162,16 +159,26 @@ def save_map():
         token_copy = token.copy()
         if token_copy.get("has_avatar"):
             from utils.storage import get_token_avatar_url
-            # Добавляем timestamp для сброса кэша
             base_url = get_token_avatar_url(token_copy['id'])
             token_copy["avatar_url"] = f"{base_url}?t={int(time.time())}"
-            print(f"Token {token_copy['id']} avatar URL: {token_copy['avatar_url']}")  # Отладка
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
+
+    # Подготавливаем данные персонажей для игроков (если нужно)
+    characters_for_players = []
+    for character in data.get("characters", []):
+        character_copy = character.copy()
+        if character_copy.get("has_avatar"):
+            from utils.storage import get_portrait_url
+            base_url = get_portrait_url(character_copy['id'])
+            character_copy["portrait_url"] = f"{base_url}?t={int(time.time())}"
+        character_copy.pop("avatar_data", None)
+        characters_for_players.append(character_copy)
 
     player_data = {
         "map_id": map_id,
         "tokens": tokens_for_players,
+        "characters": characters_for_players,  # Добавляем персонажей
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
@@ -993,6 +1000,69 @@ def delete_token(token_id):
     })
 
     return jsonify({"status": "token deleted"})
+
+@app.route("/api/portrait/<portrait_id>")
+def get_portrait(portrait_id):
+    """Получить портрет персонажа как файл"""
+    from utils.storage import get_portrait_filepath
+    
+    image_path = get_portrait_filepath(portrait_id)
+    print(f"Looking for portrait at: {image_path}")
+    print(f"File exists: {os.path.exists(image_path)}")
+    
+    if os.path.exists(image_path):
+        print(f"File size: {os.path.getsize(image_path)} bytes")
+        return send_file(image_path, mimetype="image/png")
+    
+    return "", 404
+
+@app.route("/api/portrait/<portrait_id>", methods=["DELETE"])
+def delete_portrait(portrait_id):
+    """Удалить портрет персонажа"""
+    from utils.storage import delete_portrait_image
+    
+    if delete_portrait_image(portrait_id):
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "error"}), 404
+
+@app.route("/api/portrait/upload", methods=["POST"])
+def upload_portrait():
+    """Загрузить изображение портрета"""
+    try:
+        if "portrait" not in request.files:
+            return jsonify({"error": "No file"}), 400
+        
+        file = request.files["portrait"]
+        character_id = request.form.get("character_id")
+        
+        if not character_id:
+            return jsonify({"error": "No character ID"}), 400
+        
+        if file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
+        
+        # Проверяем размер файла (макс 5MB)
+        file.seek(0, os.SEEK_END)
+        file_length = file.tell()
+        file.seek(0)
+        
+        if file_length > 5 * 1024 * 1024:  # 5MB
+            return jsonify({"error": "File too large"}), 400
+        
+        # Сохраняем портрет
+        from utils.storage import save_portrait_image
+        
+        if save_portrait_image(file.read(), character_id):
+            return jsonify({
+                "status": "ok",
+                "portrait_url": f"/api/portrait/{character_id}"
+            })
+        
+        return jsonify({"error": "Failed to save portrait"}), 500
+        
+    except Exception as e:
+        print(f"Error uploading portrait: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     # Создаем необходимые директории

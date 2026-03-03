@@ -1006,3 +1006,16 @@ socket.on("force_avatar_reload", (data) => {
         fetchMap();
     }
 });
+
+function drawPortrait(character, offsetX, offsetY, scale) {
+  // Логика отрисовки портрета
+  const img = new Image();
+  if (character.has_avatar) {
+    const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
+    img.src = `${portraitUrl}?t=${Date.now()}`;
+    img.onload = () => {
+      // Отрисовка изображения
+      ctx.drawImage(img, offsetX, offsetY, 50 * scale, 50 * scale);
+    };
+  }
+}

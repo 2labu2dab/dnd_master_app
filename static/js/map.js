@@ -497,16 +497,21 @@ function updateSidebar() {
     li.style.marginBottom = "4px";
     li.style.color = "#ccc";
 
-    // аватар
+    // аватар - используем portrait_url с timestamp для сброса кэша
     const img = document.createElement("img");
-    const avatarSrc = character.avatar_url || character.avatar_data;
-    if (avatarSrc) {
-      img.src = avatarSrc;
+    if (character.has_avatar) {
+      const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
+      img.src = `${portraitUrl}?t=${Date.now()}`;
     }
     img.style.width = "32px";
     img.style.height = "32px";
     img.style.borderRadius = "4px";
     img.style.objectFit = "cover";
+    
+    // Обработка ошибки загрузки изображения
+    img.onerror = () => {
+      img.style.display = "none";
+    };
 
     // имя
     const nameSpan = document.createElement("span");
@@ -526,11 +531,11 @@ function updateSidebar() {
     eye.onclick = () => {
       character.visible_to_players = !character.visible_to_players;
       updateSidebar();
-      saveMapData?.(); // если есть такая функция
+      saveMapData();
     };
 
-    li.appendChild(img);       // аватар
-    li.appendChild(nameSpan);  // имя
+    li.appendChild(img);
+    li.appendChild(nameSpan);
     li.appendChild(eye);
     characterList.appendChild(li);
   });
@@ -731,17 +736,21 @@ function deleteCurrentMap() {
 }
 
 function saveMapData() {
-  fetch("/api/map", {
+  return fetch("/api/map", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(mapData),
-  }).then(() => {
+  }).then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to save map data');
+    }
     // Обновляем имя в селекте если изменилось
     const select = document.getElementById('mapSelect');
     const currentOption = select.querySelector(`option[value="${currentMapId}"]`);
     if (currentOption && mapData.name) {
       currentOption.textContent = mapData.name;
     }
+    return response.json();
   });
 }
 
@@ -1206,25 +1215,82 @@ function handleCharacterAvatarUpload(event) {
 
 function submitCharacter() {
   const name = document.getElementById("characterName").value.trim();
-  const avatar = document.getElementById("characterAvatarPreview").dataset.base64 || "";
+  const avatarPreview = document.getElementById("characterAvatarPreview");
+  const avatarData = avatarPreview.dataset.base64 || "";
 
-  if (!name || !avatar) {
+  if (!name || !avatarData) {
     alert("Заполните имя и выберите аватар.");
     return;
   }
 
+  const characterId = `char_${Date.now()}`;
+  
+  // Создаем объект персонажа
   const character = {
-    id: `char_${Date.now()}`,
+    id: characterId,
     name,
-    avatar_data: avatar,
     has_avatar: true,
-    visible_to_players: true, // 👁️ по умолчанию
+    visible_to_players: true,
+    // Не храним avatar_data в основном объекте
   };
 
+  // Добавляем персонажа в данные
+  if (!mapData.characters) mapData.characters = [];
   mapData.characters.push(character);
-  saveMapData();
-  closeCharacterModal();
-  updateSidebar();
+  
+  // Сохраняем данные карты сначала
+  saveMapData()
+    .then(() => {
+      // Затем загружаем портрет на сервер отдельным запросом
+      const formData = new FormData();
+      // Конвертируем base64 в blob
+      const blob = dataURLtoBlob(avatarData);
+      formData.append("portrait", blob, `${characterId}.png`);
+      formData.append("character_id", characterId);
+      
+      return fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+      });
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error("Failed to upload portrait");
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log("Portrait uploaded successfully:", data);
+      closeCharacterModal();
+      updateSidebar();
+      
+      // Обновляем URL портрета в данных персонажа
+      const character = mapData.characters.find(c => c.id === characterId);
+      if (character && data.portrait_url) {
+        character.portrait_url = data.portrait_url;
+      }
+      
+      // Перезагружаем данные карты для получения URL портрета
+      fetchMap();
+    })
+    .catch(error => {
+      console.error("Error saving character:", error);
+      alert("Ошибка при сохранении персонажа: " + error.message);
+    });
+}
+
+function dataURLtoBlob(dataURL) {
+  const arr = dataURL.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  
+  return new Blob([u8arr], { type: mime });
 }
 
 function drawFind(find, offsetX, offsetY, scale) {
