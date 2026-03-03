@@ -877,11 +877,24 @@ def update_token(token_id):
             old_has_avatar = t.get("has_avatar", False)
             old_avatar_url = t.get("avatar_url")
             
+            # Сохраняем существующий аватар, если не передан новый
+            if old_has_avatar and not avatar_data:
+                # Сохраняем флаг наличия аватара
+                token["has_avatar"] = True
+                token["avatar_url"] = old_avatar_url
+                print(f"Keeping existing avatar for token {token_id}")
+            
+            # Обновляем остальные поля токена
+            # Важно: сохраняем id, position и другие поля, которые могли не прийти
+            token["id"] = token_id
+            if "position" not in token and "position" in t:
+                token["position"] = t["position"]
+            
             # Обновляем токен
             tokens[i] = token
             token_found = True
             
-            # Обрабатываем аватар
+            # Обрабатываем новый аватар, если он передан
             if avatar_data:
                 print(f"Saving new avatar for token {token_id}")
                 success = save_token_avatar(avatar_data, token_id)
@@ -895,17 +908,6 @@ def update_token(token_id):
                 else:
                     token["has_avatar"] = False
                     print(f"✗ Failed to save avatar")
-            elif old_has_avatar and not avatar_data:
-                # Если был аватар, а теперь нет - удаляем его
-                print(f"Removing avatar for token {token_id}")
-                delete_token_avatar(token_id)
-                token["has_avatar"] = False
-                token.pop("avatar_url", None)
-                avatar_changed = True
-            elif old_has_avatar and avatar_data is None:
-                # Сохраняем существующий аватар
-                token["has_avatar"] = True
-                token["avatar_url"] = old_avatar_url
             
             break
 
@@ -962,6 +964,35 @@ def handle_force_avatar_reload(data):
     map_id = data.get("map_id")
     if map_id:
         emit("force_avatar_reload", {"map_id": map_id}, broadcast=True, include_self=False)
+
+
+@app.route("/api/token/<token_id>", methods=["DELETE"])
+def delete_token(token_id):
+    """Удалить токен и его аватар"""
+    map_id = session.get("current_map_id")
+    if not map_id:
+        return jsonify({"error": "No map selected"}), 400
+
+    data = load_map_data(map_id)
+    if not data:
+        return jsonify({"error": "Map not found"}), 404
+
+    # Удаляем аватар если есть
+    delete_token_avatar(token_id)
+
+    # Удаляем токен из данных
+    tokens = data.get("tokens", [])
+    data["tokens"] = [t for t in tokens if t.get("id") != token_id]
+    
+    save_map_data(data, map_id)
+
+    # Отправляем обновление игрокам
+    socketio.emit("map_updated", {
+        "map_id": map_id,
+        "tokens": data.get("tokens", [])
+    })
+
+    return jsonify({"status": "token deleted"})
 
 if __name__ == "__main__":
     # Создаем необходимые директории

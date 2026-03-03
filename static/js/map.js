@@ -128,6 +128,7 @@ function submitToken() {
       // Сохраняем старые значения
       const oldAvatar = token.avatar_url;
       const oldAvatarData = token.avatar_data;
+      const oldHasAvatar = token.has_avatar;
       
       // Определяем, изменился ли аватар
       const avatarChangedNow = avatarData && avatarData !== oldAvatarData;
@@ -143,19 +144,39 @@ function submitToken() {
       token.is_player = type === "player";
       token.is_npc = type === "npc";
       
+      // Если аватар изменился, обновляем его
       if (avatarChangedNow) {
         token.has_avatar = true;
         token.avatar_data = avatarData;
         console.log("Avatar changed for token:", editingTokenId);
+      } else {
+        // Если аватар не изменился, сохраняем старый
+        token.has_avatar = oldHasAvatar;
+        token.avatar_url = oldAvatar;
       }
       
       console.log("Updating token:", token);
       
       // Подготавливаем данные для отправки
       const requestBody = {
-        ...token,
-        avatar_data: avatarChangedNow ? avatarData : null
+        id: token.id,
+        name: token.name,
+        armor_class: token.armor_class,
+        max_health_points: token.max_health_points,
+        health_points: token.health_points,
+        is_player: token.is_player,
+        is_npc: token.is_npc,
+        position: token.position,
+        size: token.size,
+        is_dead: token.is_dead,
+        is_visible: token.is_visible,
+        has_avatar: token.has_avatar
       };
+      
+      // Добавляем avatar_data только если он изменился
+      if (avatarChangedNow) {
+        requestBody.avatar_data = avatarData;
+      }
       
       // Отправляем запрос на обновление
       fetch(`/api/token/${editingTokenId}`, {
@@ -199,7 +220,7 @@ function submitToken() {
       });
     }
   } else {
-    // Создание нового токена
+    // Создание нового токена (код остается без изменений)
     const centerX = mapImage.width ? mapImage.width / 2 : 500;
     const centerY = mapImage.height ? mapImage.height / 2 : 500;
 
