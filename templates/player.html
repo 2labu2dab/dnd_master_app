@@ -42,14 +42,14 @@
     window.MAP_ID = "{{ map_id }}";
   </script>
   <div id="main">
-    <aside id="sidebar"></aside>
+    <aside id="portrait-left-sidebar"></aside>
     <section id="map">
       <img id="mapDisabledImage" src="/static/disabled.png" alt="Карта отключена" />
       <canvas id="mapCanvas"></canvas>
       <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
       <script src="{{ url_for('static', filename='js/player.js') }}"></script>
     </section>
-    <aside id="right-sidebar"></aside>
+    <aside id="portrait-right-sidebar"></aside>
   </div>
 </body>
 
