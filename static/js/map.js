@@ -620,6 +620,8 @@ function switchMap(mapId) {
                 };
                 mapImage.src = imageUrl;
             } else {
+                // ВАЖНО: сбрасываем изображение, если у карты нет картинки
+                mapImage = new Image(); // пустое изображение
                 render();
             }
             
@@ -868,7 +870,7 @@ function fetchMap() {
                   render();
               }
           } else {
-                mapImage = new Image(); // Сбрасываем изображение
+                mapImage = new Image();
                 render();
             }
         });
@@ -2118,7 +2120,6 @@ window.onload = () => {
                 switchMap(null);
             }
         });
-  fetchMap();
       
   setupEnterHandler("contextDamageInput", "contextApplyDamage");
   setupEnterHandler("contextHealInput", "contextApplyHeal");
