@@ -708,6 +708,9 @@ function switchMap(mapId) {
             const gridSize = mapData.grid_settings.cell_size || 20;
             document.getElementById("gridSlider").value = gridSize;
             document.getElementById("gridInput").value = gridSize;
+            
+            // !!! ВАЖНО: Обновляем визуальное отображение ползунка !!!
+            updateSliderVisual();
 
             const gridToggle = document.getElementById("gridToggle");
             gridToggle.classList.toggle("active", mapData.grid_settings.visible);
@@ -984,6 +987,9 @@ function fetchMap() {
             const gridSize = mapData.grid_settings.cell_size || 20;
             document.getElementById("gridSlider").value = gridSize;
             document.getElementById("gridInput").value = gridSize;
+            
+            // !!! ВАЖНО: Обновляем визуальное отображение ползунка !!!
+            updateSliderVisual();
 
             const gridToggle = document.getElementById("gridToggle");
             gridToggle.classList.toggle("active", mapData.grid_settings.visible);
@@ -2339,6 +2345,7 @@ window.onload = () => {
                 select.value = maps[0].id;
                 // Убираем fetchMap(), оставляем только switchMap
                 switchMap(maps[0].id);
+                setTimeout(updateSliderVisual, 100);
             } else {
                 select.innerHTML = '<option value="">Нет карт</option>';
                 switchMap(null);
