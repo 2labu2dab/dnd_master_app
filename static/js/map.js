@@ -6,6 +6,7 @@ const rightSidebar = document.getElementById("right-sidebar");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let isSwitchingMap = false;
+let selectedCharacterId = null;
 const playerChannel = new BroadcastChannel('dnd_map_channel');
 let zoomLevel = 1;
 const socket = io({
@@ -585,8 +586,16 @@ function updateSidebar() {
     li.style.borderRadius = "4px";
     li.style.marginBottom = "4px";
     li.style.color = "#ccc";
+    li.style.cursor = "pointer"; // добавляем курсор-указатель
+    li.dataset.characterId = character.id;
 
-    // аватар - используем portrait_url с timestamp для сброса кэша
+    // Если этот портрет выделен, меняем фон
+    if (selectedCharacterId === character.id) {
+      li.style.background = "#3a4a6b";
+      li.style.borderLeft = "4px solid #4C5BEF";
+    }
+
+    // аватар
     const img = document.createElement("img");
     if (character.has_avatar) {
       const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
@@ -597,7 +606,6 @@ function updateSidebar() {
     img.style.borderRadius = "4px";
     img.style.objectFit = "cover";
     
-    // Обработка ошибки загрузки изображения
     img.onerror = () => {
       img.style.display = "none";
     };
@@ -615,12 +623,21 @@ function updateSidebar() {
     const eye = document.createElement("span");
     eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
     eye.style.cursor = "pointer";
+    eye.style.marginRight = "8px";
     eye.title = "Видимость для игроков";
 
-    eye.onclick = () => {
+    eye.onclick = (e) => {
+      e.stopPropagation(); // не выделяем портрет при клике на глаз
       character.visible_to_players = !character.visible_to_players;
       updateSidebar();
       saveMapData();
+    };
+
+    // Клик на сам элемент портрета - выделение
+    li.onclick = (e) => {
+      e.stopPropagation();
+      selectedCharacterId = character.id;
+      updateSidebar(); // перерисовываем список, чтобы показать выделение
     };
 
     li.appendChild(img);
@@ -2158,10 +2175,11 @@ document.addEventListener("keydown", (e) => {
             render();
         }
     }
-  if (e.key === "Delete") {
-    let changed = false;
-    if (selectedTokenId) {
-      // Удаляем аватар токена на сервере
+    if (e.key === "Delete") {
+        let changed = false;
+        
+        // Существующий код для токенов
+        if (selectedTokenId) {
       fetch(`/api/token/avatar/${selectedTokenId}`, {
         method: 'DELETE'
       }).catch(err => console.error('Error deleting token avatar:', err));
@@ -2171,28 +2189,43 @@ document.addEventListener("keydown", (e) => {
       changed = true;
     }
 
+    // Существующий код для зон
     if (selectedZoneId) {
       mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
       selectedZoneId = null;
-      saveMapData();
-      render();
+      changed = true;
     }
 
+    // Существующий код для находок
     if (selectedFindId) {
       mapData.finds = mapData.finds.filter(f => f.id !== selectedFindId);
       selectedFindId = null;
       changed = true;
     }
 
+    // НОВЫЙ КОД ДЛЯ ПОРТРЕТОВ (БЕЗ ПОДТВЕРЖДЕНИЯ)
+    if (selectedCharacterId) {
+      const character = mapData.characters?.find(c => c.id === selectedCharacterId);
+      
+      if (character) {
+        fetch(`/api/portrait/${selectedCharacterId}`, {
+          method: 'DELETE'
+        }).catch(err => console.error('Error deleting portrait:', err));
+        
+        mapData.characters = mapData.characters.filter(c => c.id !== selectedCharacterId);
+        changed = true;
+      }
+      
+      selectedCharacterId = null;
+    }
+
     if (changed) {
       render();
-      fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
+      saveMapData().then(() => {
+        socket.emit("force_avatar_reload", { map_id: currentMapId });
       });
+      updateSidebar();
     }
-    updateSidebar();
   }
 });
 
