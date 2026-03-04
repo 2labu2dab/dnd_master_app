@@ -648,7 +648,6 @@ function checkMapExists() {
     }
     return true;
 }
-
 function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
     
@@ -675,12 +674,6 @@ function switchMap(mapId) {
         };
         render();
         updateSidebar();
-        
-        const playerFrame = document.getElementById('playerMini');
-        if (playerFrame) {
-            playerFrame.src = '/player';
-        }
-        
         socket.emit("switch_map", { map_id: null });
         isSwitchingMap = false;
         return;
@@ -703,9 +696,12 @@ function switchMap(mapId) {
             mapData = data;
             currentMapId = mapId;
             
+            // ВАЖНО: сначала устанавливаем сохранённые значения
             zoomLevel = mapData.zoom_level || 1;
             panX = mapData.pan_x || 0;
             panY = mapData.pan_y || 0;
+            
+            console.log(`Restored position: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
             
             updateSidebar();
             
@@ -731,6 +727,20 @@ function switchMap(mapId) {
                 const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
                 mapImage = new Image();
                 mapImage.onload = () => {
+                    console.log("Map image loaded, rendering with restored position");
+                    render();
+                    
+                    // Дополнительная проверка: если после загрузки позиция сбросилась
+                    if (panX !== mapData.pan_x || panY !== mapData.pan_y) {
+                        console.log("Position was reset, restoring...");
+                        panX = mapData.pan_x || 0;
+                        panY = mapData.pan_y || 0;
+                        zoomLevel = mapData.zoom_level || 1;
+                        render();
+                    }
+                };
+                mapImage.onerror = () => {
+                    console.error("Failed to load map image");
                     render();
                 };
                 mapImage.src = imageUrl;
@@ -928,10 +938,29 @@ function fetchMap() {
             const oldHasImage = mapData?.has_image;
             const oldImageSrc = mapImage?.src;
             
+            // Сохраняем текущую позицию перед обновлением
+            const currentZoom = zoomLevel;
+            const currentPanX = panX;
+            const currentPanY = panY;
+            
             mapData = data;
-            zoomLevel = mapData.zoom_level || 1;
-            panX = mapData.pan_x || 0;
-            panY = mapData.pan_y || 0;
+            
+            // ВАЖНО: НЕ перезаписываем позицию из данных, если она уже есть
+            // Используем сохранённые текущие значения
+            zoomLevel = currentZoom;
+            panX = currentPanX;
+            panY = currentPanY;
+            
+            // Но если это первый запуск (позиция не установлена), берём из данных
+            if (!zoomLevel && mapData.zoom_level) {
+                zoomLevel = mapData.zoom_level || 1;
+            }
+            if (!panX && mapData.pan_x !== undefined) {
+                panX = mapData.pan_x || 0;
+            }
+            if (!panY && mapData.pan_y !== undefined) {
+                panY = mapData.pan_y || 0;
+            }
             
             updateSidebar();
 
@@ -969,32 +998,29 @@ function fetchMap() {
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-            // Загружаем изображение карты
+            // Загружаем изображение карты только если оно изменилось
             if (mapData.has_image) {
-              const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
-              
-              // Проверяем, нужно ли перезагружать изображение
-              if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
-                  mapImage = new Image();
-                  mapImage.onload = () => {
-                      render();
-                      // Уведомляем игроков о новом изображении
-                      socket.emit("notify_image_loaded", {
-                          map_id: currentMapId,
-                          image_url: imageUrl
-                      });
-                  };
-                  mapImage.src = imageUrl;
-              } else {
-                  render();
-              }
-          } else {
+                const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
+                
+                if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
+                    mapImage = new Image();
+                    mapImage.onload = () => {
+                        render();
+                        socket.emit("notify_image_loaded", {
+                            map_id: currentMapId,
+                            image_url: imageUrl
+                        });
+                    };
+                    mapImage.src = imageUrl;
+                } else {
+                    render();
+                }
+            } else {
                 mapImage = new Image();
                 render();
             }
         });
 }
-
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
