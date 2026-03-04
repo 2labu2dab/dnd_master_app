@@ -2889,3 +2889,49 @@ function setupEnterHandler(inputId, buttonId) {
         });
     }
 }
+// Добавьте эту функцию в файл static/js/map.js
+function centerMap() {
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
+        console.log("No map image to center");
+        return;
+    }
+
+    // Вычисляем масштаб, чтобы карта поместилась полностью
+    const scaleX = canvas.width / mapImage.width;
+    const scaleY = canvas.height / mapImage.height;
+    const baseScale = Math.min(scaleX, scaleY);
+    
+    // Устанавливаем zoomLevel в базовый масштаб (без дополнительного увеличения)
+    zoomLevel = 1;
+    
+    // Вычисляем смещения для центрирования
+    const newScale = baseScale * zoomLevel;
+    panX = (canvas.width - mapImage.width * newScale) / 2;
+    panY = (canvas.height - mapImage.height * newScale) / 2;
+    
+    // Сохраняем позицию в данных карты
+    mapData.zoom_level = zoomLevel;
+    mapData.pan_x = panX;
+    mapData.pan_y = panY;
+    
+    // Перерисовываем
+    render();
+    
+    // Сохраняем на сервере
+    saveMapData();
+    
+    // Отправляем обновление зума всем игрокам
+    socket.emit("zoom_update", {
+        map_id: currentMapId,
+        zoom_level: zoomLevel,
+        pan_x: panX,
+        pan_y: panY,
+        canvas_width: canvas.width,
+        canvas_height: canvas.height
+    });
+    
+    console.log("Map centered:", { zoomLevel, panX, panY });
+}
+
+// Добавьте обработчик для кнопки в window.onload
+document.getElementById("centeringToggle").addEventListener("click", centerMap);
