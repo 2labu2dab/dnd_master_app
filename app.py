@@ -644,8 +644,8 @@ def handle_zoom_update(data):
     map_data["zoom_level"] = data.get("zoom_level", 1)
     map_data["pan_x"] = data.get("pan_x", 0)
     map_data["pan_y"] = data.get("pan_y", 0)
-    map_data["master_canvas_width"] = data.get("canvas_width", 1380)
-    map_data["master_canvas_height"] = data.get("canvas_height", 1080)
+    map_data["master_canvas_width"] = data.get("canvas_width", map_data.get("master_canvas_width", 1380))
+    map_data["master_canvas_height"] = data.get("canvas_height", map_data.get("master_canvas_height", 1080))
 
     save_map_data(map_data, map_id)
 
@@ -657,6 +657,8 @@ def handle_zoom_update(data):
             "zoom_level": map_data["zoom_level"],
             "pan_x": map_data["pan_x"],
             "pan_y": map_data["pan_y"],
+            "canvas_width": map_data["master_canvas_width"],
+            "canvas_height": map_data["master_canvas_height"]
         },
         broadcast=True,
         include_self=False,

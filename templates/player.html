@@ -1,4 +1,3 @@
-<!-- # ====== templates/player.html ====== -->
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -10,12 +9,35 @@
       padding: 0;
       overflow: hidden;
       height: 100%;
+      width: 100%;
+      background-color: #020617; /* Темный фон как у мастера */
+    }
+
+    #main {
+      display: block;
+      height: 100vh;
+      width: 100vw;
+      margin: 0;
+      padding: 0;
+      background-color: #020617;
+    }
+
+    #map {
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      position: relative;
+      background-color: #020617;
     }
 
     canvas {
       display: block;
       width: 100%;
       height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #020617; /* Темный фон для canvas */
     }
 
     #mapDisabledImage {
@@ -32,24 +54,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
-  <title>D&D Карта — Игрок</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  <title>D&D Карта — Игрок</title>
 </head>
 
 <body>
   <script>
-    // Передаем map_id из шаблона в JavaScript
     window.MAP_ID = "{{ map_id }}";
   </script>
   <div id="main">
-    <aside id="portrait-left-sidebar"></aside>
     <section id="map">
       <img id="mapDisabledImage" src="/static/disabled.png" alt="Карта отключена" />
       <canvas id="mapCanvas"></canvas>
       <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
       <script src="{{ url_for('static', filename='js/player.js') }}"></script>
     </section>
-    <aside id="portrait-right-sidebar"></aside>
   </div>
 </body>
 
