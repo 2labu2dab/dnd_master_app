@@ -13,6 +13,10 @@
       background-color: #020617;
     }
 
+    * {
+      box-sizing: border-box;
+    }
+
     #main {
       display: flex;
       height: 100vh;
@@ -57,6 +61,22 @@
       object-fit: cover;
       z-index: 10;
       display: none;
+    }
+    
+    /* Стили для мини-карты (когда страница в iframe) */
+    body.mini-map #portrait-sidebar.visible {
+      width: 120px !important;
+      padding: 5px !important;
+    }
+    
+    body.mini-map .portrait-grid {
+      gap: 2px !important;
+    }
+    
+    body.mini-map .portrait-name {
+      font-size: 7px !important;
+      padding: 1px 2px !important;
+      margin-top: 1px !important;
     }
   </style>
   <meta charset="UTF-8" />

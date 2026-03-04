@@ -603,10 +603,68 @@ large-modal {
   z-index: 10;
 }
 
-#playerMini {
+#playerMini .portrait-grid {
+  gap: 2px !important;
+}
+
+#playerMini .portrait-item {
+  transform: scale(0.9);
+}
+
+#playerMini .portrait-name {
+  font-size: 8px !important;
+  padding: 1px 2px !important;
+  margin-top: 1px !important;
+}
+
+#playerMini body {
   width: 320px;
   height: 180px;
   border: none;
+  background: #020617;
+  overflow: hidden !important;
+}
+
+body.mini-map #portrait-sidebar.visible {
+  width: 140px !important; /* Немного увеличим ширину */
+  padding: 8px !important;
+  overflow-x: hidden !important;
+}
+body.mini-map #portrait-list {
+  width: 100% !important;
+  overflow-x: hidden !important;
+}
+body.mini-map .portrait-grid {
+  display: grid !important;
+  width: 100% !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+body.mini-map .portrait-name {
+  font-size: 8px !important;
+  padding: 2px 4px !important;
+  margin-top: 2px !important;
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  box-sizing: border-box !important;
+}
+
+body.mini-map .portrait-avatar {
+  border-width: 1px !important;
+  border-radius: 4px !important;
+}
+
+body.mini-map .portrait-item {
+  width: 100% !important;
+  min-width: 0 !important; /* Важно для предотвращения переполнения */
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
 }
 
 #togglePlayerMini.mini-toggle-btn {
@@ -1100,6 +1158,9 @@ canvas.map-panning {
 #portrait-sidebar.visible {
   width: 30%;
   padding: 15px; /* Одинаковый padding со всех сторон */
+}
+#playerMini #portrait-sidebar {
+  transition: none !important; /* Убираем анимацию для стабильности */
 }
 #portrait-sidebar h3 {
   margin: 0 0 15px 0; /* Отступ снизу как padding */

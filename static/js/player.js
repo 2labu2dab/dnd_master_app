@@ -155,7 +155,7 @@ function renderPortraits(characters) {
         return;
     }
     
-    console.log(`Rendering ${count} portraits, sidebar: ${sidebarWidth}x${sidebarHeight}`);
+    console.log(`Rendering ${count} portraits, sidebar: ${sidebarWidth}x${sidebarHeight}, isMiniMap: ${isMiniMap}`);
     
     // Определяем конфигурацию сетки
     const gridConfig = getGridConfig(count);
@@ -165,21 +165,23 @@ function renderPortraits(characters) {
     console.log(`Grid: ${cols} columns, ${rows} rows`);
     
     // Зарезервированная высота для заголовка (минимум)
-    const headerHeight = 40;
+    const headerHeight = isMiniMap ? 20 : 40;
     
     // Доступная высота для контента (максимум)
     const availableHeight = sidebarHeight - headerHeight;
     
     // Минимальные зазоры для максимального размера
-    let gapSize = 4; // Базовый минимальный зазор
+    let gapSize = isMiniMap ? 2 : 4;
     
     // Общая высота зазоров
     const totalGapHeight = (rows - 1) * gapSize;
     
-    // Минимальная высота имени
-    let nameHeight = 20;
-    if (count > 6) nameHeight = 18;
-    if (count > 8) nameHeight = 16;
+    // Минимальная высота имени (только для полноэкранного режима)
+    let nameHeight = isMiniMap ? 0 : 20; // В мини-карте подписей нет
+    if (!isMiniMap) {
+        if (count > 6) nameHeight = 18;
+        if (count > 8) nameHeight = 16;
+    }
     
     // Доступная высота для всех портретов (максимум)
     const availableForPortraits = availableHeight - totalGapHeight - (rows * nameHeight);
@@ -187,90 +189,101 @@ function renderPortraits(characters) {
     // Высота каждого портрета (максимально возможная)
     let portraitHeight = Math.floor(availableForPortraits / rows);
     
-    // Динамические максимальные размеры (очень большие)
-    let maxPortraitSize = 400; // Экстремально большой для 1 портрета
+    // Динамические максимальные размеры
+    let maxPortraitSize;
     
-    if (count === 1) {
-        // Один портрет - огромный, почти во всю высоту
-        maxPortraitSize = 400;
-    } else if (count === 2) {
-        // Два портрета - очень большие
-        maxPortraitSize = 320;
-    } else if (count <= 4) {
-        // 3-4 портрета - большие
-        maxPortraitSize = 260;
-    } else if (count <= 6) {
-        // 5-6 портретов - средние, но всё ещё крупные
-        maxPortraitSize = 200;
-    } else if (count <= 8) {
-        // 7-8 портретов - достаточно крупные
-        maxPortraitSize = 160;
+    if (isMiniMap) {
+        // Для мини-карты - без подписей, можно сделать чуть больше
+        if (count === 1) maxPortraitSize = 100;
+        else if (count === 2) maxPortraitSize = 85;
+        else if (count <= 4) maxPortraitSize = 70;
+        else if (count <= 6) maxPortraitSize = 60;
+        else if (count <= 8) maxPortraitSize = 50;
+        else maxPortraitSize = 45;
     } else {
-        // 9+ портретов
-        maxPortraitSize = 130;
+        // Для полноэкранного режима
+        if (count === 1) maxPortraitSize = 400;
+        else if (count === 2) maxPortraitSize = 320;
+        else if (count <= 4) maxPortraitSize = 260;
+        else if (count <= 6) maxPortraitSize = 200;
+        else if (count <= 8) maxPortraitSize = 160;
+        else maxPortraitSize = 130;
     }
     
-    // Применяем максимальный размер (берём минимум из возможного и максимального)
+    // Применяем максимальный размер
     portraitHeight = Math.min(maxPortraitSize, portraitHeight);
     
     // Минимальный размер
-    portraitHeight = Math.max(60, portraitHeight);
+    portraitHeight = Math.max(isMiniMap ? 35 : 60, portraitHeight);
     
-    // Рассчитываем доступную ширину колонки с минимальными отступами
+    // Рассчитываем доступную ширину колонки
+    const padding = isMiniMap ? 10 : 30;
+    const availableWidth = sidebarWidth - padding;
+    
+    // Рассчитываем ширину колонки с учетом зазоров
     const totalGapWidth = (cols - 1) * gapSize;
-    const availableWidth = sidebarWidth - 30 - totalGapWidth; // padding: 15px с каждой стороны
-    const columnWidth = availableWidth / cols;
+    const columnWidth = (availableWidth - totalGapWidth) / cols;
     
-    // Итоговый размер портрета (ограничиваем шириной колонки)
+    // Итоговый размер портрета
     let finalPortraitSize = Math.min(portraitHeight, columnWidth);
     
-    // Убеждаемся, что портрет максимально большой
-    finalPortraitSize = Math.max(60, finalPortraitSize);
+    // Убеждаемся, что портрет не слишком маленький
+    finalPortraitSize = Math.max(isMiniMap ? 30 : 60, finalPortraitSize);
     
-    console.log(`Portrait size: ${finalPortraitSize}px, Available height for portraits: ${availableForPortraits}px`);
-    console.log(`Max allowed: ${maxPortraitSize}px, Final: ${finalPortraitSize}px`);
-    
-    // Проверяем, всё ли помещается (с запасом)
-    const totalUsedHeight = (finalPortraitSize * rows) + (rows * nameHeight) + totalGapHeight;
-    if (totalUsedHeight > availableHeight) {
-        console.warn(`Content height (${totalUsedHeight}) exceeds available (${availableHeight})`);
-        // Если не помещается, чуть уменьшаем
-        const overflow = totalUsedHeight - availableHeight;
-        const reduction = Math.ceil(overflow / rows) + 1;
-        finalPortraitSize = Math.max(60, finalPortraitSize - reduction);
-        console.log(`Adjusted to: ${finalPortraitSize}px`);
+    // Для мини-карты дополнительно проверяем, не слишком ли большой
+    if (isMiniMap) {
+        const maxAllowedWidth = (sidebarWidth - padding) / cols;
+        if (finalPortraitSize > maxAllowedWidth) {
+            finalPortraitSize = maxAllowedWidth - 2;
+        }
     }
+    
+    console.log(`Portrait size: ${finalPortraitSize}px, Column width: ${columnWidth}px, Available width: ${availableWidth}px`);
     
     // Очищаем контейнер
     portraitsContainer.innerHTML = '';
     
-    // Создаем сетку
+    // Создаем сетку с точными размерами
     const gridContainer = document.createElement('div');
     gridContainer.className = 'portrait-grid';
-    gridContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    gridContainer.style.display = 'grid';
+    gridContainer.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
     gridContainer.style.gap = `${gapSize}px`;
     gridContainer.style.width = '100%';
     gridContainer.style.height = '100%';
     gridContainer.style.alignContent = 'start';
     gridContainer.style.padding = '0';
+    gridContainer.style.margin = '0';
+    gridContainer.style.boxSizing = 'border-box';
     
-    // Добавляем портреты в сетку
     characters.forEach((character, index) => {
         const portraitItem = document.createElement('div');
         portraitItem.className = 'portrait-item';
-        portraitItem.style.animationDelay = `${index * 0.05}s`;
+        portraitItem.style.display = 'flex';
+        portraitItem.style.flexDirection = 'column';
+        portraitItem.style.alignItems = 'center';
+        portraitItem.style.width = '100%';
+        portraitItem.style.padding = '0';
+        portraitItem.style.margin = '0';
+        portraitItem.style.boxSizing = 'border-box';
         
         // Контейнер для аватара
         const avatarContainer = document.createElement('div');
         avatarContainer.style.width = `${finalPortraitSize}px`;
         avatarContainer.style.height = `${finalPortraitSize}px`;
         avatarContainer.style.margin = '0 auto';
+        avatarContainer.style.flexShrink = '0';
+        avatarContainer.style.position = 'relative';
+        avatarContainer.style.overflow = 'hidden';
+        avatarContainer.style.borderRadius = isMiniMap ? '4px' : '8px';
+        avatarContainer.style.backgroundColor = '#2a2a3b';
         
         // Аватар
         const avatar = document.createElement('img');
         avatar.className = 'portrait-avatar';
         avatar.style.width = '100%';
         avatar.style.height = '100%';
+        avatar.style.objectFit = 'cover';
         avatar.style.display = 'block';
         
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
@@ -285,40 +298,45 @@ function renderPortraits(characters) {
         
         avatar.onerror = () => {
             avatar.style.display = 'none';
-            avatarContainer.style.background = '#2a2a3b';
-            avatarContainer.style.borderRadius = '12px';
             avatarContainer.style.display = 'flex';
             avatarContainer.style.alignItems = 'center';
             avatarContainer.style.justifyContent = 'center';
             avatarContainer.innerHTML = `<span style="color: #666; font-size: ${finalPortraitSize/2}px;">?</span>`;
         };
         
-        // Имя персонажа
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'portrait-name';
-        nameSpan.textContent = character.name;
-        
-        // Адаптивный размер шрифта (чуть меньше для экономии места)
-        let fontSize = 14;
-        if (finalPortraitSize < 80) {
-            fontSize = 11;
-        } else if (finalPortraitSize < 120) {
-            fontSize = 12;
-        } else if (finalPortraitSize < 180) {
-            fontSize = 13;
-        } else {
-            fontSize = 14;
-        }
-        
-        nameSpan.style.fontSize = `${fontSize}px`;
-        nameSpan.style.maxWidth = `${finalPortraitSize + 10}px`;
-        nameSpan.style.padding = '2px 6px';
-        nameSpan.style.marginTop = '4px';
-        nameSpan.style.lineHeight = '1.2';
-        
         avatarContainer.appendChild(avatar);
         portraitItem.appendChild(avatarContainer);
-        portraitItem.appendChild(nameSpan);
+        
+        // Добавляем имя ТОЛЬКО для полноэкранного режима
+        if (!isMiniMap) {
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'portrait-name';
+            nameSpan.textContent = character.name;
+            nameSpan.style.width = '100%';
+            nameSpan.style.textAlign = 'center';
+            nameSpan.style.overflow = 'hidden';
+            nameSpan.style.textOverflow = 'ellipsis';
+            nameSpan.style.whiteSpace = 'nowrap';
+            
+            // Размер шрифта для имени
+            let fontSize = 14;
+            if (finalPortraitSize < 80) fontSize = 11;
+            else if (finalPortraitSize < 120) fontSize = 12;
+            else if (finalPortraitSize < 180) fontSize = 13;
+            else fontSize = 14;
+            
+            nameSpan.style.fontSize = `${fontSize}px`;
+            nameSpan.style.padding = '2px 6px';
+            nameSpan.style.marginTop = '4px';
+            nameSpan.style.lineHeight = '1.4';
+            nameSpan.style.backgroundColor = 'rgba(0,0,0,0.3)';
+            nameSpan.style.borderRadius = '8px';
+            nameSpan.style.color = '#fff';
+            nameSpan.style.fontWeight = '500';
+            
+            portraitItem.appendChild(nameSpan);
+        }
+        
         gridContainer.appendChild(portraitItem);
     });
     
@@ -1379,3 +1397,20 @@ window.debugPortraits = function() {
         }
     }, 100);
 };
+
+function getAvailableWidth() {
+    if (!portraitSidebar) return 0;
+    
+    const styles = window.getComputedStyle(portraitSidebar);
+    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = parseFloat(styles.paddingRight) || 0;
+    const borderLeft = parseFloat(styles.borderLeftWidth) || 0;
+    const borderRight = parseFloat(styles.borderRightWidth) || 0;
+    
+    const totalPadding = paddingLeft + paddingRight + borderLeft + borderRight;
+    return portraitSidebar.clientWidth - totalPadding;
+}
+
+// И используйте её в renderPortraits:
+// Замените строку с расчетом availableWidth на:
+const availableWidth = getAvailableWidth();
