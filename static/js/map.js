@@ -1889,7 +1889,25 @@ canvas.addEventListener("mousemove", (e) => {
   if (draggingToken || draggingFind) {
     const newX = (mouseX - offsetX) / scale - dragOffset[0];
     const newY = (mouseY - offsetY) / scale - dragOffset[1];
-    if (draggingToken) draggingToken.position = [newX, newY];
+    
+    if (draggingToken) {
+      draggingToken.position = [newX, newY];
+      
+      // Отправляем перемещение в реальном времени
+      if (!window.tokenMoveThrottle) {
+        window.tokenMoveThrottle = setTimeout(() => {
+          socket.emit("token_move", {
+            map_id: currentMapId,
+            token_id: draggingToken.id,
+            position: [newX, newY],
+            is_visible: draggingToken.is_visible,
+            is_dead: draggingToken.is_dead
+          });
+          window.tokenMoveThrottle = null;
+        }, 16); // ~60fps
+      }
+    }
+    
     if (draggingFind) draggingFind.position = [newX, newY];
     render();
     return;
@@ -2087,13 +2105,28 @@ canvas.addEventListener("contextmenu", (e) => {
 
 canvas.addEventListener("mouseup", () => {
     if (draggingToken || draggingFind) {
-        // При перемещении токена отправляем полное обновление
+        // Очищаем throttle
+        if (window.tokenMoveThrottle) {
+            clearTimeout(window.tokenMoveThrottle);
+            window.tokenMoveThrottle = null;
+        }
+        
+        // При отпускании мыши отправляем финальное обновление
+        if (draggingToken) {
+            socket.emit("token_move", {
+                map_id: currentMapId,
+                token_id: draggingToken.id,
+                position: draggingToken.position,
+                is_visible: draggingToken.is_visible,
+                is_dead: draggingToken.is_dead
+            });
+        }
+        
+        // Затем сохраняем на сервере
         fetch("/api/map", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(mapData),
-        }).then(() => {
-            // После сохранения, сервер сам отправит map_updated всем игрокам
         });
     }
 

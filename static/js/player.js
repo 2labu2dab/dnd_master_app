@@ -4,6 +4,8 @@ const ctx = canvas.getContext("2d");
 const isEmbeddedPreview = window !== window.parent;
 let mapData = null;
 let zoomLevel = 1;
+let pendingTokenUpdates = new Map();
+let tokenUpdateTimeout = null;
 
 let panX = 0;
 let panY = 0;
@@ -27,6 +29,20 @@ function getCharactersHash(characters) {
         .filter(char => char.visible_to_players !== false)
         .map(char => `${char.id}-${char.name}-${char.visible_to_players}-${char.portrait_url || ''}`)
         .join('|');
+}
+
+function applyTokenUpdates() {
+  if (pendingTokenUpdates.size > 0 && mapData && mapData.tokens) {
+    for (const [tokenId, update] of pendingTokenUpdates) {
+      const token = mapData.tokens.find(t => t.id === tokenId);
+      if (token) {
+        token.position = update.position;
+      }
+    }
+    pendingTokenUpdates.clear();
+    requestRender();
+  }
+  tokenUpdateTimeout = null;
 }
 
 // Функция для определения конфигурации сетки
@@ -1297,6 +1313,20 @@ function pointInPolygon(point, vertices) {
     
     return inside;
 }
+
+socket.on("token_move", (data) => {
+  if (data.map_id === mapId && mapData && mapData.tokens) {
+    // Сохраняем обновление
+    pendingTokenUpdates.set(data.token_id, {
+      position: data.position
+    });
+    
+    // Планируем применение обновлений
+    if (!tokenUpdateTimeout) {
+      tokenUpdateTimeout = setTimeout(applyTokenUpdates, 16); // ~60fps
+    }
+  }
+});
 
 socket.on("token_avatar_updated", (data) => {
 

@@ -1117,6 +1117,33 @@ def upload_portrait():
         print(f"Error uploading portrait: {e}")
         return jsonify({"error": str(e)}), 500
 
+@socketio.on("token_move")
+def handle_token_move(data):
+    """Обработчик перемещения токена в реальном времени"""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+
+    token_id = data.get("token_id")
+    position = data.get("position")
+
+    if not token_id or not position:
+        return
+
+    # Отправляем всем, кроме отправителя
+    emit(
+        "token_move",
+        {
+            "map_id": map_id,
+            "token_id": token_id,
+            "position": position,
+            "is_visible": data.get("is_visible", True),
+            "is_dead": data.get("is_dead", False)
+        },
+        broadcast=True,
+        include_self=False,
+    )
+
 
 if __name__ == "__main__":
     # Создаем необходимые директории
