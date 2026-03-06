@@ -426,230 +426,400 @@ function getClosedEyeSVG() {
 }
 
 
-function updateSidebar() {
-  const zoneList = document.getElementById("zoneList");
-  zoneList.innerHTML = "";
+// Добавить после функции updateSidebar() или в подходящем месте
 
-  mapData.zones.forEach(zone => {
-    const li = document.createElement("li");
-    li.style.display = "flex";
-    li.style.alignItems = "center";
-    li.style.justifyContent = "space-between";
-    li.style.background = "#2a2a3b";
-    li.style.padding = "6px 10px";
-    li.style.borderRadius = "4px";
-    li.style.marginBottom = "4px";
-
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = zone.name;
-    nameSpan.style.overflow = "hidden";
-    nameSpan.style.textOverflow = "ellipsis";
-    nameSpan.style.whiteSpace = "nowrap";
-    nameSpan.style.color = "#ddd";
-    nameSpan.style.flex = "1";
-
-    const eye = document.createElement("span");
-    eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
-    eye.style.cursor = "pointer";
-    eye.title = "Показать/скрыть зону";
-    eye.onclick = () => {
-      zone.is_visible = !zone.is_visible;
-      saveMapData();
-      updateSidebar();
-      render();
-    };
-
-    li.appendChild(nameSpan);
-    li.appendChild(eye);
-    zoneList.appendChild(li);
-  });
-
-  const tokenList = document.getElementById("tokenList");
-  tokenList.innerHTML = "";
-
-  mapData.tokens.forEach(token => {
-    const li = document.createElement("li");
-    li.style.display = "flex";
-    li.style.alignItems = "center";
-    li.style.justifyContent = "space-between";
-    li.style.gap = "8px";
-    li.style.background = "#2a2a3b";
-    li.style.padding = "6px 10px";
-    li.style.borderRadius = "4px";
-    li.style.color = "#ccc";
-
-    const dot = document.createElement("span");
-    dot.style.display = "inline-block";
-    dot.style.width = "10px";
-    dot.style.height = "10px";
-    dot.style.borderRadius = "50%";
-    dot.style.backgroundColor = token.is_player
-      ? "#4CAF50"
-      : token.is_npc
-        ? "#FFC107"
-        : "#F44336";
-
-    const nameSpan = document.createElement("span");
-    nameSpan.style.flex = "1";
-    nameSpan.style.overflow = "hidden";
-    nameSpan.style.textOverflow = "ellipsis";
-    nameSpan.style.whiteSpace = "nowrap";
-    nameSpan.textContent = token.name;
-
-    const acSpan = document.createElement("span");
-    acSpan.style.minWidth = "40px";
-    acSpan.style.textAlign = "right";
-    acSpan.style.color = "#aaa";
-    acSpan.textContent = `${token.armor_class || 10} КД`;
-
-    const hpSpan = document.createElement("span");
-    const hp = token.health_points ?? 10;
-    const max = token.max_health_points ?? 10;
-
-    if (token.is_dead || hp <= 0) {
-      hpSpan.textContent = "МЁРТВ";
-      hpSpan.style.color = "#e53935";
-    } else {
-      const percent = hp / max;
-      hpSpan.textContent = `${hp}/${max} ОЗ`;
-      hpSpan.style.color =
-        percent > 0.8 ? "#4CAF50" :
-          percent > 0.4 ? "#FFC107" :
-            "#F44336";
+function setupSidebarContextMenus() {
+    // Для токенов
+    const tokenList = document.getElementById("tokenList");
+    if (tokenList) {
+        tokenList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            // Находим токен по имени или другим данным
+            const nameSpan = li.querySelector('span:nth-child(2)');
+            if (!nameSpan) return;
+            
+            const tokenName = nameSpan.textContent;
+            const token = mapData.tokens.find(t => t.name === tokenName);
+            
+            if (token) {
+                selectedTokenId = token.id;
+                showTokenContextMenu(token, e.pageX, e.pageY);
+            }
+        });
     }
-
-    const eye = document.createElement("span");
-    eye.innerHTML = token.is_visible !== false ? getOpenEyeSVG() : getClosedEyeSVG();
-    eye.style.cursor = "pointer";
-    eye.title = "Видимость для игроков";
-    eye.onclick = () => {
-      token.is_visible = !token.is_visible;
-      saveMapData();
-      updateSidebar();
-    };
-
-    li.appendChild(dot);
-    li.appendChild(nameSpan);
-    li.appendChild(acSpan);
-    li.appendChild(hpSpan);
-    li.appendChild(eye);
-    tokenList.appendChild(li);
-  });
-
-  const findList = document.getElementById("findList");
-  findList.innerHTML = "";
-
-  mapData.finds.forEach(find => {
-    const li = document.createElement("li");
-    li.style.display = "flex";
-    li.style.alignItems = "center";
-    li.style.justifyContent = "space-between";
-    li.style.background = "#2a2a3b";
-    li.style.padding = "6px 10px";
-    li.style.borderRadius = "4px";
-    li.style.marginBottom = "4px";
-
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = find.name;
-    nameSpan.style.overflow = "hidden";
-    nameSpan.style.textOverflow = "ellipsis";
-    nameSpan.style.whiteSpace = "nowrap";
-    nameSpan.style.color = "#ddd";
-    nameSpan.style.flex = "1";
-
-    const statusSpan = document.createElement("span");
-    statusSpan.style.fontSize = "14px";
-    statusSpan.style.flexShrink = "0";
-
-    if (find.status) {
-      statusSpan.textContent = "Осмотрено";
-      statusSpan.style.color = "#4CAF50";
-    } else {
-      statusSpan.textContent = "";
-    }
-
-    li.appendChild(nameSpan);
-    li.appendChild(statusSpan);
-    findList.appendChild(li);
-  });
-
-  const characterList = document.getElementById("characterList");
-  characterList.innerHTML = "";
-
-  mapData.characters?.forEach(character => {
-    const li = document.createElement("li");
-    li.style.display = "flex";
-    li.style.alignItems = "center";
-    li.style.gap = "8px";
-    li.style.background = "#2a2a3b";
-    li.style.padding = "6px 10px";
-    li.style.borderRadius = "4px";
-    li.style.marginBottom = "4px";
-    li.style.color = "#ccc";
-    li.style.cursor = "pointer"; // добавляем курсор-указатель
-    li.dataset.characterId = character.id;
-
-    // Если этот портрет выделен, меняем фон
-    if (selectedCharacterId === character.id) {
-      li.style.background = "#3a4a6b";
-      li.style.borderLeft = "4px solid #4C5BEF";
-    }
-
-    // аватар
-    const img = document.createElement("img");
-    if (character.has_avatar) {
-      const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-      img.src = `${portraitUrl}?t=${Date.now()}`;
-    }
-    img.style.width = "32px";
-    img.style.height = "32px";
-    img.style.borderRadius = "4px";
-    img.style.objectFit = "cover";
     
-    img.onerror = () => {
-      img.style.display = "none";
-    };
-
-    // имя
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = character.name;
-    nameSpan.style.flex = "1";
-    nameSpan.style.overflow = "hidden";
-    nameSpan.style.textOverflow = "ellipsis";
-    nameSpan.style.whiteSpace = "nowrap";
-    nameSpan.style.color = "#ddd";
-
-    // кнопка-глаз
-    const eye = document.createElement("span");
-    eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
-    eye.style.cursor = "pointer";
-    eye.style.marginRight = "8px";
-    eye.title = "Видимость для игроков";
-
-    eye.onclick = (e) => {
-      e.stopPropagation(); // не выделяем портрет при клике на глаз
-      character.visible_to_players = !character.visible_to_players;
-      updateSidebar();
-      saveMapData();
-    };
-
-    // Клик на сам элемент портрета - выделение
-    li.onclick = (e) => {
-      e.stopPropagation();
-      selectedCharacterId = character.id;
-      updateSidebar(); // перерисовываем список, чтобы показать выделение
-    };
-
-    li.appendChild(img);
-    li.appendChild(nameSpan);
-    li.appendChild(eye);
-    characterList.appendChild(li);
-  });
-
-
-
+    // Для находок
+    const findList = document.getElementById("findList");
+    if (findList) {
+        findList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const nameSpan = li.querySelector('span:first-child');
+            if (!nameSpan) return;
+            
+            const findName = nameSpan.textContent;
+            const find = mapData.finds.find(f => f.name === findName);
+            
+            if (find) {
+                selectedFindId = find.id;
+                showFindContextMenu(find, e.pageX, e.pageY);
+            }
+        });
+    }
+    
+    // Для зон
+    const zoneList = document.getElementById("zoneList");
+    if (zoneList) {
+        zoneList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const nameSpan = li.querySelector('span:first-child');
+            if (!nameSpan) return;
+            
+            const zoneName = nameSpan.textContent;
+            const zone = mapData.zones.find(z => z.name === zoneName);
+            
+            if (zone) {
+                selectedZoneId = zone.id;
+                showZoneContextMenu(zone, e.pageX, e.pageY);
+            }
+        });
+    }
+    
+    // Для портретов
+    const characterList = document.getElementById("characterList");
+    if (characterList) {
+        characterList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const characterId = li.dataset.characterId;
+            const character = mapData.characters?.find(c => c.id === characterId);
+            
+            if (character) {
+                selectedCharacterId = character.id;
+                showCharacterContextMenu(character, e.pageX, e.pageY);
+            }
+        });
+    }
 }
 
+// Функция для контекстного меню персонажа (портрета)
+function showCharacterContextMenu(character, x, y) {
+    // Создаем временное меню для персонажа
+    // Можно использовать существующее меню или создать новое
+    const menu = document.getElementById("characterContextMenu") || createCharacterContextMenu();
+    
+    document.getElementById("contextCharacterName").textContent = character.name;
+    document.getElementById("contextCharacterVisible").checked = character.visible_to_players !== false;
+    
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+    menu.style.display = "block";
+    
+    // Сохраняем текущий персонаж
+    window.currentContextCharacter = character;
+}
+
+function createCharacterContextMenu() {
+    const menu = document.createElement('div');
+    menu.id = 'characterContextMenu';
+    menu.className = 'context-menu';
+    menu.innerHTML = `
+        <div class="context-menu-header">
+            <span id="contextCharacterName"></span>
+        </div>
+        
+        <div class="context-menu-section">
+            <label class="context-checkbox">
+                <input type="checkbox" id="contextCharacterVisible">
+                <span class="checkbox-custom"></span>
+                <span>Виден игрокам</span>
+            </label>
+        </div>
+
+        <div class="context-menu-section">
+            <button class="context-menu-item delete" id="contextDeleteCharacter">
+                <span class="context-icon">🗑️</span> Удалить
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(menu);
+    
+    // Добавляем обработчики
+    document.getElementById("contextCharacterVisible").addEventListener("change", function(e) {
+        if (window.currentContextCharacter) {
+            window.currentContextCharacter.visible_to_players = e.target.checked;
+            updateSidebar();
+            saveMapData();
+        }
+    });
+    
+    document.getElementById("contextDeleteCharacter").addEventListener("click", function() {
+        if (window.currentContextCharacter && confirm(`Удалить портрет "${window.currentContextCharacter.name}"?`)) {
+            // Удаляем портрет
+            fetch(`/api/portrait/${window.currentContextCharacter.id}`, {
+                method: 'DELETE'
+            }).catch(err => console.error('Error deleting portrait:', err));
+            
+            mapData.characters = mapData.characters.filter(c => c.id !== window.currentContextCharacter.id);
+            selectedCharacterId = null;
+            saveMapData();
+            render();
+            updateSidebar();
+            document.getElementById("characterContextMenu").style.display = "none";
+        }
+    });
+    
+    return menu;
+}
+
+// Обновляем существующую updateSidebar для добавления data-атрибутов
+function updateSidebar() {
+    // Существующий код для зон...
+    const zoneList = document.getElementById("zoneList");
+    zoneList.innerHTML = "";
+
+    mapData.zones.forEach(zone => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.justifyContent = "space-between";
+        li.style.background = "#2a2a3b";
+        li.style.padding = "6px 10px";
+        li.style.borderRadius = "4px";
+        li.style.marginBottom = "4px";
+        li.dataset.zoneId = zone.id; // Добавляем data-атрибут
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = zone.name;
+        nameSpan.style.overflow = "hidden";
+        nameSpan.style.textOverflow = "ellipsis";
+        nameSpan.style.whiteSpace = "nowrap";
+        nameSpan.style.color = "#ddd";
+        nameSpan.style.flex = "1";
+
+        const eye = document.createElement("span");
+        eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
+        eye.style.cursor = "pointer";
+        eye.title = "Показать/скрыть зону";
+        eye.onclick = () => {
+            zone.is_visible = !zone.is_visible;
+            saveMapData();
+            updateSidebar();
+            render();
+        };
+
+        li.appendChild(nameSpan);
+        li.appendChild(eye);
+        zoneList.appendChild(li);
+    });
+
+    // Существующий код для токенов...
+    const tokenList = document.getElementById("tokenList");
+    tokenList.innerHTML = "";
+
+    mapData.tokens.forEach(token => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.justifyContent = "space-between";
+        li.style.gap = "8px";
+        li.style.background = "#2a2a3b";
+        li.style.padding = "6px 10px";
+        li.style.borderRadius = "4px";
+        li.style.color = "#ccc";
+        li.dataset.tokenId = token.id; // Добавляем data-атрибут
+
+        const dot = document.createElement("span");
+        dot.style.display = "inline-block";
+        dot.style.width = "10px";
+        dot.style.height = "10px";
+        dot.style.borderRadius = "50%";
+        dot.style.backgroundColor = token.is_player
+            ? "#4CAF50"
+            : token.is_npc
+                ? "#FFC107"
+                : "#F44336";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.style.flex = "1";
+        nameSpan.style.overflow = "hidden";
+        nameSpan.style.textOverflow = "ellipsis";
+        nameSpan.style.whiteSpace = "nowrap";
+        nameSpan.textContent = token.name;
+
+        const acSpan = document.createElement("span");
+        acSpan.style.minWidth = "40px";
+        acSpan.style.textAlign = "right";
+        acSpan.style.color = "#aaa";
+        acSpan.textContent = `${token.armor_class || 10} КД`;
+
+        const hpSpan = document.createElement("span");
+        const hp = token.health_points ?? 10;
+        const max = token.max_health_points ?? 10;
+
+        if (token.is_dead || hp <= 0) {
+            hpSpan.textContent = "МЁРТВ";
+            hpSpan.style.color = "#e53935";
+        } else {
+            const percent = hp / max;
+            hpSpan.textContent = `${hp}/${max} ОЗ`;
+            hpSpan.style.color =
+                percent > 0.8 ? "#4CAF50" :
+                    percent > 0.4 ? "#FFC107" :
+                        "#F44336";
+        }
+
+        const eye = document.createElement("span");
+        eye.innerHTML = token.is_visible !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+        eye.style.cursor = "pointer";
+        eye.title = "Видимость для игроков";
+        eye.onclick = (e) => {
+            e.stopPropagation();
+            token.is_visible = !token.is_visible;
+            saveMapData();
+            updateSidebar();
+            render();
+        };
+
+        li.appendChild(dot);
+        li.appendChild(nameSpan);
+        li.appendChild(acSpan);
+        li.appendChild(hpSpan);
+        li.appendChild(eye);
+        tokenList.appendChild(li);
+    });
+
+    // Существующий код для находок...
+    const findList = document.getElementById("findList");
+    findList.innerHTML = "";
+
+    mapData.finds.forEach(find => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.justifyContent = "space-between";
+        li.style.background = "#2a2a3b";
+        li.style.padding = "6px 10px";
+        li.style.borderRadius = "4px";
+        li.style.marginBottom = "4px";
+        li.dataset.findId = find.id; // Добавляем data-атрибут
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = find.name;
+        nameSpan.style.overflow = "hidden";
+        nameSpan.style.textOverflow = "ellipsis";
+        nameSpan.style.whiteSpace = "nowrap";
+        nameSpan.style.color = "#ddd";
+        nameSpan.style.flex = "1";
+
+        const statusSpan = document.createElement("span");
+        statusSpan.style.fontSize = "14px";
+        statusSpan.style.flexShrink = "0";
+
+        if (find.status) {
+            statusSpan.textContent = "Осмотрено";
+            statusSpan.style.color = "#4CAF50";
+        } else {
+            statusSpan.textContent = "";
+        }
+
+        li.appendChild(nameSpan);
+        li.appendChild(statusSpan);
+        findList.appendChild(li);
+    });
+
+    // Существующий код для портретов...
+    const characterList = document.getElementById("characterList");
+    characterList.innerHTML = "";
+
+    mapData.characters?.forEach(character => {
+        const li = document.createElement("li");
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+        li.style.gap = "8px";
+        li.style.background = "#2a2a3b";
+        li.style.padding = "6px 10px";
+        li.style.borderRadius = "4px";
+        li.style.marginBottom = "4px";
+        li.style.color = "#ccc";
+        li.style.cursor = "pointer";
+        li.dataset.characterId = character.id;
+
+        // Если этот портрет выделен, меняем фон
+        if (selectedCharacterId === character.id) {
+            li.style.background = "#3a4a6b";
+            li.style.borderLeft = "4px solid #4C5BEF";
+        }
+
+        // аватар
+        const img = document.createElement("img");
+        if (character.has_avatar) {
+            const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
+            img.src = `${portraitUrl}?t=${Date.now()}`;
+        }
+        img.style.width = "32px";
+        img.style.height = "32px";
+        img.style.borderRadius = "4px";
+        img.style.objectFit = "cover";
+        
+        img.onerror = () => {
+            img.style.display = "none";
+        };
+
+        // имя
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = character.name;
+        nameSpan.style.flex = "1";
+        nameSpan.style.overflow = "hidden";
+        nameSpan.style.textOverflow = "ellipsis";
+        nameSpan.style.whiteSpace = "nowrap";
+        nameSpan.style.color = "#ddd";
+
+        // кнопка-глаз
+        const eye = document.createElement("span");
+        eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+        eye.style.cursor = "pointer";
+        eye.style.marginRight = "8px";
+        eye.title = "Видимость для игроков";
+
+        eye.onclick = (e) => {
+            e.stopPropagation();
+            character.visible_to_players = !character.visible_to_players;
+            updateSidebar();
+            saveMapData();
+        };
+
+        // Клик на сам элемент портрета - выделение
+        li.onclick = (e) => {
+            e.stopPropagation();
+            selectedCharacterId = character.id;
+            updateSidebar();
+        };
+
+        li.appendChild(img);
+        li.appendChild(nameSpan);
+        li.appendChild(eye);
+        characterList.appendChild(li);
+    });
+    
+    // После обновления всех списков, настраиваем контекстные меню
+    setupSidebarContextMenus();
+}
 let currentMapId = null;
 
 function checkMapExists() {
@@ -2911,13 +3081,17 @@ document.addEventListener("click", (e) => {
     const tokenMenu = document.getElementById("tokenContextMenu");
     const findMenu = document.getElementById("findContextMenu");
     const zoneMenu = document.getElementById("zoneContextMenu");
+    const characterMenu = document.getElementById("characterContextMenu");
     
-    if (!tokenMenu.contains(e.target) && 
-        !findMenu.contains(e.target) && 
-        !zoneMenu.contains(e.target)) {
-        tokenMenu.style.display = "none";
-        findMenu.style.display = "none";
-        zoneMenu.style.display = "none";
+    if (!tokenMenu?.contains(e.target) && 
+        !findMenu?.contains(e.target) && 
+        !zoneMenu?.contains(e.target) &&
+        !characterMenu?.contains(e.target)) {
+        
+        if (tokenMenu) tokenMenu.style.display = "none";
+        if (findMenu) findMenu.style.display = "none";
+        if (zoneMenu) zoneMenu.style.display = "none";
+        if (characterMenu) characterMenu.style.display = "none";
         
         // Очищаем поля ввода при закрытии
         document.getElementById("contextDamageInput").value = "";
@@ -3001,3 +3175,161 @@ function centerMap() {
 
 // Добавьте обработчик для кнопки в window.onload
 document.getElementById("centeringToggle").addEventListener("click", centerMap);
+
+function setupSidebarContextMenus() {
+    // Для токенов
+    const tokenList = document.getElementById("tokenList");
+    if (tokenList) {
+        tokenList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            // Находим токен по имени или другим данным
+            const nameSpan = li.querySelector('span:nth-child(2)');
+            if (!nameSpan) return;
+            
+            const tokenName = nameSpan.textContent;
+            const token = mapData.tokens.find(t => t.name === tokenName);
+            
+            if (token) {
+                selectedTokenId = token.id;
+                showTokenContextMenu(token, e.pageX, e.pageY);
+            }
+        });
+    }
+    
+    // Для находок
+    const findList = document.getElementById("findList");
+    if (findList) {
+        findList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const nameSpan = li.querySelector('span:first-child');
+            if (!nameSpan) return;
+            
+            const findName = nameSpan.textContent;
+            const find = mapData.finds.find(f => f.name === findName);
+            
+            if (find) {
+                selectedFindId = find.id;
+                showFindContextMenu(find, e.pageX, e.pageY);
+            }
+        });
+    }
+    
+    // Для зон
+    const zoneList = document.getElementById("zoneList");
+    if (zoneList) {
+        zoneList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const nameSpan = li.querySelector('span:first-child');
+            if (!nameSpan) return;
+            
+            const zoneName = nameSpan.textContent;
+            const zone = mapData.zones.find(z => z.name === zoneName);
+            
+            if (zone) {
+                selectedZoneId = zone.id;
+                showZoneContextMenu(zone, e.pageX, e.pageY);
+            }
+        });
+    }
+    
+    // Для портретов
+    const characterList = document.getElementById("characterList");
+    if (characterList) {
+        characterList.addEventListener("contextmenu", (e) => {
+            const li = e.target.closest('li');
+            if (!li) return;
+            
+            e.preventDefault();
+            
+            const characterId = li.dataset.characterId;
+            const character = mapData.characters?.find(c => c.id === characterId);
+            
+            if (character) {
+                selectedCharacterId = character.id;
+                showCharacterContextMenu(character, e.pageX, e.pageY);
+            }
+        });
+    }
+}
+
+function showCharacterContextMenu(character, x, y) {
+    // Создаем временное меню для персонажа
+    // Можно использовать существующее меню или создать новое
+    const menu = document.getElementById("characterContextMenu") || createCharacterContextMenu();
+    
+    document.getElementById("contextCharacterName").textContent = character.name;
+    document.getElementById("contextCharacterVisible").checked = character.visible_to_players !== false;
+    
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+    menu.style.display = "block";
+    
+    // Сохраняем текущий персонаж
+    window.currentContextCharacter = character;
+}
+
+function createCharacterContextMenu() {
+    const menu = document.createElement('div');
+    menu.id = 'characterContextMenu';
+    menu.className = 'context-menu';
+    menu.innerHTML = `
+        <div class="context-menu-header">
+            <span id="contextCharacterName"></span>
+        </div>
+        
+        <div class="context-menu-section">
+            <label class="context-checkbox">
+                <input type="checkbox" id="contextCharacterVisible">
+                <span class="checkbox-custom"></span>
+                <span>Виден игрокам</span>
+            </label>
+        </div>
+
+        <div class="context-menu-section">
+            <button class="context-menu-item delete" id="contextDeleteCharacter">
+                <span class="context-icon">🗑️</span> Удалить
+            </button>
+        </div>
+    `;
+    
+    document.body.appendChild(menu);
+    
+    // Добавляем обработчики
+    document.getElementById("contextCharacterVisible").addEventListener("change", function(e) {
+        if (window.currentContextCharacter) {
+            window.currentContextCharacter.visible_to_players = e.target.checked;
+            updateSidebar();
+            saveMapData();
+        }
+    });
+    
+    document.getElementById("contextDeleteCharacter").addEventListener("click", function() {
+        if (window.currentContextCharacter && confirm(`Удалить портрет "${window.currentContextCharacter.name}"?`)) {
+            // Удаляем портрет
+            fetch(`/api/portrait/${window.currentContextCharacter.id}`, {
+                method: 'DELETE'
+            }).catch(err => console.error('Error deleting portrait:', err));
+            
+            mapData.characters = mapData.characters.filter(c => c.id !== window.currentContextCharacter.id);
+            selectedCharacterId = null;
+            saveMapData();
+            render();
+            updateSidebar();
+            document.getElementById("characterContextMenu").style.display = "none";
+        }
+    });
+    
+    return menu;
+}

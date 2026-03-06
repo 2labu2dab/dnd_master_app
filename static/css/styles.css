@@ -19,7 +19,7 @@ body {
 .section {
   margin-top: 0px;
   padding-top: 0px;
-  border-top: 1px solid #3a3a3a;
+  /* border-top: 1px solid #3a3a3a; */
 }
 
 summary {
@@ -104,6 +104,9 @@ details[open] > summary::after {
   overflow-y: auto;
   border-right: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: 4px 0 18px rgba(0, 0, 0, 0.45);
+  scrollbar-width: thin; /* Для Firefox */
+  scrollbar-color: #4a4a6a #1e1e2e; /* Для Firefox: ползунок и трек */
+  overflow-x: hidden;
 }
 
 #sidebar h2 {
@@ -302,7 +305,7 @@ large-modal {
   border-radius: 8px;
 }
 
-#avatarDropzone {
+/* #avatarDropzone {
   width: 100%;
   height: 100%;
   border: 1px dashed #aaa;
@@ -311,39 +314,13 @@ large-modal {
   background-color: white;
   position: relative;
   cursor: pointer;
-}
+} */
 
 #avatarRawPreview {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-#avatarPreview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 1;
-}
-
-
-#avatarOverlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  color: #555;
-  font-size: 12px;
-  text-align: center;
-  pointer-events: none;
-  z-index: 2;
-  padding: 10px;
 }
 
 .upload-instruction {
@@ -360,18 +337,21 @@ large-modal {
   pointer-events: none;
 }
 
-
-#editIcon {
+#editIcon, #characterEditIcon {
   position: absolute;
-  top: 8px;
+  bottom: 8px;
   right: 8px;
-  z-index: 4;
-  background: white;
-  border-radius: 50%;
-  padding: 4px;
-  font-size: 14px;
-  color: #333;
-  pointer-events: none;
+  z-index: 3;
+  background: #4C5BEF;
+  color: white;
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  cursor: default;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
 
 #avatarEditIcon {
@@ -758,7 +738,7 @@ body.mini-map .portrait-item {
   gap: 10px;
   margin-top: 10px;
   font-size: 14px;
-  color: #333;
+  color: #fff;
 }
 
 .visibility-toggle input[type="checkbox"] {
@@ -852,57 +832,92 @@ body.mini-map .portrait-item {
   box-shadow: -4px 0 18px rgba(0, 0, 0, 0.45);
 }
 
-#characterAvatarDropzone {
-  width: 120px;
-  height: 120px;
+#avatarDropzone, #characterAvatarDropzone {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
   overflow: hidden;
+  background: linear-gradient(135deg, #1a1f2e 0%, #111827 100%);
   position: relative;
-  background: #1e1e2f;
+  cursor: pointer;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  border-radius: 8px; /* слегка скруглённый квадрат */
 }
 
-#characterAvatarPreview {
+#avatarDropzone:hover, #characterAvatarDropzone:hover {
+  border-color: #4C5BEF;
+  background: linear-gradient(135deg, #1f2538 0%, #151e30 100%);
+  box-shadow: 0 0 15px rgba(76, 91, 239, 0.3);
+}
+
+#avatarPreview, #characterAvatarPreview {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  position: relative;
   z-index: 1;
-  border-radius: 0; /* 🔲 */
 }
 
-#characterAvatarOverlay {
+#avatarOverlay, #characterAvatarOverlay {
   position: absolute;
-  text-align: center;
-  color: #aaa;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: #9ca3af;
   font-size: 13px;
+  text-align: center;
   pointer-events: none;
   z-index: 2;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(2px);
 }
 
-#characterAvatarMask {
+#avatarOverlay strong, #characterAvatarOverlay strong {
+  color: #e5e7eb;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+#avatarOverlay small, #characterAvatarOverlay small {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#avatarMask, #characterAvatarMask {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  border-radius: 50%;
   background: rgba(0, 0, 0, 0.4);
   z-index: 2;
+  border-radius: 8px;
 }
 
-#characterEditIcon {
+#avatarMask.circle-mask {
   position: absolute;
-  bottom: 4px;
-  right: 4px;
-  color: white;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 2px 5px;
-  border-radius: 4px;
-  font-size: 12px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, transparent 68%, rgba(0,0,0,0.5) 69.5%);
+  pointer-events: none;
   z-index: 3;
+  border-radius: 8px;
+}
+
+#characterContextMenu {
+    min-width: 200px;
+}
+
+#characterContextMenu .context-menu-header {
+    background: linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%);
 }
 
 .square-mask {
@@ -911,12 +926,11 @@ body.mini-map .portrait-item {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.3);
   z-index: 2;
-  border-radius: 0; /* 🔲 */
+  border-radius: 8px;
+  pointer-events: none;
 }
-
-
 .map-selector {
   display: flex;
   gap: 6px;

@@ -16,24 +16,23 @@
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
       <div class="map-selector">
-      <select id="mapSelect" onchange="switchMap(this.value)">
-        {% if maps %}
+        <select id="mapSelect" onchange="switchMap(this.value)">
+          {% if maps %}
           {% for map in maps %}
-          <option value="{{ map.id }}" {% if map.id == current_map %}selected{% endif %}>
+          <option value="{{ map.id }}" {% if map.id==current_map %}selected{% endif %}>
             {{ map.name }}
           </option>
           {% endfor %}
-        {% else %}
+          {% else %}
           <option value="">Нет карт</option>
-        {% endif %}
-      </select>
-      <button class="icon-button" onclick="createNewMap()" title="Создать новую карту">➕</button>
-      <button class="icon-button" onclick="deleteCurrentMap()" title="Удалить текущую карту">🗑️</button>
-    </div>
+          {% endif %}
+        </select>
+        <button class="icon-button" onclick="createNewMap()" title="Создать новую карту">➕</button>
+        <button class="icon-button" onclick="deleteCurrentMap()" title="Удалить текущую карту">🗑️</button>
+      </div>
       <label id="map-label">
         Загрузить карту
-        <input type="file" name="map_image" accept="image/*"
-          onchange="autoUploadMap(this)" hidden />
+        <input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden />
       </label>
       <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px;">
         Колесо — зум, <span style="color:#e5e7eb;">средняя кнопка</span> — перетаскивание карты.
@@ -91,30 +90,23 @@
           </svg>
         </button>
         <button id="centeringToggle" class="tool-button" title="Центрирование">
-        <svg xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 
-          <!-- Углы -->
-          <path d="M3 8V3H8" />
-          <path d="M16 3H21V8" />
-          <path d="M3 16V21H8" />
-          <path d="M16 21H21V16" />
+            <!-- Углы -->
+            <path d="M3 8V3H8" />
+            <path d="M16 3H21V8" />
+            <path d="M3 16V21H8" />
+            <path d="M16 21H21V16" />
 
-          <!-- Центральный крест -->
-          <line x1="12" y1="8" x2="12" y2="10" />
-          <line x1="12" y1="14" x2="12" y2="16" />
-          <line x1="8" y1="12" x2="10" y2="12" />
-          <line x1="14" y1="12" x2="16" y2="12" />
+            <!-- Центральный крест -->
+            <line x1="12" y1="8" x2="12" y2="10" />
+            <line x1="12" y1="14" x2="12" y2="16" />
+            <line x1="8" y1="12" x2="10" y2="12" />
+            <line x1="14" y1="12" x2="16" y2="12" />
 
-        </svg>
-      </button>
+          </svg>
+        </button>
         <button id="rulerToggle" class="tool-button" title="Линейка">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
             <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -168,17 +160,15 @@
         <div class="avatar-upload" id="characterAvatarUpload">
           <input type="file" id="characterAvatarInput" accept="image/*" hidden
             onchange="handleCharacterAvatarUpload(this)">
-          <div class="avatar-upload">
-            <div id="characterAvatarDropzone" onclick="document.getElementById('characterAvatarFile').click()">
-              <img id="characterAvatarPreview" src="" alt="Avatar" style="display: none;" />
-              <div id="characterAvatarMask" class="square-mask" style="display: none;"></div>
-              <div id="characterEditIcon" style="display: none;">✎</div>
-              <input type="file" id="characterAvatarFile" accept="image/*" style="display: none;"
-                onchange="handleCharacterAvatarUpload(event)">
-              <div id="characterAvatarOverlay">
-                <strong>Нажми для выбора</strong><br />
-                <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
-              </div>
+          <div id="characterAvatarDropzone" onclick="document.getElementById('characterAvatarFile').click()">
+            <img id="characterAvatarPreview" src="" alt="Avatar" style="display: none;" />
+            <div id="characterAvatarMask" class="square-mask" style="display: none;"></div>
+            <div id="characterEditIcon" style="display: none;">✎ Изменить</div>
+            <input type="file" id="characterAvatarFile" accept="image/*" style="display: none;"
+              onchange="handleCharacterAvatarUpload(event)">
+            <div id="characterAvatarOverlay">
+              <strong>Нажмите для выбора</strong>
+              <small>PNG, JPG до 2MB</small>
             </div>
           </div>
         </div>
@@ -188,7 +178,7 @@
           <label>Имя персонажа<br><input type="text" id="characterName"></label>
         </div>
       </div>
-      
+
 
       <!-- Кнопки -->
       <div class="token-buttons">
@@ -213,17 +203,15 @@
         <!-- Аватар -->
         <div class="avatar-upload" id="avatarUpload">
           <input type="file" id="avatarInput" accept="image/*" hidden onchange="handleAvatarUpload(this)">
-          <div class="avatar-upload">
-            <div id="avatarDropzone" onclick="document.getElementById('avatarFile').click()">
-              <img id="avatarPreview" src="" alt="Avatar" style="display: none;" />
-              <div id="avatarMask" class="circle-mask" style="display: none;"></div>
-              <div id="editIcon" style="display: none;">✎</div>
-              <input type="file" id="avatarFile" accept="image/*" style="display: none;"
-                onchange="handleAvatarUpload(event)">
-              <div id="avatarOverlay">
-                <strong>Нажми для выбора</strong><br />
-                <small>или перенеси сюда<br />PNG, JPG (макс. 2000x2000px)</small>
-              </div>
+          <div id="avatarDropzone" onclick="document.getElementById('avatarFile').click()">
+            <img id="avatarPreview" src="" alt="Avatar" style="display: none;" />
+            <div id="avatarMask" class="circle-mask" style="display: none;"></div>
+            <div id="editIcon" style="display: none;">✎ Изменить</div>
+            <input type="file" id="avatarFile" accept="image/*" style="display: none;"
+              onchange="handleAvatarUpload(event)">
+            <div id="avatarOverlay">
+              <strong>Нажмите для выбора</strong>
+              <small>PNG, JPG до 2MB</small>
             </div>
           </div>
         </div>
@@ -311,127 +299,127 @@
   </div>
   <div id="zoneTooltip" style="display: none;"></div>
 
-<div id="tokenContextMenu" class="context-menu" style="display: none;">
-  <div class="context-menu-header">
-    <span id="contextTokenName"></span>
-    <span id="contextTokenType" class="context-token-type"></span>
-  </div>
+  <div id="tokenContextMenu" class="context-menu" style="display: none;">
+    <div class="context-menu-header">
+      <span id="contextTokenName"></span>
+      <span id="contextTokenType" class="context-token-type"></span>
+    </div>
 
-  <div class="context-menu-section">
-    <div class="context-input-group">
-      <label>Урон:</label>
-      <div class="input-with-button">
-        <input type="number" id="contextDamageInput" placeholder="0" min="0">
-        <button class="context-action-btn" id="contextApplyDamage">Применить</button>
+    <div class="context-menu-section">
+      <div class="context-input-group">
+        <label>Урон:</label>
+        <div class="input-with-button">
+          <input type="number" id="contextDamageInput" placeholder="0" min="0">
+          <button class="context-action-btn" id="contextApplyDamage">Применить</button>
+        </div>
       </div>
-    </div>
-    
-    <div class="context-input-group">
-      <label>Хилл:</label>
-      <div class="input-with-button">
-        <input type="number" id="contextHealInput" placeholder="0" min="0">
-        <button class="context-action-btn" id="contextApplyHeal">Применить</button>
+
+      <div class="context-input-group">
+        <label>Хилл:</label>
+        <div class="input-with-button">
+          <input type="number" id="contextHealInput" placeholder="0" min="0">
+          <button class="context-action-btn" id="contextApplyHeal">Применить</button>
+        </div>
       </div>
-    </div>
-    
-    <div class="context-input-group">
-      <label>КД:</label>
-      <div class="input-with-button">
-        <input type="number" id="contextAcInput" value="10" min="1">
-        <button class="context-action-btn" id="contextApplyAc">Изменить</button>
+
+      <div class="context-input-group">
+        <label>КД:</label>
+        <div class="input-with-button">
+          <input type="number" id="contextAcInput" value="10" min="1">
+          <button class="context-action-btn" id="contextApplyAc">Изменить</button>
+        </div>
+      </div>
+
+      <div class="context-menu-section">
+        <label class="context-checkbox">
+          <input type="checkbox" id="contextTokenVisible">
+          <span class="checkbox-custom"></span>
+          <span>Виден игрокам</span>
+        </label>
+
+        <label class="context-checkbox">
+          <input type="checkbox" id="contextTokenDead">
+          <span class="checkbox-custom"></span>
+          <span>Мёртв</span>
+        </label>
       </div>
     </div>
 
     <div class="context-menu-section">
-    <label class="context-checkbox">
-      <input type="checkbox" id="contextTokenVisible">
-      <span class="checkbox-custom"></span>
-      <span>Виден игрокам</span>
-    </label>
-    
-    <label class="context-checkbox">
-      <input type="checkbox" id="contextTokenDead">
-      <span class="checkbox-custom"></span>
-      <span>Мёртв</span>
-    </label>
-  </div>
+      <button class="context-menu-item" id="contextEditToken">
+        <span class="context-icon">✎</span> Редактировать
+      </button>
+      <button class="context-menu-item delete" id="contextDeleteToken">
+        <span class="context-icon">🗑️</span> Удалить
+      </button>
+    </div>
   </div>
 
-  <div class="context-menu-section">
-    <button class="context-menu-item" id="contextEditToken">
-      <span class="context-icon">✎</span> Редактировать
-    </button>
-    <button class="context-menu-item delete" id="contextDeleteToken">
-      <span class="context-icon">🗑️</span> Удалить
-    </button>
-  </div>
-</div>
+  <!-- Контекстное меню для находки -->
+  <div id="findContextMenu" class="context-menu" style="display: none;">
+    <div class="context-menu-header">
+      <span id="contextFindName"></span>
+    </div>
 
-<!-- Контекстное меню для находки -->
-<div id="findContextMenu" class="context-menu" style="display: none;">
-  <div class="context-menu-header">
-    <span id="contextFindName"></span>
-  </div>
-  
-  <div class="context-menu-section">
-    <label class="context-checkbox">
-      <input type="checkbox" id="contextFindInspected">
-      <span class="checkbox-custom"></span>
-      <span>Осмотрено</span>
-    </label>
-  </div>
+    <div class="context-menu-section">
+      <label class="context-checkbox">
+        <input type="checkbox" id="contextFindInspected">
+        <span class="checkbox-custom"></span>
+        <span>Осмотрено</span>
+      </label>
+    </div>
 
-  <div class="context-menu-section">
-    <button class="context-menu-item" id="contextEditFind">
-      <span class="context-icon">✎</span> Редактировать
-    </button>
-    <button class="context-menu-item delete" id="contextDeleteFind">
-      <span class="context-icon">🗑️</span> Удалить
-    </button>
-  </div>
-</div>
-
-<!-- Контекстное меню для зоны -->
-<div id="zoneContextMenu" class="context-menu" style="display: none;">
-  <div class="context-menu-header">
-    <span id="contextZoneName"></span>
-  </div>
-  
-  <div class="context-menu-section">
-    <label class="context-checkbox">
-      <input type="checkbox" id="contextZoneVisible">
-      <span class="checkbox-custom"></span>
-      <span>Видна игрокам</span>
-    </label>
+    <div class="context-menu-section">
+      <button class="context-menu-item" id="contextEditFind">
+        <span class="context-icon">✎</span> Редактировать
+      </button>
+      <button class="context-menu-item delete" id="contextDeleteFind">
+        <span class="context-icon">🗑️</span> Удалить
+      </button>
+    </div>
   </div>
 
-  <div class="context-menu-section">
-    <button class="context-menu-item" id="contextEditZone">
-      <span class="context-icon">✎</span> Редактировать
-    </button>
-    <button class="context-menu-item delete" id="contextDeleteZone">
-      <span class="context-icon">🗑️</span> Удалить
-    </button>
+  <!-- Контекстное меню для зоны -->
+  <div id="zoneContextMenu" class="context-menu" style="display: none;">
+    <div class="context-menu-header">
+      <span id="contextZoneName"></span>
+    </div>
+
+    <div class="context-menu-section">
+      <label class="context-checkbox">
+        <input type="checkbox" id="contextZoneVisible">
+        <span class="checkbox-custom"></span>
+        <span>Видна игрокам</span>
+      </label>
+    </div>
+
+    <div class="context-menu-section">
+      <button class="context-menu-item" id="contextEditZone">
+        <span class="context-icon">✎</span> Редактировать
+      </button>
+      <button class="context-menu-item delete" id="contextDeleteZone">
+        <span class="context-icon">🗑️</span> Удалить
+      </button>
+    </div>
   </div>
-</div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
-<div id="newMapModal" class="modal" style="display: none;">
-  <div class="modal-content small-modal">
-    <span class="close" onclick="closeNewMapModal()">&times;</span>
-    <h3>Создать новую карту</h3>
-    <div class="token-form">
-      <div class="token-fields">
-        <label>Название карты<br>
-          <input type="text" id="newMapName" placeholder="Новая карта">
-        </label>
+  <div id="newMapModal" class="modal" style="display: none;">
+    <div class="modal-content small-modal">
+      <span class="close" onclick="closeNewMapModal()">&times;</span>
+      <h3>Создать новую карту</h3>
+      <div class="token-form">
+        <div class="token-fields">
+          <label>Название карты<br>
+            <input type="text" id="newMapName" placeholder="Новая карта">
+          </label>
+        </div>
+      </div>
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitNewMap()">Создать</button>
+        <button class="cancel-btn" onclick="closeNewMapModal()">Отменить</button>
       </div>
     </div>
-    <div class="token-buttons">
-      <button class="save-btn" onclick="submitNewMap()">Создать</button>
-      <button class="cancel-btn" onclick="closeNewMapModal()">Отменить</button>
-    </div>
   </div>
-</div>
 </body>
 
 </html>
