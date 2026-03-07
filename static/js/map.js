@@ -1044,22 +1044,28 @@ function deleteCurrentMap() {
 }
 
 function saveMapData() {
-  return fetch("/api/map", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(mapData),
-  }).then(response => {
-    if (!response.ok) {
-      throw new Error('Failed to save map data');
-    }
-    // Обновляем имя в селекте если изменилось
-    const select = document.getElementById('mapSelect');
-    const currentOption = select.querySelector(`option[value="${currentMapId}"]`);
-    if (currentOption && mapData.name) {
-      currentOption.textContent = mapData.name;
-    }
-    return response.json();
-  });
+    // Явно добавляем map_id в сохраняемые данные
+    const dataToSave = {
+        ...mapData,
+        map_id: currentMapId  // ВАЖНО: передаем ID текущей карты
+    };
+    
+    return fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dataToSave),
+    }).then(response => {
+        if (!response.ok) {
+            throw new Error('Failed to save map data');
+        }
+        // Обновляем имя в селекте если изменилось
+        const select = document.getElementById('mapSelect');
+        const currentOption = select.querySelector(`option[value="${currentMapId}"]`);
+        if (currentOption && mapData.name) {
+            currentOption.textContent = mapData.name;
+        }
+        return response.json();
+    });
 }
 
 function zonesIntersect(verticesA, verticesB) {
@@ -1579,7 +1585,7 @@ function submitCharacter() {
     id: characterId,
     name,
     has_avatar: true,
-    visible_to_players: true,
+    visible_to_players: false,
     // Не храним avatar_data в основном объекте
   };
 

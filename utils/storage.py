@@ -300,6 +300,13 @@ def load_map_data(map_id):
 
 def save_map_data(data, map_id):
     """Сохранить данные карты"""
+    # Проверяем, соответствует ли map_id в данных переданному
+    data_map_id = data.get("map_id")
+    if data_map_id and data_map_id != map_id:
+        print(f"⚠️ CRITICAL: data.map_id ({data_map_id}) != map_id ({map_id})")
+        # Исправляем несоответствие - используем ID из данных
+        map_id = data_map_id
+
     ensure_dirs()
     filepath = get_map_filepath(map_id)
 

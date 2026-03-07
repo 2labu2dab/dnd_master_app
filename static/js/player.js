@@ -135,12 +135,10 @@ function performUpdatePortraits() {
     
     const newHash = getCharactersHash(visibleCharacters);
     
-    // Всегда обновляем, если изменился хеш или видимость сайдбара
-    const sidebarVisible = portraitSidebar.classList.contains('visible');
     // Сайдбар видим только если карта включена И есть видимые персонажи
     const shouldBeVisible = isMapEnabled && count > 0;
     
-    if (newHash === lastCharactersHash && sidebarVisible === shouldBeVisible) {
+    if (newHash === lastCharactersHash && portraitSidebar.classList.contains('visible') === shouldBeVisible) {
         return;
     }
     
@@ -149,13 +147,21 @@ function performUpdatePortraits() {
     if (shouldBeVisible) {
         portraitSidebar.classList.add('visible');
         
-        // Даем время на применение класса visible
+        // Добавляем небольшую задержку перед рендерингом портретов,
+        // чтобы дать время на анимацию изменения ширины сайдбара
         setTimeout(() => {
             renderPortraits(visibleCharacters);
-        }, 50);
+            // После изменения размера сайдбара нужно перерендерить карту
+            requestRender();
+        }, 350); // Чуть больше времени, чем длительность анимации
     } else {
         portraitSidebar.classList.remove('visible');
         portraitsContainer.innerHTML = '';
+        
+        // После скрытия сайдбара тоже перерендериваем карту
+        setTimeout(() => {
+            requestRender();
+        }, 350);
     }
 }
 
@@ -357,6 +363,9 @@ function renderPortraits(characters) {
     });
     
     portraitsContainer.appendChild(gridContainer);
+    
+    // После рендеринга портретов перерендериваем карту
+    requestRender();
 }
 function requestRender() {
     if (!renderRequested) {

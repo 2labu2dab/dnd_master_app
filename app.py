@@ -151,10 +151,19 @@ def get_map_image(map_id):
 def save_map():
     """Сохранить текущую карту"""
     data = request.get_json()
-    map_id = session.get("current_map_id")
+
+    # Берем ID из данных, а не из сессии!
+    map_id = data.get("map_id")
 
     if not map_id:
-        return jsonify({"error": "No map selected"}), 400
+        # Если нет в данных, пробуем из сессии (для обратной совместимости)
+        map_id = session.get("current_map_id")
+        if not map_id:
+            return jsonify({"error": "No map ID provided"}), 400
+        print(f"Warning: Saving without map_id in body, using session: {map_id}")
+    else:
+        # Если ID передан, обновляем сессию
+        session["current_map_id"] = map_id
 
     # Сохраняем данные
     save_map_data(data, map_id)
@@ -1156,7 +1165,7 @@ if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
     socketio.run(
         app,
-        host="0.0.0.0",   # ВАЖНО
+        host="192.168.0.163",   # ВАЖНО
         port=5000,
         debug=True,
         allow_unsafe_werkzeug=True
