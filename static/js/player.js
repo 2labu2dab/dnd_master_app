@@ -1110,16 +1110,55 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
     ctx.closePath();
     ctx.clip();
 
-    // Размытие равно ширине карты на экране
-    // Это гарантирует полное размытие при любом масштабе
-    const blurSize = mapImage.width * scale * 0.05;
+    const mapScreenWidth = mapImage.width * scale;
+    const mapScreenHeight = mapImage.height * scale;
+    const blurSize = Math.max(40, mapScreenWidth * 0.08);
     
-    console.log(`Scale: ${scale.toFixed(2)}, Blur: ${blurSize.toFixed(0)}px`);
+    // Создаем расширенную карту с отражением
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = mapScreenWidth * 3;
+    tempCanvas.height = mapScreenHeight * 3;
+    const tempCtx = tempCanvas.getContext('2d');
     
-    ctx.filter = `blur(${blurSize}px)`;
-    ctx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
-    ctx.filter = "none";
+    // Рисуем карту 3x3 с отражениями
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = col * mapScreenWidth;
+            const y = row * mapScreenHeight;
+            
+            tempCtx.save();
+            
+            // Определяем нужно ли отражать
+            if (col !== 1) {
+                tempCtx.translate(x + mapScreenWidth, 0);
+                tempCtx.scale(-1, 1);
+                tempCtx.translate(-x, 0);
+            }
+            if (row !== 1) {
+                tempCtx.translate(0, y + mapScreenHeight);
+                tempCtx.scale(1, -1);
+                tempCtx.translate(0, -y);
+            }
+            
+            tempCtx.drawImage(mapImage, x, y, mapScreenWidth, mapScreenHeight);
+            tempCtx.restore();
+        }
+    }
+    
+    // Применяем размытие
+    tempCtx.filter = `blur(${blurSize}px)`;
+    tempCtx.drawImage(tempCanvas, 0, 0);
+    tempCtx.filter = 'none';
+    
+    // Рисуем центральную часть (оригинальную карту)
+    ctx.drawImage(
+        tempCanvas,
+        mapScreenWidth, mapScreenHeight, mapScreenWidth, mapScreenHeight,
+        offsetX, offsetY, mapScreenWidth, mapScreenHeight
+    );
+    
     ctx.restore();
+    
 }
 
 socket.on("map_visibility_change", (data) => {
