@@ -1145,11 +1145,23 @@ function zonesIntersect(verticesA, verticesB) {
 }
 
 function fetchMap() {
-    if (!currentMapId) return;
+    if (!currentMapId) {
+        console.log("No current map ID");
+        return Promise.reject("No map ID");
+    }
     
-    fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
-        .then(res => res.json())
+    console.log("Fetching map data for ID:", currentMapId);
+    
+    return fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+        })
         .then(data => {
+            console.log("Map data loaded:", data);
+            
             const oldHasImage = mapData?.has_image;
             const oldImageSrc = mapImage?.src;
             
@@ -1161,7 +1173,6 @@ function fetchMap() {
             mapData = data;
             
             // ВАЖНО: НЕ перезаписываем позицию из данных, если она уже есть
-            // Используем сохранённые текущие значения
             zoomLevel = currentZoom;
             panX = currentPanX;
             panY = currentPanY;
@@ -1177,8 +1188,7 @@ function fetchMap() {
                 panY = mapData.pan_y || 0;
             }
             
-            updateSidebar();
-
+            // Инициализация массивов если их нет
             if (!mapData.tokens) mapData.tokens = [];
             if (!mapData.finds) mapData.finds = [];
             if (!mapData.zones) mapData.zones = [];
@@ -1196,11 +1206,13 @@ function fetchMap() {
                 mapData.player_map_enabled = true;
             }
             
+            // Обновляем интерфейс
+            updateSidebar();
+            
             const gridSize = mapData.grid_settings.cell_size || 20;
             document.getElementById("gridSlider").value = gridSize;
             document.getElementById("gridInput").value = gridSize;
             
-            // !!! ВАЖНО: Обновляем визуальное отображение ползунка !!!
             updateSliderVisual();
 
             const gridToggle = document.getElementById("gridToggle");
@@ -1221,24 +1233,39 @@ function fetchMap() {
                 const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
                 
                 if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
+                    console.log("Loading map image from:", imageUrl);
                     mapImage = new Image();
                     mapImage.onload = () => {
+                        console.log("Map image loaded successfully");
                         render();
                         socket.emit("notify_image_loaded", {
                             map_id: currentMapId,
                             image_url: imageUrl
                         });
                     };
+                    mapImage.onerror = (err) => {
+                        console.error("Failed to load map image:", err);
+                        render();
+                    };
                     mapImage.src = imageUrl;
                 } else {
                     render();
                 }
             } else {
+                console.log("Map has no image");
                 mapImage = new Image();
                 render();
             }
+            
+            return data;
+        })
+        .catch(err => {
+            console.error("Error fetching map:", err);
+            render();
+            throw err;
         });
 }
+
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1566,7 +1593,6 @@ function handleCharacterAvatarUpload(event) {
   };
   reader.readAsDataURL(file);
 }
-
 
 function submitCharacter() {
   const name = document.getElementById("characterName").value.trim();
@@ -2746,6 +2772,7 @@ window.onload = () => {
 };
 
 socket.on("map_created", (data) => {
+    console.log("Map created event received:", data);
     
     // Обновляем селект карт
     const select = document.getElementById('mapSelect');
@@ -2759,10 +2786,10 @@ socket.on("map_created", (data) => {
         select.appendChild(option);
     });
     
-    // Устанавливаем currentMapId без вызова switchMap
+    // Устанавливаем currentMapId
     currentMapId = data.current_map;
     
-    // Загружаем данные карты
+    // Загружаем данные карты (токены уже будут там, созданные на сервере)
     fetchMap();
     
     // Обновляем iframe игрока

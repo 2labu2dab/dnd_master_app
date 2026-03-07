@@ -4,6 +4,7 @@ import io
 import os
 import time
 import uuid
+import math
 
 from flask import (
     Flask,
@@ -160,7 +161,9 @@ def save_map():
         map_id = session.get("current_map_id")
         if not map_id:
             return jsonify({"error": "No map ID provided"}), 400
-        print(f"Warning: Saving without map_id in body, using session: {map_id}")
+        print(
+            f"Warning: Saving without map_id in body, using session: {map_id}"
+        )
     else:
         # Если ID передан, обновляем сессию
         session["current_map_id"] = map_id
@@ -224,7 +227,76 @@ def new_map():
     map_data = request.get_json()
     name = map_data.get("name", "Новая карта")
 
+    # Создаем новую карту
     map_id = create_new_map(name)
+
+    # Получаем всех героев (токены-игроки) с других карт
+    from utils.storage import get_all_heroes_from_maps
+
+    all_heroes = get_all_heroes_from_maps()
+
+    if all_heroes:
+        print(f"Found {len(all_heroes)} heroes from other maps")
+
+        # Загружаем данные новой карты
+        new_map_data = load_map_data(map_id)
+
+        # Инициализируем массив tokens если его нет
+        if "tokens" not in new_map_data:
+            new_map_data["tokens"] = []
+
+        # Вычисляем центр карты для размещения токенов
+        center_x = 500  # Значения по умолчанию
+        center_y = 500
+
+        # Проверяем, есть ли изображение карты, чтобы использовать реальные размеры
+        image_path = get_image_filepath(map_id)
+        if os.path.exists(image_path):
+            try:
+                from PIL import Image
+
+                img = Image.open(image_path)
+                center_x = img.width / 2
+                center_y = img.height / 2
+            except:
+                pass
+
+        # Располагаем героев по кругу
+        radius = min(center_x, center_y) * 0.3
+
+        for index, hero in enumerate(all_heroes):
+            # Вычисляем позицию по кругу
+            if len(all_heroes) > 1:
+                angle = (2 * math.pi * index) / len(all_heroes)
+                pos_x = center_x + math.cos(angle) * radius
+                pos_y = center_y + math.sin(angle) * radius
+            else:
+                pos_x = center_x
+                pos_y = center_y
+
+            # Создаем токен для героя
+            token = {
+                "id": hero["id"],
+                "name": hero["name"],
+                "position": [pos_x, pos_y],
+                "size": 20,  # Размер по умолчанию
+                "is_dead": False,
+                "is_player": True,
+                "is_npc": hero.get("is_npc", False),
+                "armor_class": hero.get("armor_class", 10),
+                "health_points": hero.get("health_points", 10),
+                "max_health_points": hero.get("max_health_points", 10),
+                "has_avatar": hero.get("has_avatar", False),
+                "avatar_url": hero.get("avatar_url"),
+                "is_visible": True,
+            }
+
+            new_map_data["tokens"].append(token)
+
+        # Сохраняем обновленные данные
+        save_map_data(new_map_data, map_id)
+        print(f"Added {len(all_heroes)} hero tokens to new map")
+
     session["current_map_id"] = map_id
 
     # Получаем обновленный список карт
@@ -394,23 +466,29 @@ def add_token():
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "ruler_visible_to_players": data.get(
+            "ruler_visible_to_players", False
+        ),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        player_data["image_url"] = (
+            f"/api/map/image/{map_id}?t={int(time.time())}"
+        )
 
     socketio.emit("map_updated", player_data)
     print("Map updated event sent to players")
 
     # Возвращаем URL аватара в ответе
-    return jsonify({
-        "status": "token added",
-        "token_id": token["id"],
-        "avatar_url": avatar_url
-    })
+    return jsonify(
+        {
+            "status": "token added",
+            "token_id": token["id"],
+            "avatar_url": avatar_url,
+        }
+    )
 
 
 @app.route("/favicon.ico")
@@ -653,8 +731,12 @@ def handle_zoom_update(data):
     map_data["zoom_level"] = data.get("zoom_level", 1)
     map_data["pan_x"] = data.get("pan_x", 0)
     map_data["pan_y"] = data.get("pan_y", 0)
-    map_data["master_canvas_width"] = data.get("canvas_width", map_data.get("master_canvas_width", 1380))
-    map_data["master_canvas_height"] = data.get("canvas_height", map_data.get("master_canvas_height", 1080))
+    map_data["master_canvas_width"] = data.get(
+        "canvas_width", map_data.get("master_canvas_width", 1380)
+    )
+    map_data["master_canvas_height"] = data.get(
+        "canvas_height", map_data.get("master_canvas_height", 1080)
+    )
 
     save_map_data(map_data, map_id)
 
@@ -667,7 +749,7 @@ def handle_zoom_update(data):
             "pan_x": map_data["pan_x"],
             "pan_y": map_data["pan_y"],
             "canvas_width": map_data["master_canvas_width"],
-            "canvas_height": map_data["master_canvas_height"]
+            "canvas_height": map_data["master_canvas_height"],
         },
         broadcast=True,
         include_self=False,
@@ -1126,6 +1208,7 @@ def upload_portrait():
         print(f"Error uploading portrait: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 @socketio.on("token_move")
 def handle_token_move(data):
     """Обработчик перемещения токена в реальном времени"""
@@ -1147,7 +1230,7 @@ def handle_token_move(data):
             "token_id": token_id,
             "position": position,
             "is_visible": data.get("is_visible", True),
-            "is_dead": data.get("is_dead", False)
+            "is_dead": data.get("is_dead", False),
         },
         broadcast=True,
         include_self=False,
@@ -1165,8 +1248,8 @@ if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
     socketio.run(
         app,
-        host="192.168.0.163",   # ВАЖНО
+        host="192.168.0.163",  # ВАЖНО
         port=5000,
         debug=True,
-        allow_unsafe_werkzeug=True
+        allow_unsafe_werkzeug=True,
     )

@@ -14,6 +14,7 @@ TOKENS_AVATARS_DIR = os.path.join(
 )  # Папка для аватаров токенов
 PORTRAITS_DIR = os.path.join("data", "portrait_images")
 
+
 def ensure_dirs():
     """Создать необходимые директории"""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -298,6 +299,58 @@ def load_map_data(map_id):
     return None
 
 
+def get_all_heroes_from_maps():
+    """Получить всех героев (токены-игроки) со всех карт"""
+    ensure_dirs()
+    heroes = []
+    seen_ids = set()  # Для отслеживания уникальных ID
+
+    for filename in os.listdir(MAPS_DIR):
+        if filename.endswith(".json"):
+            filepath = os.path.join(MAPS_DIR, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                # Собираем ТОЛЬКО токены-игроки
+                if "tokens" in data:
+                    for token in data["tokens"]:
+                        # Проверяем, что это игрок и ID еще не встречался
+                        if (
+                            token.get("is_player")
+                            and token.get("id") not in seen_ids
+                        ):
+                            seen_ids.add(token["id"])
+
+                            # Создаем копию с нужными полями
+                            hero = {
+                                "id": token["id"],
+                                "name": token.get("name", "Безымянный герой"),
+                                "has_avatar": token.get("has_avatar", False),
+                                "avatar_url": token.get("avatar_url"),
+                                "armor_class": token.get("armor_class", 10),
+                                "health_points": token.get(
+                                    "health_points", 10
+                                ),
+                                "max_health_points": token.get(
+                                    "max_health_points", 10
+                                ),
+                                "is_player": True,
+                                "is_npc": token.get("is_npc", False),
+                                "source_map": data.get(
+                                    "name", "Неизвестная карта"
+                                ),
+                            }
+                            heroes.append(hero)
+
+            except Exception as e:
+                print(f"Error loading map {filename}: {e}")
+                continue
+
+    print(f"Found {len(heroes)} unique heroes from all maps")
+    return heroes
+
+
 def save_map_data(data, map_id):
     """Сохранить данные карты"""
     # Проверяем, соответствует ли map_id в данных переданному
@@ -345,29 +398,33 @@ def save_map_data(data, map_id):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+
 def save_portrait_image(image_data, portrait_id):
     """
     Сохранить изображение портрета как файл
-    
+
     Args:
         image_data: base64 строка с изображением или бинарные данные
         portrait_id: ID портрета
-    
+
     Returns:
         bool: True если успешно, False если ошибка
     """
     try:
         # Создаем директорию если её нет
         os.makedirs(PORTRAITS_DIR, exist_ok=True)
-        
+
         # Определяем путь к файлу
         filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
-        
+
         # Если image_data - строка base64, конвертируем в бинарные данные
-        if isinstance(image_data, str) and image_data.startswith('data:image'):
+        if isinstance(image_data, str) and image_data.startswith("data:image"):
             # Извлекаем base64 часть
-            base64_data = image_data.split(',')[1] if ',' in image_data else image_data
+            base64_data = (
+                image_data.split(",")[1] if "," in image_data else image_data
+            )
             import base64
+
             image_binary = base64.b64decode(base64_data)
         elif isinstance(image_data, bytes):
             image_binary = image_data
@@ -375,49 +432,52 @@ def save_portrait_image(image_data, portrait_id):
             # Если это уже готовый файл или другой формат
             print(f"Unsupported image data type: {type(image_data)}")
             return False
-        
+
         # Сохраняем файл
-        with open(filepath, 'wb') as f:
+        with open(filepath, "wb") as f:
             f.write(image_binary)
-        
+
         print(f"✓ Portrait saved: {filepath}")
         return True
-        
+
     except Exception as e:
         print(f"✗ Error saving portrait: {e}")
         return False
 
+
 def get_portrait_filepath(portrait_id):
     """
     Получить путь к файлу портрета
-    
+
     Args:
         portrait_id: ID портрета
-    
+
     Returns:
         str: путь к файлу
     """
     return os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
 
+
 def get_portrait_url(portrait_id):
     """
     Получить URL для загрузки портрета
-    
+
     Args:
         portrait_id: ID портрета
-    
+
     Returns:
         str: URL для загрузки портрета
     """
     return f"/api/portrait/{portrait_id}"
 
+
 def delete_portrait_image(portrait_id):
     """
     Удалить файл портрета
-    
+
     Args:
         portrait_id: ID портрета
-    
+
     Returns:
         bool: True если успешно, False если ошибка
     """
