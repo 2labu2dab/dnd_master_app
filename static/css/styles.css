@@ -917,7 +917,7 @@ body.mini-map .portrait-item {
 }
 
 #characterContextMenu .context-menu-header {
-    background: linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%);
+    background: #1a1f2e;
 }
 
 .square-mask {

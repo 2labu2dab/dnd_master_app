@@ -518,18 +518,37 @@ function setupSidebarContextMenus() {
 
 // Функция для контекстного меню персонажа (портрета)
 function showCharacterContextMenu(character, x, y) {
-    // Создаем временное меню для персонажа
-    // Можно использовать существующее меню или создать новое
     const menu = document.getElementById("characterContextMenu") || createCharacterContextMenu();
     
     document.getElementById("contextCharacterName").textContent = character.name;
     document.getElementById("contextCharacterVisible").checked = character.visible_to_players !== false;
     
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    // Сначала показываем меню для измерения
     menu.style.display = "block";
+    menu.style.visibility = "hidden";
     
-    // Сохраняем текущий персонаж
+    const menuRect = menu.getBoundingClientRect();
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    let left = x;
+    let top = y;
+    
+    if (left + menuRect.width > windowWidth) {
+        left = windowWidth - menuRect.width - 10;
+    }
+    
+    if (top + menuRect.height > windowHeight) {
+        top = windowHeight - menuRect.height - 10;
+    }
+    
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
+    
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "visible";
+    
     window.currentContextCharacter = character;
 }
 
@@ -1809,7 +1828,7 @@ function handleAvatarUpload(event) {
   if (!file) return;
 
   // Проверяем размер файла (макс 2MB)
-  if (file.size > 2 * 1024 * 1024) {
+  if (file.size > 10 * 1024 * 1024) {
     alert("Файл слишком большой. Максимальный размер 2MB.");
     return;
   }
@@ -2815,19 +2834,50 @@ function showTokenContextMenu(token, x, y) {
     document.getElementById("contextTokenVisible").checked = token.is_visible !== false;
     document.getElementById("contextTokenDead").checked = token.is_dead || token.health_points <= 0;
     
-    // Оставляем только поле для КД
     document.getElementById("contextAcInput").value = token.armor_class || 10;
     
-    // Позиционируем меню
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    // Сначала показываем меню, чтобы получить его размеры
     menu.style.display = "block";
+    menu.style.visibility = "hidden"; // Временно скрываем для измерения
+    
+    // Получаем размеры меню и окна
+    const menuRect = menu.getBoundingClientRect();
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    // Корректируем позицию
+    let left = x;
+    let top = y;
+    
+    // Проверяем правый край
+    if (left + menuRect.width > windowWidth) {
+        left = windowWidth - menuRect.width - 10; // Отступ 10px от края
+    }
+    
+    // Проверяем нижний край
+    if (top + menuRect.height > windowHeight) {
+        top = windowHeight - menuRect.height - 10; // Отступ 10px от края
+    }
+    
+    // Проверяем левый край (на всякий случай)
+    if (left < 10) {
+        left = 10;
+    }
+    
+    // Проверяем верхний край
+    if (top < 10) {
+        top = 10;
+    }
+    
+    // Применяем позицию и показываем меню
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "visible";
     
     // Скрываем другие меню
     document.getElementById("findContextMenu").style.display = "none";
     document.getElementById("zoneContextMenu").style.display = "none";
 }
-
 // Функция для показа контекстного меню находки
 function showFindContextMenu(find, x, y) {
     currentContextFind = find;
@@ -2836,11 +2886,32 @@ function showFindContextMenu(find, x, y) {
     document.getElementById("contextFindName").textContent = find.name;
     document.getElementById("contextFindInspected").checked = find.status || false;
     
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    // Сначала показываем меню для измерения
     menu.style.display = "block";
+    menu.style.visibility = "hidden";
     
-    // Скрываем другие меню
+    const menuRect = menu.getBoundingClientRect();
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    let left = x;
+    let top = y;
+    
+    if (left + menuRect.width > windowWidth) {
+        left = windowWidth - menuRect.width - 10;
+    }
+    
+    if (top + menuRect.height > windowHeight) {
+        top = windowHeight - menuRect.height - 10;
+    }
+    
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
+    
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "visible";
+    
     document.getElementById("tokenContextMenu").style.display = "none";
     document.getElementById("zoneContextMenu").style.display = "none";
 }
@@ -2853,11 +2924,32 @@ function showZoneContextMenu(zone, x, y) {
     document.getElementById("contextZoneName").textContent = zone.name;
     document.getElementById("contextZoneVisible").checked = zone.is_visible !== false;
     
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    // Сначала показываем меню для измерения
     menu.style.display = "block";
+    menu.style.visibility = "hidden";
     
-    // Скрываем другие меню
+    const menuRect = menu.getBoundingClientRect();
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    let left = x;
+    let top = y;
+    
+    if (left + menuRect.width > windowWidth) {
+        left = windowWidth - menuRect.width - 10;
+    }
+    
+    if (top + menuRect.height > windowHeight) {
+        top = windowHeight - menuRect.height - 10;
+    }
+    
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
+    
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "visible";
+    
     document.getElementById("tokenContextMenu").style.display = "none";
     document.getElementById("findContextMenu").style.display = "none";
 }
@@ -3083,15 +3175,29 @@ document.addEventListener("click", (e) => {
     const zoneMenu = document.getElementById("zoneContextMenu");
     const characterMenu = document.getElementById("characterContextMenu");
     
+    // Проверяем, был ли клик вне всех меню
     if (!tokenMenu?.contains(e.target) && 
         !findMenu?.contains(e.target) && 
         !zoneMenu?.contains(e.target) &&
         !characterMenu?.contains(e.target)) {
         
-        if (tokenMenu) tokenMenu.style.display = "none";
-        if (findMenu) findMenu.style.display = "none";
-        if (zoneMenu) zoneMenu.style.display = "none";
-        if (characterMenu) characterMenu.style.display = "none";
+        // Скрываем все меню
+        if (tokenMenu) {
+            tokenMenu.style.display = "none";
+            tokenMenu.style.visibility = "visible"; // Сбрасываем visibility
+        }
+        if (findMenu) {
+            findMenu.style.display = "none";
+            findMenu.style.visibility = "visible";
+        }
+        if (zoneMenu) {
+            zoneMenu.style.display = "none";
+            zoneMenu.style.visibility = "visible";
+        }
+        if (characterMenu) {
+            characterMenu.style.display = "none";
+            characterMenu.style.visibility = "visible";
+        }
         
         // Очищаем поля ввода при закрытии
         document.getElementById("contextDamageInput").value = "";
@@ -3263,23 +3369,6 @@ function setupSidebarContextMenus() {
         });
     }
 }
-
-function showCharacterContextMenu(character, x, y) {
-    // Создаем временное меню для персонажа
-    // Можно использовать существующее меню или создать новое
-    const menu = document.getElementById("characterContextMenu") || createCharacterContextMenu();
-    
-    document.getElementById("contextCharacterName").textContent = character.name;
-    document.getElementById("contextCharacterVisible").checked = character.visible_to_players !== false;
-    
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
-    menu.style.display = "block";
-    
-    // Сохраняем текущий персонаж
-    window.currentContextCharacter = character;
-}
-
 function createCharacterContextMenu() {
     const menu = document.createElement('div');
     menu.id = 'characterContextMenu';
