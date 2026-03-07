@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, time
 import uuid
 import base64
 from PIL import Image
@@ -113,12 +113,14 @@ def delete_token_avatar(token_id):
     return False
 
 
-def get_token_avatar_url(token_id):
+def get_token_avatar_url(token_id, force_timestamp=False):
     """Получить URL для загрузки аватара токена"""
     if not token_id:
         return None
-    # Убедимся, что URL начинается с /
-    return f"/api/token/avatar/{token_id}"
+    url = f"/api/token/avatar/{token_id}"
+    if force_timestamp:
+        url += f"?t={int(time.time())}"
+    return url
 
 
 def get_map_filepath(map_id):

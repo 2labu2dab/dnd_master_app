@@ -1340,3 +1340,23 @@ canvas.map-panning {
   background: #3a4a6b !important;
   border-left: 4px solid #4C5BEF;
 }
+
+#notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 6px;
+    color: white;
+    font-size: 14px;
+    z-index: 10000;
+    transition: opacity 0.3s;
+    opacity: 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    font-family: 'Inter', sans-serif;
+    pointer-events: none;
+}
+
+#notification.show {
+    opacity: 1;
+}

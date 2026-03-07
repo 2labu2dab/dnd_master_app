@@ -65,7 +65,7 @@ let editingFindId = null;
 let editingZoneId = null;
 let pendingZoneVertices = null;
 let hoveredSnapVertex = null;
-const avatarCache = {};
+const avatarCache = new Map();
 
 let socketId = null;
 
@@ -856,6 +856,12 @@ function checkMapExists() {
 }
 function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
+    avatarCache.clear();
+    
+    // Очищаем кэш аватаров, а не переопределяем константу
+    for (let key in avatarCache) {
+        delete avatarCache[key];
+    }
     
     if (isSwitchingMap) {
         console.log("Already switching map, ignoring");
@@ -1151,6 +1157,11 @@ function fetchMap() {
     }
     
     console.log("Fetching map data for ID:", currentMapId);
+    avatarCache.clear();
+
+    for (let key in avatarCache) {
+        delete avatarCache[key];
+    }
     
     return fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
         .then(res => {
@@ -1447,102 +1458,154 @@ function drawGrid(offsetX, offsetY, scale) {
 }
 
 function drawToken(token, offsetX, offsetY, scale) {
-  const [x, y] = token.position;
-  const sx = x * scale + offsetX;
-  const sy = y * scale + offsetY;
-  const size = mapData.grid_settings.cell_size * scale;
-  const radius = size / 2;
+    const [x, y] = token.position;
+    const sx = x * scale + offsetX;
+    const sy = y * scale + offsetY;
+    const size = mapData.grid_settings.cell_size * scale;
+    const radius = size / 2;
 
-  ctx.beginPath();
-  ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
-  
-  // Используем avatar_url если есть
-  const avatarSrc = token.avatar_url || token.avatar_data;
-  
-  if (avatarSrc) {
-    // Проверяем, есть ли изображение в кэше
-    if (!avatarCache[token.id]) {
-      // Если нет, создаем новое и загружаем
-      const img = new Image();
-      img.onload = () => {
-        avatarCache[token.id] = img;
-        render(); // Перерендериваем после загрузки
-      };
-      img.onerror = () => {
-        console.warn(`⚠ Не удалось загрузить аватар токена ${token.name} по URL: ${avatarSrc}`);
-        avatarCache[token.id] = null;
-      };
-      img.src = avatarSrc;
-      avatarCache[token.id] = 'loading'; // Временно помечаем как загружающийся
-      
-      // Пока загружается, рисуем цветной круг
-      ctx.fillStyle = token.is_dead
-        ? "#616161"
-        : token.is_player
-          ? "#4CAF50"
-          : token.is_npc
-            ? "#FFC107"
-            : "#F44336";
-      ctx.fill();
-    } else if (avatarCache[token.id] instanceof HTMLImageElement && 
-               avatarCache[token.id].complete && 
-               avatarCache[token.id].naturalWidth > 0) {
-      // Изображение уже загружено, рисуем его
-      ctx.save();
-      ctx.clip();
-
-      if (token.is_dead) {
-        ctx.globalAlpha = 0.7;
-        ctx.filter = 'grayscale(100%)';
-        ctx.drawImage(avatarCache[token.id], sx - radius, sy - radius, size, size);
-        ctx.filter = 'none';
-        ctx.globalAlpha = 1;
-      } else {
-        ctx.drawImage(avatarCache[token.id], sx - radius, sy - radius, size, size);
-      }
-
-      ctx.restore();
-    } else {
-      // Изображение еще загружается или ошибка, рисуем цветной круг
-      ctx.fillStyle = token.is_dead
-        ? "#616161"
-        : token.is_player
-          ? "#4CAF50"
-          : token.is_npc
-            ? "#FFC107"
-            : "#F44336";
-      ctx.fill();
-    }
-  } else {
-    // Нет аватара, рисуем цветной круг
-    ctx.fillStyle = token.is_dead
-      ? "#616161"
-      : token.is_player
-        ? "#4CAF50"
-        : token.is_npc
-          ? "#FFC107"
-          : "#F44336";
-    ctx.fill();
-  }
-
-  // Обводка
-  ctx.strokeStyle = token.is_dead
-    ? "#999"
-    : token.is_player
-      ? "#4CAF50"
-      : token.is_npc
-        ? "#FFC107"
-        : "#F44336";
-  ctx.lineWidth = 4;
-  ctx.stroke();
-
-  if (selectedTokenId === token.id) {
     ctx.beginPath();
-    ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
-    ctx.strokeStyle = "#00FFFF";
-    ctx.lineWidth = 2;
+    ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
+    
+    const avatarSrc = token.avatar_url || token.avatar_data;
+    
+    if (avatarSrc) {
+        // Проверяем, есть ли изображение в кэше
+        let cachedImg = avatarCache.get(token.id);
+        
+        // Если изображение помечено как загружающееся, рисуем заглушку
+        if (cachedImg === 'loading') {
+            // Рисуем заглушку
+            ctx.fillStyle = token.is_dead
+                ? "#616161"
+                : token.is_player
+                    ? "#4CAF50"
+                    : token.is_npc
+                        ? "#FFC107"
+                        : "#F44336";
+            ctx.fill();
+        } 
+        // Если изображение загружено и валидно
+        else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+            ctx.save();
+            ctx.clip();
+            
+            if (token.is_dead) {
+                ctx.globalAlpha = 0.7;
+                ctx.filter = 'grayscale(100%)';
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+                ctx.filter = 'none';
+                ctx.globalAlpha = 1;
+            } else {
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+            }
+            
+            ctx.restore();
+        } 
+        // Если изображения нет в кэше или оно невалидно
+        else {
+            // Помечаем как загружающееся, только если ещё не начали загрузку
+            if (!avatarCache.has(token.id) || avatarCache.get(token.id) === null) {
+                avatarCache.set(token.id, 'loading');
+                
+                const img = new Image();
+                img.onload = () => {
+                    console.log(`Avatar loaded for token ${token.id}`);
+                    avatarCache.set(token.id, img);
+                    render();
+                };
+                img.onerror = () => {
+                    console.warn(`Failed to load avatar for token ${token.name}, using placeholder`);
+                    // Сохраняем null, чтобы не пытаться загружать снова при каждом рендере
+                    avatarCache.set(token.id, null);
+                    render();
+                };
+                // Добавляем timestamp для сброса кэша браузера
+                img.src = avatarSrc.includes('?') ? avatarSrc : `${avatarSrc}?t=${Date.now()}`;
+            }
+            
+            // Рисуем заглушку
+            ctx.fillStyle = token.is_dead
+                ? "#616161"
+                : token.is_player
+                    ? "#4CAF50"
+                    : token.is_npc
+                        ? "#FFC107"
+                        : "#F44336";
+            ctx.fill();
+        }
+    } else {
+        ctx.fillStyle = token.is_dead
+            ? "#616161"
+            : token.is_player
+                ? "#4CAF50"
+                : token.is_npc
+                    ? "#FFC107"
+                    : "#F44336";
+        ctx.fill();
+    }
+    
+    ctx.strokeStyle = token.is_dead
+        ? "#999"
+        : token.is_player
+            ? "#4CAF50"
+            : token.is_npc
+                ? "#FFC107"
+                : "#F44336";
+    ctx.lineWidth = 4;
     ctx.stroke();
-  }
+    
+    if (selectedTokenId === token.id) {
+        ctx.beginPath();
+        ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
+        ctx.strokeStyle = "#00FFFF";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+}
+
+function reloadTokenAvatar(tokenId) {
+    if (!tokenId) return;
+    
+    // Удаляем из кэша
+    if (avatarCache.has(tokenId)) {
+        avatarCache.delete(tokenId);
+    }
+    
+    // Находим токен
+    const token = mapData.tokens.find(t => t.id === tokenId);
+    if (token && token.avatar_url) {
+        // Добавляем timestamp для сброса кэша
+        const newUrl = token.avatar_url.includes('?') 
+            ? token.avatar_url.split('?')[0] + '?t=' + Date.now()
+            : token.avatar_url + '?t=' + Date.now();
+        
+        token.avatar_url = newUrl;
+        
+        // Загружаем заново
+        const img = new Image();
+        img.onload = () => {
+            avatarCache.set(tokenId, img);
+            render();
+        };
+        img.onerror = () => {
+            avatarCache.set(tokenId, null);
+            render();
+        };
+        img.src = newUrl;
+    }
+}
+
+// Вызывайте эту функцию после загрузки аватара на сервер
+function onAvatarUploaded(tokenId) {
+    reloadTokenAvatar(tokenId);
+    
+    // Также отправляем событие всем игрокам
+    socket.emit("token_avatar_updated", {
+        map_id: currentMapId,
+        token_id: tokenId,
+        avatar_url: `/api/token/avatar/${tokenId}?t=${Date.now()}`
+    });
 }
 
 function openCharacterModal() {
@@ -2481,6 +2544,15 @@ document.addEventListener("keydown", (e) => {
       updateSidebar();
     }
   }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      e.preventDefault();
+      copySelectedToken();
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      e.preventDefault();
+      pasteToken();
+  }
 });
 
 
@@ -3068,6 +3140,13 @@ document.getElementById("contextEditToken").addEventListener("click", function()
     }
 });
 
+document.getElementById("contextDuplicateToken").addEventListener("click", function() {
+    if (currentContextToken) {
+        duplicateToken(currentContextToken);
+        document.getElementById("tokenContextMenu").style.display = "none";
+    }
+});
+
 document.getElementById("contextDeleteToken").addEventListener("click", function() {
     if (currentContextToken && confirm(`Удалить токен "${currentContextToken.name}"?`)) {
         // Удаляем аватар если есть
@@ -3186,6 +3265,278 @@ function openEditTokenModal(token) {
         document.getElementById("avatarMask").style.display = "none";
         document.getElementById("editIcon").style.display = "none";
     }
+}
+
+let copiedToken = null;
+
+function copySelectedToken() {
+    if (!selectedTokenId) {
+        showNotification('Сначала выберите токен', 'warning');
+        return;
+    }
+    
+    const token = mapData.tokens.find(t => t.id === selectedTokenId);
+    if (!token) return;
+    
+    // Создаем копию без ID
+    copiedToken = {
+        name: token.name,
+        armor_class: token.armor_class,
+        health_points: token.health_points,
+        max_health_points: token.max_health_points,
+        is_player: token.is_player,
+        is_npc: token.is_npc,
+        has_avatar: token.has_avatar,
+        avatar_url: token.avatar_url,
+        size: token.size
+    };
+    
+    // Если у токена есть аватар, пытаемся получить его данные
+    if (token.has_avatar) {
+        const cachedImg = avatarCache.get(token.id);
+        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
+            // Конвертируем в base64 для копирования
+            const canvas = document.createElement('canvas');
+            canvas.width = cachedImg.width;
+            canvas.height = cachedImg.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(cachedImg, 0, 0);
+            copiedToken.avatar_data = canvas.toDataURL('image/png');
+        }
+    }
+    
+    showNotification('Токен скопирован', 'success');
+}
+
+function pasteToken() {
+    if (!copiedToken) {
+        showNotification('Нет скопированного токена', 'warning');
+        return;
+    }
+    
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
+        showNotification('Нет карты для размещения токена', 'error');
+        return;
+    }
+    
+    // Получаем позицию курсора
+    let pasteX, pasteY;
+    
+    if (lastMouseX && lastMouseY) {
+        const { scale, offsetX, offsetY } = getTransform();
+        pasteX = (lastMouseX - offsetX) / scale;
+        pasteY = (lastMouseY - offsetY) / scale;
+    } else {
+        pasteX = mapImage.width / 2;
+        pasteY = mapImage.height / 2;
+    }
+    
+    pasteX = Math.max(0, Math.min(pasteX, mapImage.width));
+    pasteY = Math.max(0, Math.min(pasteY, mapImage.height));
+    
+    const newTokenId = `token_${Date.now()}`;
+    
+    const newToken = {
+        id: newTokenId,
+        name: copiedToken.name,
+        position: [pasteX, pasteY],
+        size: copiedToken.size || mapData.grid_settings.cell_size,
+        is_dead: false,
+        is_player: copiedToken.is_player,
+        is_npc: copiedToken.is_npc,
+        armor_class: copiedToken.armor_class,
+        health_points: copiedToken.health_points,
+        max_health_points: copiedToken.max_health_points,
+        has_avatar: copiedToken.has_avatar,
+        avatar_url: copiedToken.avatar_url,
+        is_visible: true
+    };
+    
+    // Отправляем на сервер вместе с avatar_data если есть
+    const requestBody = {
+        ...newToken,
+        avatar_data: copiedToken.avatar_data || null
+    };
+    
+    fetch("/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Обновляем URL из ответа
+        if (data.avatar_url) {
+            newToken.avatar_url = data.avatar_url;
+        }
+        
+        if (!mapData.tokens) mapData.tokens = [];
+        mapData.tokens.push(newToken);
+        
+        // Загружаем аватар в кэш
+        if (newToken.has_avatar && newToken.avatar_url) {
+            const img = new Image();
+            img.onload = () => {
+                avatarCache.set(newTokenId, img);
+                render();
+            };
+            img.src = newToken.avatar_url;
+        }
+        
+        selectedTokenId = newTokenId;
+        render();
+        updateSidebar();
+        showNotification('Токен создан', 'success');
+    })
+    .catch(error => {
+        console.error('Error pasting token:', error);
+        showNotification('Ошибка при создании копии токена', 'error');
+    });
+}
+
+function duplicateToken(sourceToken) {
+    if (!sourceToken) return;
+    
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
+        showNotification('Нет карты для размещения токена', 'error');
+        return;
+    }
+    
+    // Смещаем копию немного относительно оригинала
+    const offset = mapData.grid_settings.cell_size;
+    let newX = sourceToken.position[0] + offset;
+    let newY = sourceToken.position[1] + offset;
+    
+    // Проверяем границы карты
+    newX = Math.max(0, Math.min(newX, mapImage.width));
+    newY = Math.max(0, Math.min(newY, mapImage.height));
+    
+    const newTokenId = `token_${Date.now()}`;
+    
+    // Если у исходного токена есть аватар, нужно его скопировать
+    let avatarDataToSend = null;
+    
+    if (sourceToken.has_avatar && sourceToken.avatar_url) {
+        // Пытаемся получить изображение из кэша
+        const cachedImg = avatarCache.get(sourceToken.id);
+        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
+            // Конвертируем изображение в base64
+            const canvas = document.createElement('canvas');
+            canvas.width = cachedImg.width;
+            canvas.height = cachedImg.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(cachedImg, 0, 0);
+            avatarDataToSend = canvas.toDataURL('image/png');
+        }
+    }
+    
+    const newToken = {
+        id: newTokenId,
+        name: sourceToken.name,
+        position: [newX, newY],
+        size: sourceToken.size || mapData.grid_settings.cell_size,
+        is_dead: false,
+        is_player: sourceToken.is_player,
+        is_npc: sourceToken.is_npc,
+        armor_class: sourceToken.armor_class,
+        health_points: sourceToken.health_points,
+        max_health_points: sourceToken.max_health_points,
+        has_avatar: sourceToken.has_avatar,
+        avatar_url: sourceToken.avatar_url, // Временный URL
+        is_visible: true
+    };
+    
+    // Отправляем на сервер вместе с данными аватара если есть
+    const requestBody = {
+        ...newToken,
+        avatar_data: avatarDataToSend // Отправляем base64 если есть
+    };
+    
+    fetch("/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Обновляем URL аватара из ответа сервера
+        if (data.avatar_url) {
+            newToken.avatar_url = data.avatar_url;
+        }
+        
+        mapData.tokens.push(newToken);
+        
+        // Если есть аватар в кэше, копируем его в кэш для нового токена
+        if (sourceToken.has_avatar && avatarCache.get(sourceToken.id) instanceof HTMLImageElement) {
+            const sourceImg = avatarCache.get(sourceToken.id);
+            const newImg = new Image();
+            newImg.onload = () => {
+                avatarCache.set(newTokenId, newImg);
+                render();
+            };
+            newImg.src = data.avatar_url || newToken.avatar_url;
+        }
+        
+        selectedTokenId = newTokenId;
+        render();
+        updateSidebar();
+        showNotification('Копия токена создана', 'success');
+    })
+    .catch(error => {
+        console.error('Error duplicating token:', error);
+        showNotification('Ошибка при создании копии', 'error');
+    });
+}
+
+// Функция для показа уведомлений
+function showNotification(message, type = 'info') {
+    // Создаем элемент уведомления, если его нет
+    let notification = document.getElementById('notification');
+    if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+            z-index: 10000;
+            transition: opacity 0.3s;
+            opacity: 0;
+        `;
+        document.body.appendChild(notification);
+    }
+    
+    // Устанавливаем цвет в зависимости от типа
+    const colors = {
+        success: '#4CAF50',
+        error: '#F44336',
+        warning: '#FF9800',
+        info: '#2196F3'
+    };
+    notification.style.backgroundColor = colors[type] || colors.info;
+    
+    // Показываем сообщение
+    notification.textContent = message;
+    notification.style.opacity = '1';
+    
+    // Скрываем через 3 секунды
+    setTimeout(() => {
+        notification.style.opacity = '0';
+    }, 3000);
 }
 
 // Функция для открытия модального окна редактирования зоны

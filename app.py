@@ -1,10 +1,10 @@
 # app.py
 import base64
 import io
+import math
 import os
 import time
 import uuid
-import math
 
 from flask import (
     Flask,
@@ -337,11 +337,29 @@ def delete_token_avatar(token_id):
     return jsonify({"status": "error"}), 404
 
 
+@app.route("/api/token/avatar/<token_id>", methods=["POST"])
+def upload_token_avatar(token_id):
+    """Загрузить аватар токена"""
+    try:
+        data = request.get_json()
+        avatar_data = data.get('avatar_data')
+        
+        if not avatar_data:
+            return jsonify({"error": "No avatar data"}), 400
+        
+        from utils.storage import save_token_avatar
+        if save_token_avatar(avatar_data, token_id):
+            return jsonify({"status": "ok"})
+        return jsonify({"error": "Failed to save avatar"}), 500
+    except Exception as e:
+        print(f"Error uploading token avatar: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/token/avatar/<token_id>")
 def get_token_avatar(token_id):
     """Получить аватар токена как файл"""
     from utils.storage import get_token_avatar_filepath
-
+    
     image_path = get_token_avatar_filepath(token_id)
     print(f"Looking for token avatar at: {image_path}")
     print(f"File exists: {os.path.exists(image_path)}")
@@ -349,16 +367,75 @@ def get_token_avatar(token_id):
     if os.path.exists(image_path):
         print(f"File size: {os.path.getsize(image_path)} bytes")
         return send_file(image_path, mimetype="image/png")
+    
+    # Создаем заглушку с прозрачным фоном
+    from PIL import Image, ImageDraw
+    img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))  # Прозрачный фон
+    
+    # Рисуем серый круг с вопросительным знаком
+    draw = ImageDraw.Draw(img)
+    
+    # Рисуем круг
+    draw.ellipse([20, 20, 236, 236], fill=(100, 100, 100, 255), outline=(150, 150, 150, 255), width=2)
+    
+    # Добавляем вопросительный знак
+    import textwrap
+    try:
+        # Пытаемся использовать шрифт побольше
+        from PIL import ImageFont
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 120)
+        except:
+            font = ImageFont.load_default()
+        
+        # Рисуем "?" в центре
+        draw.text((128, 128), "?", fill=(150, 150, 150, 255), font=font, anchor="mm")
+    except:
+        # Если не получается со шрифтом, рисуем простой крестик
+        draw.line((78, 78, 178, 178), fill=(150, 150, 150, 255), width=10)
+        draw.line((178, 78, 78, 178), fill=(150, 150, 150, 255), width=10)
+    
+    # Сохраняем в BytesIO
+    img_io = io.BytesIO()
+    img.save(img_io, 'PNG')
+    img_io.seek(0)
+    
+    # Добавляем заголовки для отключения кэширования
+    response = send_file(img_io, mimetype='image/png')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
 
-    # Если файл не найден, проверим содержимое папки
-    print(f"Files in token_avatars dir:")
-    token_avatars_dir = os.path.dirname(image_path)
-    if os.path.exists(token_avatars_dir):
-        for f in os.listdir(token_avatars_dir):
-            print(f"  - {f}")
-
-    return "", 404
-
+@app.route("/api/token/avatar/<source_token_id>/copy", methods=["POST"])
+def copy_token_avatar(source_token_id):
+    """Скопировать аватар токена"""
+    try:
+        data = request.get_json()
+        target_token_id = data.get('target_token_id')
+        
+        if not target_token_id:
+            return jsonify({"error": "No target token ID"}), 400
+        
+        from utils.storage import get_token_avatar_filepath, save_token_avatar
+        
+        source_path = get_token_avatar_filepath(source_token_id)
+        if not os.path.exists(source_path):
+            return jsonify({"error": "Source avatar not found"}), 404
+        
+        # Читаем исходный файл
+        with open(source_path, 'rb') as f:
+            avatar_data = f.read()
+        
+        # Сохраняем для нового токена
+        if save_token_avatar(avatar_data, target_token_id):
+            return jsonify({"status": "ok"})
+        
+        return jsonify({"error": "Failed to copy avatar"}), 500
+    except Exception as e:
+        print(f"Error copying avatar: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/tokens", methods=["GET"])
 def get_tokens():
@@ -393,7 +470,6 @@ def add_token():
     print("TOKEN API CALLED")
     print("=" * 50)
 
-    # Получаем данные запроса
     try:
         token = request.get_json()
         print(f"Received JSON data: {token}")
@@ -432,7 +508,6 @@ def add_token():
 
             # Проверяем, что файл действительно создан
             from utils.storage import get_token_avatar_filepath
-
             filepath = get_token_avatar_filepath(token["id"])
             print(f"Avatar file exists: {os.path.exists(filepath)}")
         else:
@@ -455,6 +530,7 @@ def add_token():
     for t in data.get("tokens", []):
         token_copy = t.copy()
         if token_copy.get("has_avatar"):
+            from utils.storage import get_token_avatar_url
             token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
@@ -466,17 +542,13 @@ def add_token():
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
+        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
 
     socketio.emit("map_updated", player_data)
     print("Map updated event sent to players")
