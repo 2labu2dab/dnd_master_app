@@ -1110,7 +1110,13 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
     ctx.closePath();
     ctx.clip();
 
-    ctx.filter = "blur(50px)";
+    // Размытие равно ширине карты на экране
+    // Это гарантирует полное размытие при любом масштабе
+    const blurSize = mapImage.width * scale * 0.05;
+    
+    console.log(`Scale: ${scale.toFixed(2)}, Blur: ${blurSize.toFixed(0)}px`);
+    
+    ctx.filter = `blur(${blurSize}px)`;
     ctx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
     ctx.filter = "none";
     ctx.restore();

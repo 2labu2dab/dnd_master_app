@@ -336,7 +336,7 @@ function createCharacterFromToken(name, avatarData, characterId) {
     id: characterId,
     name,
     has_avatar: true,
-    visible_to_players: true,
+    visible_to_players: false,
   };
 
   mapData.characters.push(character);
@@ -1629,19 +1629,32 @@ function handleCharacterAvatarUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
+  // Проверяем размер файла
+  if (file.size > 10 * 1024 * 1024) {
+    alert("Файл слишком большой. Максимальный размер 10MB.");
+    return;
+  }
+
   const reader = new FileReader();
   reader.onload = function (e) {
     const img = new Image();
     img.onload = function () {
+      // Создаем canvas того же размера, что и оригинал
       const canvas = document.createElement("canvas");
-      const size = 256;
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = img.width;
+      canvas.height = img.height;
 
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, size, size); // ⬅️ без clip()
+      
+      // Включаем сглаживание
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Рисуем в оригинальном размере
+      ctx.drawImage(img, 0, 0, img.width, img.height);
 
-      const base64 = canvas.toDataURL("image/png");
+      // Сохраняем с высоким качеством
+      const base64 = canvas.toDataURL("image/png", 1.0); // Максимальное качество
 
       const preview = document.getElementById("characterAvatarPreview");
       preview.src = base64;
@@ -2378,10 +2391,10 @@ canvas.addEventListener("contextmenu", (e) => {
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
     );
 
-    if (hasIntersection) {
-      alert("Новая зона пересекается с существующей! Измените форму.");
-      return;
-    }
+    // if (hasIntersection) {
+    //   alert("Новая зона пересекается с существующей! Измените форму.");
+    //   return;
+    // }
     return;
   }
 });
@@ -2479,24 +2492,35 @@ canvas.addEventListener("wheel", (e) => {
   }, 200);
 });
 document.addEventListener("keydown", (e) => {
+  // Проверяем, не находится ли фокус на поле ввода
+  const isInputActive = document.activeElement.tagName === 'INPUT' || 
+                        document.activeElement.tagName === 'TEXTAREA' ||
+                        document.activeElement.isContentEditable;
+  
+  // Если фокус на поле ввода - не перехватываем комбинации клавиш
+  if (isInputActive) {
+    return; // Позволяем стандартному поведению (включая Ctrl+V)
+  }
+  
   if (e.key === "Escape") {
-        if (drawingZone) {
-            drawingZone = false;
-            currentZoneVertices = [];
-            updateCanvasCursor();
-            
-            // Удаляем подсказку
-            const hint = document.getElementById('drawing-hint');
-            if (hint) hint.remove();
-            
-            render();
-        }
+    if (drawingZone) {
+      drawingZone = false;
+      currentZoneVertices = [];
+      updateCanvasCursor();
+      
+      // Удаляем подсказку
+      const hint = document.getElementById('drawing-hint');
+      if (hint) hint.remove();
+      
+      render();
     }
-    if (e.key === "Delete") {
-        let changed = false;
-        
-        // Существующий код для токенов
-        if (selectedTokenId) {
+  }
+  
+  if (e.key === "Delete") {
+    let changed = false;
+    
+    // Существующий код для токенов
+    if (selectedTokenId) {
       fetch(`/api/token/avatar/${selectedTokenId}`, {
         method: 'DELETE'
       }).catch(err => console.error('Error deleting token avatar:', err));
@@ -2544,14 +2568,15 @@ document.addEventListener("keydown", (e) => {
       updateSidebar();
     }
   }
+  
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
-      e.preventDefault();
-      copySelectedToken();
+    e.preventDefault();
+    copySelectedToken();
   }
 
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
-      e.preventDefault();
-      pasteToken();
+    e.preventDefault();
+    pasteToken();
   }
 });
 
@@ -2613,10 +2638,10 @@ function submitZone() {
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, pendingZoneVertices)
     );
 
-    if (hasIntersection) {
-      alert("Новая зона пересекается с существующей! Измените форму.");
-      return;
-    }
+    // if (hasIntersection) {
+    //   alert("Новая зона пересекается с существующей! Измените форму.");
+    //   return;
+    // }
 
     const newZone = {
       id: `zone_${Date.now()}`,
