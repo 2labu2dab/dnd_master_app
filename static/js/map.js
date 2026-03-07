@@ -2385,7 +2385,7 @@ canvas.addEventListener("contextmenu", (e) => {
     document.getElementById("zoneDescription").value = "";
     document.getElementById("zoneModalTitle").textContent = "Создание зоны";
     document.getElementById("zoneModal").style.display = "flex";
-    document.getElementById("zoneVisibleCheckbox").checked = true;
+    document.getElementById("zoneVisibleCheckbox").checked = false;
 
     const hasIntersection = mapData.zones.some(z =>
       z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
@@ -2576,6 +2576,11 @@ document.addEventListener("keydown", (e) => {
 
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
     e.preventDefault();
+    pasteToken();
+  }
+   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') {
+    e.preventDefault();
+    copySelectedToken();
     pasteToken();
   }
 });
