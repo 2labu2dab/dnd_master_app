@@ -2544,12 +2544,12 @@ document.addEventListener("keydown", (e) => {
       updateSidebar();
     }
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
       e.preventDefault();
       copySelectedToken();
   }
 
-  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
       e.preventDefault();
       pasteToken();
   }
