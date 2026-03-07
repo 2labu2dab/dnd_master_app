@@ -1360,3 +1360,19 @@ canvas.map-panning {
 #notification.show {
     opacity: 1;
 }
+
+
+#tokenList li.selected,
+#zoneList li.selected,
+#findList li.selected,
+#characterList li.selected {
+    background: #3a4a6b !important;
+    border-left: 4px solid #4C5BEF !important;
+}
+
+#tokenList li:hover,
+#zoneList li:hover,
+#findList li:hover,
+#characterList li:hover {
+    background: #333344;
+}

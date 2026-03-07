@@ -607,8 +607,9 @@ function createCharacterContextMenu() {
 }
 
 // Обновляем существующую updateSidebar для добавления data-атрибутов
+// static/js/map.js - обновленная функция updateSidebar()
 function updateSidebar() {
-    // Существующий код для зон...
+    // Зоны
     const zoneList = document.getElementById("zoneList");
     zoneList.innerHTML = "";
 
@@ -617,11 +618,17 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
-        li.style.background = "#2a2a3b";
+        li.style.background = selectedZoneId === zone.id ? "#3a4a6b" : "#2a2a3b";
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
-        li.dataset.zoneId = zone.id; // Добавляем data-атрибут
+        li.style.cursor = "pointer";
+        li.dataset.zoneId = zone.id;
+
+        // Добавляем левую границу для выделенного элемента
+        if (selectedZoneId === zone.id) {
+            li.style.borderLeft = "4px solid #4C5BEF";
+        }
 
         const nameSpan = document.createElement("span");
         nameSpan.textContent = zone.name;
@@ -635,11 +642,28 @@ function updateSidebar() {
         eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
         eye.style.cursor = "pointer";
         eye.title = "Показать/скрыть зону";
-        eye.onclick = () => {
+        eye.onclick = (e) => {
+            e.stopPropagation(); // Предотвращаем всплытие события
             zone.is_visible = !zone.is_visible;
             saveMapData();
             updateSidebar();
             render();
+        };
+
+        // Клик на элемент зоны для выделения
+        li.onclick = (e) => {
+            e.stopPropagation();
+            // Снимаем выделение с других объектов
+            selectedTokenId = null;
+            selectedFindId = null;
+            selectedCharacterId = null;
+            // Выделяем эту зону
+            selectedZoneId = zone.id;
+            updateSidebar(); // Обновляем сайдбар для отображения выделения
+            render(); // Перерисовываем карту для отображения выделения
+            
+            // Центрируем вид на зоне (опционально)
+            centerOnZone(zone);
         };
 
         li.appendChild(nameSpan);
@@ -647,7 +671,7 @@ function updateSidebar() {
         zoneList.appendChild(li);
     });
 
-    // Существующий код для токенов...
+    // Токены
     const tokenList = document.getElementById("tokenList");
     tokenList.innerHTML = "";
 
@@ -657,11 +681,17 @@ function updateSidebar() {
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
         li.style.gap = "8px";
-        li.style.background = "#2a2a3b";
+        li.style.background = selectedTokenId === token.id ? "#3a4a6b" : "#2a2a3b";
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.color = "#ccc";
-        li.dataset.tokenId = token.id; // Добавляем data-атрибут
+        li.style.cursor = "pointer";
+        li.dataset.tokenId = token.id;
+
+        // Добавляем левую границу для выделенного элемента
+        if (selectedTokenId === token.id) {
+            li.style.borderLeft = "4px solid #4C5BEF";
+        }
 
         const dot = document.createElement("span");
         dot.style.display = "inline-block";
@@ -715,6 +745,22 @@ function updateSidebar() {
             render();
         };
 
+        // Клик на элемент токена для выделения
+        li.onclick = (e) => {
+            e.stopPropagation();
+            // Снимаем выделение с других объектов
+            selectedZoneId = null;
+            selectedFindId = null;
+            selectedCharacterId = null;
+            // Выделяем этот токен
+            selectedTokenId = token.id;
+            updateSidebar(); // Обновляем сайдбар для отображения выделения
+            render(); // Перерисовываем карту для отображения выделения
+            
+            // Центрируем вид на токене (опционально)
+            centerOnToken(token);
+        };
+
         li.appendChild(dot);
         li.appendChild(nameSpan);
         li.appendChild(acSpan);
@@ -723,7 +769,7 @@ function updateSidebar() {
         tokenList.appendChild(li);
     });
 
-    // Существующий код для находок...
+    // Находки
     const findList = document.getElementById("findList");
     findList.innerHTML = "";
 
@@ -732,11 +778,17 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
-        li.style.background = "#2a2a3b";
+        li.style.background = selectedFindId === find.id ? "#3a4a6b" : "#2a2a3b";
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
-        li.dataset.findId = find.id; // Добавляем data-атрибут
+        li.style.cursor = "pointer";
+        li.dataset.findId = find.id;
+
+        // Добавляем левую границу для выделенного элемента
+        if (selectedFindId === find.id) {
+            li.style.borderLeft = "4px solid #4C5BEF";
+        }
 
         const nameSpan = document.createElement("span");
         nameSpan.textContent = find.name;
@@ -757,12 +809,28 @@ function updateSidebar() {
             statusSpan.textContent = "";
         }
 
+        // Клик на элемент находки для выделения
+        li.onclick = (e) => {
+            e.stopPropagation();
+            // Снимаем выделение с других объектов
+            selectedTokenId = null;
+            selectedZoneId = null;
+            selectedCharacterId = null;
+            // Выделяем эту находку
+            selectedFindId = find.id;
+            updateSidebar(); // Обновляем сайдбар для отображения выделения
+            render(); // Перерисовываем карту для отображения выделения
+            
+            // Центрируем вид на находке (опционально)
+            centerOnFind(find);
+        };
+
         li.appendChild(nameSpan);
         li.appendChild(statusSpan);
         findList.appendChild(li);
     });
 
-    // Существующий код для портретов...
+    // Портреты персонажей
     const characterList = document.getElementById("characterList");
     characterList.innerHTML = "";
 
@@ -771,7 +839,7 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.gap = "8px";
-        li.style.background = "#2a2a3b";
+        li.style.background = selectedCharacterId === character.id ? "#3a4a6b" : "#2a2a3b";
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
@@ -779,9 +847,8 @@ function updateSidebar() {
         li.style.cursor = "pointer";
         li.dataset.characterId = character.id;
 
-        // Если этот портрет выделен, меняем фон
+        // Добавляем левую границу для выделенного элемента
         if (selectedCharacterId === character.id) {
-            li.style.background = "#3a4a6b";
             li.style.borderLeft = "4px solid #4C5BEF";
         }
 
@@ -823,9 +890,14 @@ function updateSidebar() {
             saveMapData();
         };
 
-        // Клик на сам элемент портрета - выделение
+        // Клик на элемент портрета - выделение
         li.onclick = (e) => {
             e.stopPropagation();
+            // Снимаем выделение с других объектов
+            selectedTokenId = null;
+            selectedFindId = null;
+            selectedZoneId = null;
+            // Выделяем этот портрет
             selectedCharacterId = character.id;
             updateSidebar();
         };
@@ -836,9 +908,11 @@ function updateSidebar() {
         characterList.appendChild(li);
     });
     
-    // После обновления всех списков, настраиваем контекстные меню
+    // Настраиваем контекстные меню
     setupSidebarContextMenus();
 }
+
+
 let currentMapId = null;
 
 function checkMapExists() {
@@ -2034,6 +2108,7 @@ canvas.addEventListener("mousedown", (e) => {
       draggingToken = token;
       dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
       selectedTokenId = token.id;
+      updateSidebar()
       clicked = true;
       break;
     }
@@ -2050,6 +2125,7 @@ canvas.addEventListener("mousedown", (e) => {
         draggingFind = find;
         dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
         selectedFindId = find.id;
+        updateSidebar()
         clicked = true;
         break;
       }
@@ -2062,10 +2138,20 @@ canvas.addEventListener("mousedown", (e) => {
       const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
       if (pointInPolygon([mouseX, mouseY], transformed)) {
         selectedZoneId = zone.id;
+        updateSidebar();
         clicked = true;
         break;
       }
     }
+  }
+  if (!clicked && !isRulerMode && !drawingZone) {
+      // Снимаем выделение со всех объектов
+      selectedTokenId = null;
+      selectedFindId = null;
+      selectedZoneId = null;
+      selectedCharacterId = null;
+      updateSidebar(); // Обновляем сайдбар
+      render(); // Перерисовываем карту
   }
 
   // Средняя кнопка мыши — панорамирование карты (как в доте),
@@ -2561,12 +2647,12 @@ document.addEventListener("keydown", (e) => {
     }
 
     if (changed) {
-      render();
-      saveMapData().then(() => {
-        socket.emit("force_avatar_reload", { map_id: currentMapId });
-      });
-      updateSidebar();
-    }
+            render();
+            saveMapData().then(() => {
+                socket.emit("force_avatar_reload", { map_id: currentMapId });
+            });
+            updateSidebar(); // Добавить эту строку
+        }
   }
   
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
