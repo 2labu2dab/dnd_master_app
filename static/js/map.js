@@ -1515,7 +1515,7 @@ function drawGrid(offsetX, offsetY, scale) {
 
 function isPointInHiddenZone(point, zones) {
     if (!zones || !zones.length) return false;
-    
+
     for (let i = 0; i < zones.length; i++) {
         const zone = zones[i];
         // Проверяем только зоны, которые скрыты от игроков (is_visible === false)
@@ -1539,9 +1539,9 @@ function drawToken(token, offsetX, offsetY, scale) {
     const isUnderHiddenZone = isPointInHiddenZone(token.position, mapData.zones);
     // Проверяем, скрыт ли токен вручную мастером
     const isManuallyHidden = token.is_visible === false;
-    
+
     ctx.save();
-    
+
     // Если токен под скрытой зоной ИЛИ скрыт вручную, делаем его полупрозрачным
     if (isUnderHiddenZone || isManuallyHidden) {
         ctx.globalAlpha = 0.4;
@@ -1643,9 +1643,9 @@ function drawToken(token, offsetX, offsetY, scale) {
         ctx.lineWidth = 3;
         ctx.stroke();
     }
-    
+
     ctx.restore();
-    
+
     // Иконки УБРАНЫ - оставляем только прозрачность
 }
 
@@ -2532,6 +2532,46 @@ function renderTokenContextMenu(token, x, y) {
 
 canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    if (isRulerMode) {
+        isRulerMode = false;
+        rulerStart = null;
+        mapData.ruler_start = null;
+        mapData.ruler_end = null;
+
+        // НОВОЕ: Отключаем видимость линейки для игроков
+        mapData.ruler_visible_to_players = false;
+
+        // Обновляем кнопку в интерфейсе мастера
+        const playerRulerToggle = document.getElementById("playerRulerToggle");
+        if (playerRulerToggle) {
+            playerRulerToggle.classList.remove("active");
+        }
+
+        // Отправляем обновление линейки
+        socket.emit("ruler_update", {
+            map_id: currentMapId,
+            ruler_start: null,
+            ruler_end: null
+        });
+
+        // НОВОЕ: Отправляем событие об изменении видимости для игроков
+        socket.emit("ruler_visibility_change", {
+            map_id: currentMapId,
+            ruler_visible_to_players: false
+        });
+
+        // Обновляем кнопку линейки мастера
+        const rulerBtn = document.getElementById("rulerToggle");
+        if (rulerBtn) {
+            rulerBtn.classList.remove("active");
+        }
+
+        saveMapData();
+        render();
+        updateCanvasCursor();
+        console.log("Ruler disabled with right-click, player visibility also disabled");
+        return;
+    }
     const { scale, offsetX, offsetY } = getTransform();
 
     // Проверяем клик по токену
@@ -2791,6 +2831,47 @@ document.addEventListener("keydown", (e) => {
     }
 
     if (e.key === "Escape") {
+        // Отключаем линейку при Escape
+        if (isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+
+            // НОВОЕ: Отключаем видимость линейки для игроков
+            mapData.ruler_visible_to_players = false;
+
+            // Обновляем кнопку в интерфейсе мастера
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            if (playerRulerToggle) {
+                playerRulerToggle.classList.remove("active");
+            }
+
+            // Отправляем обновление линейки
+            socket.emit("ruler_update", {
+                map_id: currentMapId,
+                ruler_start: null,
+                ruler_end: null
+            });
+
+            // НОВОЕ: Отправляем событие об изменении видимости для игроков
+            socket.emit("ruler_visibility_change", {
+                map_id: currentMapId,
+                ruler_visible_to_players: false
+            });
+
+            // Обновляем кнопку линейки мастера
+            const rulerBtn = document.getElementById("rulerToggle");
+            if (rulerBtn) {
+                rulerBtn.classList.remove("active");
+            }
+
+            saveMapData();
+            render();
+            updateCanvasCursor();
+            console.log("Ruler disabled with Escape, player visibility also disabled");
+        }
+
         if (drawingZone) {
             drawingZone = false;
             currentZoneVertices = [];
@@ -3276,7 +3357,7 @@ function showTokenContextMenu(token, x, y) {
     // Установка активной кнопки типа
     const typeButtons = document.querySelectorAll('.context-type-btn');
     typeButtons.forEach(btn => btn.classList.remove('active'));
-    
+
     if (token.is_player) {
         document.querySelector('.context-type-btn[data-type="player"]').classList.add('active');
     } else if (token.is_npc) {
@@ -3294,31 +3375,31 @@ function showTokenContextMenu(token, x, y) {
 
     // Добавляем новые обработчики
     typeButtons.forEach(btn => {
-        btn.onclick = function(e) {
+        btn.onclick = function (e) {
             e.stopPropagation();
-            
+
             if (!currentContextToken) return;
-            
+
             const type = this.dataset.type;
-            
+
             // Обновляем внешний вид кнопок
             typeButtons.forEach(b => b.classList.remove('active'));
             this.classList.add('active');
-            
+
             // Обновляем тип токена
             currentContextToken.is_player = (type === 'player');
             currentContextToken.is_npc = (type === 'npc');
-            
+
             // Обновляем текст типа в заголовке
             let typeText = type === 'player' ? 'Игрок' : (type === 'npc' ? 'НПС' : 'Враг');
             document.getElementById("contextTokenType").textContent = typeText;
-            
+
             // Сохраняем изменения
             saveMapData();
-            
+
             // Обновляем отображение в сайдбаре
             updateSidebar();
-            
+
             // Перерисовываем канвас
             render();
         };
@@ -4176,4 +4257,63 @@ function createCharacterContextMenu() {
     });
 
     return menu;
+}
+
+
+// Добавьте эту функцию, если она ещё не определена
+function drawRuler(offsetX, offsetY, scale) {
+    if (!rulerStart) return;
+
+    const [x1, y1] = rulerStart;
+    const sx1 = x1 * scale + offsetX;
+    const sy1 = y1 * scale + offsetY;
+    const sx2 = lastMouseX;
+    const sy2 = lastMouseY;
+
+    ctx.beginPath();
+    ctx.moveTo(sx1, sy1);
+    ctx.lineTo(sx2, sy2);
+    ctx.strokeStyle = "#c82a2aff";
+    ctx.lineWidth = 4;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const dxWorld = (sx2 - sx1) / scale;
+    const dyWorld = (sy2 - sy1) / scale;
+    const cell = mapData.grid_settings.cell_size || 20;
+
+    const dxCells = Math.abs(dxWorld) / cell;
+    const dyCells = Math.abs(dyWorld) / cell;
+
+    const steps = Math.max(dxCells, dyCells);
+    const cells = Math.max(1, Math.round(steps));
+    const feet = cells * 5;
+
+    const midX = (sx1 + sx2) / 2;
+    const midY = (sy1 + sy2) / 2;
+
+    ctx.font = "bold 16px Inter";
+    ctx.textAlign = "center";
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "white";
+    ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+    ctx.fillStyle = "black";
+    ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+
+    const headlen = 10;
+    const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
+
+    const arrowX1 = sx2 - headlen * Math.cos(angle - Math.PI / 6);
+    const arrowY1 = sy2 - headlen * Math.sin(angle - Math.PI / 6);
+    const arrowX2 = sx2 - headlen * Math.cos(angle + Math.PI / 6);
+    const arrowY2 = sy2 - headlen * Math.sin(angle + Math.PI / 6);
+
+    ctx.beginPath();
+    ctx.moveTo(sx2, sy2);
+    ctx.lineTo(arrowX1, arrowY1);
+    ctx.moveTo(sx2, sy2);
+    ctx.lineTo(arrowX2, arrowY2);
+    ctx.strokeStyle = "#c82a2aff";
+    ctx.stroke();
 }

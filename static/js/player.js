@@ -1051,7 +1051,7 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     ctx.moveTo(sx1, sy1);
     ctx.lineTo(sx2, sy2);
     ctx.strokeStyle = "#c82a2aff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 4;
     ctx.setLineDash([6, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
@@ -1070,13 +1070,16 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     const midX = (sx1 + sx2) / 2;
     const midY = (sy1 + sy2) / 2;
 
-    ctx.font = "bold 16px Inter";
-    ctx.textAlign = "center";
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "white";
-    ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10);
-    ctx.fillStyle = "black";
-    ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+    // Рисуем надпись ТОЛЬКО если это не мини-карта
+    if (!isMiniMap) {
+        ctx.font = "bold 16px Inter";
+        ctx.textAlign = "center";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "white";
+        ctx.strokeText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+        ctx.fillStyle = "black";
+        ctx.fillText(`${feet.toFixed(0)} футов`, midX, midY - 10);
+    }
 
     const headlen = 10;
     const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
