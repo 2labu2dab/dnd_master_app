@@ -871,85 +871,85 @@ function updateSidebar() {
     });
 
     // Портреты персонажей
-    const characterList = document.getElementById("characterList");
-    characterList.innerHTML = "";
+    // const characterList = document.getElementById("characterList");
+    // characterList.innerHTML = "";
 
-    mapData.characters?.forEach(character => {
-        const li = document.createElement("li");
-        li.style.display = "flex";
-        li.style.alignItems = "center";
-        li.style.gap = "8px";
+    // mapData.characters?.forEach(character => {
+    //     const li = document.createElement("li");
+    //     li.style.display = "flex";
+    //     li.style.alignItems = "center";
+    //     li.style.gap = "8px";
 
-        // Единый стиль выделения для портретов
-        if (selectedCharacterId === character.id) {
-            li.style.background = "#3a4a6b";
-            li.style.borderLeft = "4px solid #4C5BEF";
-        } else {
-            li.style.background = "#2a2a3b";
-            li.style.borderLeft = "none";
-        }
+    //     // Единый стиль выделения для портретов
+    //     if (selectedCharacterId === character.id) {
+    //         li.style.background = "#3a4a6b";
+    //         li.style.borderLeft = "4px solid #4C5BEF";
+    //     } else {
+    //         li.style.background = "#2a2a3b";
+    //         li.style.borderLeft = "none";
+    //     }
 
-        li.style.padding = "6px 10px";
-        li.style.borderRadius = "4px";
-        li.style.marginBottom = "4px";
-        li.style.color = "#ccc";
-        li.style.cursor = "pointer";
-        li.dataset.characterId = character.id;
+    //     li.style.padding = "6px 10px";
+    //     li.style.borderRadius = "4px";
+    //     li.style.marginBottom = "4px";
+    //     li.style.color = "#ccc";
+    //     li.style.cursor = "pointer";
+    //     li.dataset.characterId = character.id;
 
-        // аватар
-        const img = document.createElement("img");
-        if (character.has_avatar) {
-            const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-            img.src = `${portraitUrl}?t=${Date.now()}`;
-        }
-        img.style.width = "32px";
-        img.style.height = "32px";
-        img.style.borderRadius = "4px";
-        img.style.objectFit = "cover";
+    //     // аватар
+    //     const img = document.createElement("img");
+    //     if (character.has_avatar) {
+    //         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
+    //         img.src = `${portraitUrl}?t=${Date.now()}`;
+    //     }
+    //     img.style.width = "32px";
+    //     img.style.height = "32px";
+    //     img.style.borderRadius = "4px";
+    //     img.style.objectFit = "cover";
 
-        img.onerror = () => {
-            img.style.display = "none";
-        };
+    //     img.onerror = () => {
+    //         img.style.display = "none";
+    //     };
 
-        // имя
-        const nameSpan = document.createElement("span");
-        nameSpan.textContent = character.name;
-        nameSpan.style.flex = "1";
-        nameSpan.style.overflow = "hidden";
-        nameSpan.style.textOverflow = "ellipsis";
-        nameSpan.style.whiteSpace = "nowrap";
-        nameSpan.style.color = "#ddd";
+    //     // имя
+    //     const nameSpan = document.createElement("span");
+    //     nameSpan.textContent = character.name;
+    //     nameSpan.style.flex = "1";
+    //     nameSpan.style.overflow = "hidden";
+    //     nameSpan.style.textOverflow = "ellipsis";
+    //     nameSpan.style.whiteSpace = "nowrap";
+    //     nameSpan.style.color = "#ddd";
 
-        // кнопка-глаз
-        const eye = document.createElement("span");
-        eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
-        eye.style.cursor = "pointer";
-        eye.style.marginRight = "8px";
-        eye.title = "Видимость для игроков";
+    //     // кнопка-глаз
+    //     const eye = document.createElement("span");
+    //     eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+    //     eye.style.cursor = "pointer";
+    //     eye.style.marginRight = "8px";
+    //     eye.title = "Видимость для игроков";
 
-        eye.onclick = (e) => {
-            e.stopPropagation();
-            character.visible_to_players = !character.visible_to_players;
-            updateSidebar();
-            saveMapData();
-        };
+    //     eye.onclick = (e) => {
+    //         e.stopPropagation();
+    //         character.visible_to_players = !character.visible_to_players;
+    //         updateSidebar();
+    //         saveMapData();
+    //     };
 
-        li.onclick = (e) => {
-            e.stopPropagation();
-            selectedCharacterId = character.id;
-            selectedTokenId = null;
-            selectedFindId = null;
-            selectedZoneId = null;
-            selectedTokens.clear();
-            updateSidebar();
-        };
+    //     li.onclick = (e) => {
+    //         e.stopPropagation();
+    //         selectedCharacterId = character.id;
+    //         selectedTokenId = null;
+    //         selectedFindId = null;
+    //         selectedZoneId = null;
+    //         selectedTokens.clear();
+    //         updateSidebar();
+    //     };
 
-        li.appendChild(img);
-        li.appendChild(nameSpan);
-        li.appendChild(eye);
-        characterList.appendChild(li);
-    });
-
+    //     li.appendChild(img);
+    //     li.appendChild(nameSpan);
+    //     li.appendChild(eye);
+    //     characterList.appendChild(li);
+    // });
+    initCharacterDragAndDrop();
     // Настраиваем контекстные меню
     setupSidebarContextMenus();
 }
@@ -1816,6 +1816,7 @@ function submitCharacter() {
 
             // Перезагружаем данные карты для получения URL портрета
             fetchMap();
+            initCharacterDragAndDrop();
         })
         .catch(error => {
             console.error("Error saving character:", error);
@@ -4323,13 +4324,13 @@ function drawRuler(offsetX, offsetY, scale) {
 playerRulerToggle.addEventListener("click", (e) => {
     // Не блокируем всплытие, чтобы сработал существующий обработчик
     // После того как сработает существующий обработчик, синхронизируем вторую кнопку
-    
+
     // Используем setTimeout, чтобы дать время сработать существующему обработчику
     setTimeout(() => {
         // Синхронизируем состояние rulerToggle с playerRulerToggle
         const isActive = playerRulerToggle.classList.contains("active");
         rulerToggle.classList.toggle("active", isActive);
-        
+
         // Если rulerToggle не активен, а playerRulerToggle активен - активируем rulerMode
         if (isActive && !isRulerMode) {
             isRulerMode = true;
@@ -4345,4 +4346,394 @@ playerRulerToggle.addEventListener("click", (e) => {
             updateCanvasCursor();
         }
     }, 10);
+});
+
+function initCharacterDragAndDrop() {
+    const characterList = document.getElementById("characterList");
+    if (!characterList) return;
+
+    let draggedItem = null;
+    let draggedIndex = -1;
+    let activeDropZone = null;
+    let lastDropTargetIndex = null; // Сохраняем последний индекс для вставки
+
+    // Функция для обновления порядка в mapData.characters
+    function reorderCharacters(fromIndex, toIndex) {
+        if (!mapData.characters || fromIndex === toIndex) return;
+
+        // Перемещаем элемент в массиве
+        const [removed] = mapData.characters.splice(fromIndex, 1);
+        mapData.characters.splice(toIndex, 0, removed);
+
+        // Сохраняем новый порядок
+        saveMapData();
+
+        // Обновляем отображение
+        renderCharacterList();
+
+        // Отправляем событие об изменении порядка
+        socket.emit("characters_reordered", {
+            map_id: currentMapId,
+            characters: mapData.characters
+        });
+    }
+
+    // Функция для рендеринга списка портретов
+    function renderCharacterList() {
+        if (!mapData.characters) {
+            characterList.innerHTML = "";
+            return;
+        }
+
+        characterList.innerHTML = "";
+
+        // Добавляем все портреты
+        mapData.characters.forEach((character, index) => {
+            const li = createCharacterListItem(character, index);
+            characterList.appendChild(li);
+        });
+    }
+
+    // Функция для очистки всех зон вставки
+    function removeAllDropZones() {
+        document.querySelectorAll('.drop-zone').forEach(z => z.remove());
+        activeDropZone = null;
+    }
+
+    // Функция для создания зоны вставки
+    function createDropZone(targetIndex) {
+        const dropZone = document.createElement('div');
+        dropZone.className = 'drop-zone active';
+        dropZone.dataset.targetIndex = targetIndex;
+        dropZone.style.height = '8px';
+        dropZone.style.background = '#4C5BEF';
+        dropZone.style.margin = '4px 0';
+        dropZone.style.boxShadow = '0 0 10px #4C5BEF';
+        dropZone.style.borderRadius = '4px';
+        dropZone.style.width = '100%';
+        dropZone.style.transition = 'all 0.2s ease';
+
+        // Сохраняем индекс последней активной зоны
+        lastDropTargetIndex = targetIndex;
+
+        return dropZone;
+    }
+
+    // Функция для определения места вставки по позиции мыши
+    function getDropTargetIndex(e) {
+        const rect = characterList.getBoundingClientRect();
+        const mouseY = e.clientY;
+
+        // Проверяем, находится ли мышь над областью списка
+        if (mouseY < rect.top || mouseY > rect.bottom) return null;
+
+        const items = characterList.querySelectorAll('li');
+
+        // Если список пуст
+        if (items.length === 0) return 0;
+
+        // Проверяем каждый элемент
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const itemRect = item.getBoundingClientRect();
+
+            // Если мышь над элементом или между элементами
+            if (mouseY <= itemRect.bottom) {
+                // Проверяем верхнюю половину первого элемента
+                if (i === 0 && mouseY < itemRect.top + itemRect.height / 2) {
+                    return 0; // Вставка перед первым
+                }
+
+                // Для всех элементов проверяем нижнюю половину
+                if (mouseY > itemRect.top + itemRect.height / 2) {
+                    return i + 1; // Вставка после текущего
+                } else {
+                    return i; // Вставка перед текущим
+                }
+            }
+        }
+
+        // Если мышь ниже всех элементов
+        return items.length; // Вставка в конец
+    }
+
+    // Функция для обновления зоны вставки
+    function updateDropZone(e) {
+        if (!draggedItem) return;
+
+        const targetIndex = getDropTargetIndex(e);
+
+        if (targetIndex === null) {
+            removeAllDropZones();
+            return;
+        }
+
+        // Если индекс не изменился, ничего не делаем
+        if (lastDropTargetIndex === targetIndex && activeDropZone) return;
+
+        // Удаляем старую зону и создаем новую
+        removeAllDropZones();
+
+        const items = characterList.querySelectorAll('li');
+
+        if (items.length === 0) {
+            // Список пуст
+            const dropZone = createDropZone(0);
+            characterList.appendChild(dropZone);
+            activeDropZone = dropZone;
+            return;
+        }
+
+        // Вставляем зону в нужное место
+        if (targetIndex === 0) {
+            // Вставка перед первым
+            const dropZone = createDropZone(0);
+            characterList.insertBefore(dropZone, items[0]);
+            activeDropZone = dropZone;
+        } else if (targetIndex >= items.length) {
+            // Вставка после последнего
+            const dropZone = createDropZone(items.length);
+            characterList.appendChild(dropZone);
+            activeDropZone = dropZone;
+        } else {
+            // Вставка между элементами
+            const dropZone = createDropZone(targetIndex);
+            characterList.insertBefore(dropZone, items[targetIndex]);
+            activeDropZone = dropZone;
+        }
+    }
+
+    // Функция для завершения перетаскивания
+    function completeDrag() {
+        if (draggedItem && lastDropTargetIndex !== null && draggedIndex !== -1) {
+            let newIndex = lastDropTargetIndex;
+
+            // Корректируем индекс если перемещаем элемент вниз
+            if (draggedIndex < newIndex) {
+                newIndex -= 1;
+            }
+
+            console.log(`Moving from ${draggedIndex} to ${newIndex}`);
+
+            // Перемещаем в массиве
+            reorderCharacters(draggedIndex, newIndex);
+        }
+
+        // Очищаем все
+        removeAllDropZones();
+
+        if (draggedItem) {
+            draggedItem.classList.remove('dragging');
+        }
+
+        draggedItem = null;
+        draggedIndex = -1;
+        lastDropTargetIndex = null;
+
+        // Удаляем глобальные обработчики
+        document.removeEventListener('dragover', globalDragOver);
+        document.removeEventListener('dragend', globalDragEnd);
+    }
+
+    // Глобальные обработчики
+    function globalDragOver(e) {
+        if (draggedItem) {
+            e.preventDefault();
+            updateDropZone(e);
+        }
+    }
+
+    function globalDragEnd(e) {
+        completeDrag();
+    }
+
+    // Функция создания элемента списка портретов
+    function createCharacterListItem(character, index) {
+        const li = document.createElement('li');
+        li.style.display = 'flex';
+        li.style.alignItems = 'center';
+        li.style.gap = '8px';
+        li.draggable = true;
+        li.dataset.characterId = character.id;
+        li.dataset.index = index;
+
+        // Единый стиль выделения для портретов
+        if (selectedCharacterId === character.id) {
+            li.style.background = '#3a4a6b';
+            li.style.borderLeft = '4px solid #4C5BEF';
+        } else {
+            li.style.background = '#2a2a3b';
+            li.style.borderLeft = 'none';
+        }
+
+        li.style.padding = '6px 10px';
+        li.style.borderRadius = '4px';
+        li.style.marginBottom = '0';
+        li.style.color = '#ccc';
+        li.style.cursor = 'grab';
+        li.style.position = 'relative';
+
+        // аватар
+        const img = document.createElement('img');
+        if (character.has_avatar) {
+            const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
+            img.src = `${portraitUrl}?t=${Date.now()}`;
+        }
+        img.style.width = '32px';
+        img.style.height = '32px';
+        img.style.borderRadius = '4px';
+        img.style.objectFit = 'cover';
+        img.draggable = false;
+
+        img.onerror = () => {
+            img.style.display = 'none';
+        };
+
+        // имя
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = character.name;
+        nameSpan.style.flex = '1';
+        nameSpan.style.overflow = 'hidden';
+        nameSpan.style.textOverflow = 'ellipsis';
+        nameSpan.style.whiteSpace = 'nowrap';
+        nameSpan.style.color = '#ddd';
+
+        // кнопка-глаз
+        const eye = document.createElement('span');
+        eye.innerHTML = character.visible_to_players !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+        eye.style.cursor = 'pointer';
+        eye.style.marginRight = '8px';
+        eye.style.flexShrink = '0';
+        eye.title = 'Видимость для игроков';
+
+        eye.onclick = (e) => {
+            e.stopPropagation();
+            character.visible_to_players = !character.visible_to_players;
+            saveMapData();
+            renderCharacterList();
+        };
+
+        li.onclick = (e) => {
+            if (e.target !== eye) {
+                e.stopPropagation();
+                selectedCharacterId = character.id;
+                selectedTokenId = null;
+                selectedFindId = null;
+                selectedZoneId = null;
+                selectedTokens.clear();
+                renderCharacterList();
+                render();
+            }
+        };
+
+        // Drag & Drop события для портрета
+        li.addEventListener('dragstart', (e) => {
+            draggedItem = li;
+            draggedIndex = index;
+            li.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.dropEffect = 'move';
+            e.dataTransfer.setData('text/plain', character.id);
+            e.dataTransfer.setDragImage(new Image(), 0, 0);
+
+            // Добавляем глобальные обработчики
+            document.addEventListener('dragover', globalDragOver);
+            document.addEventListener('dragend', globalDragEnd);
+        });
+
+        li.addEventListener('dragend', (e) => {
+            // Обработка уже есть в globalDragEnd
+        });
+
+        li.appendChild(img);
+        li.appendChild(nameSpan);
+        li.appendChild(eye);
+
+        return li;
+    }
+
+    // Добавляем обработчик на весь список
+    characterList.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (draggedItem) {
+            updateDropZone(e);
+        }
+    });
+
+    characterList.addEventListener('dragleave', (e) => {
+        // Не удаляем зону сразу
+    });
+
+    characterList.addEventListener('drop', (e) => {
+        e.preventDefault();
+        completeDrag();
+    });
+
+    // Инициализация: рендерим список
+    renderCharacterList();
+
+    // Предотвращаем стандартное поведение для всей страницы
+    document.addEventListener('dragover', (e) => {
+        if (e.target.closest('#characterList')) {
+            e.preventDefault();
+        }
+    });
+
+    document.addEventListener('drop', (e) => {
+        if (e.target.closest('#characterList')) {
+            e.preventDefault();
+        }
+    });
+}
+function preventDefaultHandler(e) {
+    e.preventDefault();
+}
+
+
+document.addEventListener('dragstart', (e) => {
+    // Если перетаскивается элемент из characterList
+    if (e.target.closest('#characterList')) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.dropEffect = 'move';
+    }
+});
+
+document.addEventListener('dragover', (e) => {
+    // Если мы в области портретов или над зонами вставки
+    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }
+});
+
+document.addEventListener('dragenter', (e) => {
+    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+        e.preventDefault();
+    }
+});
+
+document.addEventListener('dragleave', (e) => {
+    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+        e.preventDefault();
+    }
+});
+
+document.addEventListener('drop', (e) => {
+    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+        e.preventDefault();
+    }
+});
+
+socket.on("characters_reordered", (data) => {
+    if (data.map_id === currentMapId && data.characters) {
+        // Обновляем порядок портретов
+        mapData.characters = data.characters;
+
+        // Обновляем отображение
+        initCharacterDragAndDrop();
+
+        // Сохраняем изменения
+        saveMapData();
+    }
 });

@@ -1308,6 +1308,34 @@ def handle_token_move(data):
         include_self=False,
     )
 
+@socketio.on("characters_reordered")
+def handle_characters_reordered(data):
+    """Обработчик изменения порядка портретов"""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+    
+    characters = data.get("characters")
+    if not characters:
+        return
+    
+    print(f"Characters reordered for map {map_id}")
+    
+    # Загружаем данные карты
+    map_data = load_map_data(map_id)
+    if map_data:
+        # Обновляем порядок портретов
+        map_data["characters"] = characters
+        save_map_data(map_data, map_id)
+        
+        # Отправляем всем, кроме отправителя
+        emit(
+            "characters_reordered",
+            {"map_id": map_id, "characters": characters},
+            broadcast=True,
+            include_self=False,
+        )
+
 
 if __name__ == "__main__":
     # Создаем необходимые директории

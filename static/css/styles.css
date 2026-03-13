@@ -1336,10 +1336,6 @@ canvas.map-panning {
   }
 }
 
-#characterList li.selected {
-  background: #3a4a6b !important;
-  border-left: 4px solid #4C5BEF;
-}
 
 #notification {
     position: fixed;
@@ -1366,13 +1362,110 @@ canvas.map-panning {
 #zoneList li.selected,
 #findList li.selected,
 #characterList li.selected {
-    background: #3a4a6b !important;
-    border-left: 4px solid #4C5BEF !important;
+    background: #3a4a6b;
+    border-left: 4px solid #4C5BEF;
+    box-shadow: 0 0 0 1px #4C5BEF; /* Добавим внешнюю обводку */
 }
-
+#characterList li span:not(.eye-icon) {
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
 #tokenList li:hover,
 #zoneList li:hover,
 #findList li:hover,
 #characterList li:hover {
     background: #333344;
+    transform: translateY(-1px); /* Легкое поднятие при наведении */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+#characterList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px; /* Добавляем отступ между элементами списка */
+}
+#characterList li .eye-icon {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+#characterList li:hover .eye-icon {
+    opacity: 1;
+}
+/* Базовые стили для портретов */
+#characterList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px; /* Немного увеличим отступы для воздуха */
+    border-radius: 6px; /* Чуть скруглим углы */
+    color: #ccc;
+    cursor: grab;
+    position: relative;
+    transition: all 0.2s;
+    background: #2a2a3b;
+    border-left: 4px solid transparent;
+    user-select: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Легкая тень для глубины */
+}
+
+/* Стиль для перетаскиваемого портрета */
+#characterList li.dragging {
+    opacity: 0.5;
+    transform: scale(0.98);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.4); /* Усилим тень при перетаскивании */
+    cursor: grabbing;
+    background: #3a4a6b;
+    z-index: 1000;
+}
+
+/* Стили для зон вставки (полоски) */
+.drop-zone {
+    height: 4px;
+    margin: 2px 0;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+}
+
+/* Активная полоска при наведении */
+.drop-zone.active {
+    height: 8px;
+    background: #4C5BEF;
+    margin: 6px 0; /* Увеличим отступы для активной полоски */
+    box-shadow: 0 0 12px #4C5BEF; /* Немного увеличим свечение */
+    border-radius: 4px; /* Чуть скруглим */
+}
+
+/* Отступы для верхней и нижней полосок */
+.drop-zone-top {
+    margin-bottom: 4px;
+}
+
+.drop-zone-bottom {
+    margin-top: 4px;
+}
+
+/* Запрещаем стандартный курсор "нельзя" при перетаскивании */
+#characterList,
+#characterList * {
+    -webkit-user-drag: element;
+    user-drag: element;
+}
+
+#characterList .drop-zone,
+#characterList .drop-zone * {
+    cursor: default;
+}
+
+#characterList .drop-zone.active,
+#characterList .drop-zone.active * {
+    cursor: copy;
+}
+
+/* Отключаем стандартные иконки при перетаскивании */
+#characterList img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none;
+    border-radius: 4px; /* Скруглим углы аватаров */
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Тонкая обводка */
 }
