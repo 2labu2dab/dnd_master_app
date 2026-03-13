@@ -854,10 +854,10 @@ socket.on("map_sync", (data) => {
 function drawLayers(offsetX, offsetY, scale) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
     
-    if (!isEmbeddedPreview && 
-        mapData.grid_settings.visible && 
-        mapData.grid_settings.visible_to_players &&
-        imageLoaded) {
+    // ИЗМЕНЕНО: Рисуем сетку если она разрешена для игроков, независимо от видимости у мастера
+    if (imageLoaded && 
+        mapData.grid_settings && 
+        mapData.grid_settings.visible_to_players === true) { // Только проверяем разрешение для игроков
         drawGrid(offsetX, offsetY, scale);
     }
 
@@ -885,7 +885,6 @@ function drawLayers(offsetX, offsetY, scale) {
         }
     }
 }
-
 function drawGrid(offsetX, offsetY, scale) {
     const cell = mapData.grid_settings.cell_size;
     ctx.strokeStyle = mapData.grid_settings.color || "#888";

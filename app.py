@@ -168,6 +168,11 @@ def save_map():
         # Если ID передан, обновляем сессию
         session["current_map_id"] = map_id
 
+    # Убеждаемся, что visible_to_players есть в grid_settings
+    if "grid_settings" in data:
+        if "visible_to_players" not in data["grid_settings"]:
+            data["grid_settings"]["visible_to_players"] = True
+
     # Сохраняем данные
     save_map_data(data, map_id)
 
@@ -198,7 +203,7 @@ def save_map():
     player_data = {
         "map_id": map_id,
         "tokens": tokens_for_players,
-        "characters": characters_for_players,  # Добавляем персонажей
+        "characters": characters_for_players,
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
@@ -219,8 +224,6 @@ def save_map():
 
     socketio.emit("map_updated", player_data)
     return jsonify({"status": "ok"})
-
-
 @app.route("/api/map/new", methods=["POST"])
 def new_map():
     """Создать новую карту"""

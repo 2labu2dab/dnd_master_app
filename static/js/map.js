@@ -974,7 +974,7 @@ function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
     avatarCache.clear();
 
-    // Очищаем кэш аватаров, а не переопределяем константу
+    // Очищаем кэш аватаров
     for (let key in avatarCache) {
         delete avatarCache[key];
     }
@@ -998,7 +998,7 @@ function switchMap(mapId) {
             finds: [],
             zones: [],
             characters: [],
-            grid_settings: { cell_size: 20, color: "#888888", visible: false }
+            grid_settings: { cell_size: 20, color: "#888888", visible: false, visible_to_players: true } // Добавлено visible_to_players
         };
         render();
         updateSidebar();
@@ -1023,6 +1023,11 @@ function switchMap(mapId) {
 
             mapData = data;
             currentMapId = mapId;
+
+            // Убеждаемся, что grid_settings.visible_to_players определен
+            if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
+                mapData.grid_settings.visible_to_players = true; // По умолчанию включено
+            }
 
             // ВАЖНО: сначала устанавливаем сохранённые значения
             zoomLevel = mapData.zoom_level || 1;
@@ -1097,7 +1102,6 @@ function switchMap(mapId) {
             isSwitchingMap = false;
         });
 }
-
 function createNewMap() {
     document.getElementById('newMapModal').style.display = 'flex';
     document.getElementById('newMapName').value = '';
@@ -1298,6 +1302,11 @@ function fetchMap() {
             const currentPanY = panY;
 
             mapData = data;
+
+            // Убеждаемся, что visible_to_players определен
+            if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
+                mapData.grid_settings.visible_to_players = true;
+            }
 
             // ВАЖНО: НЕ перезаписываем позицию из данных, если она уже есть
             zoomLevel = currentZoom;

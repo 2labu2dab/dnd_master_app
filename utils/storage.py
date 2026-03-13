@@ -249,7 +249,7 @@ def create_new_map(name="Новая карта"):
         "ruler_visible_to_players": False,
         "grid_settings": {
             "visible": True,
-            "visible_to_players": True,
+            "visible_to_players": True,  # По умолчанию сетка видна игрокам
             "cell_size": 20,
             "color": "#888888",
             "opacity": 100,
