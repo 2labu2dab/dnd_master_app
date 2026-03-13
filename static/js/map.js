@@ -3,6 +3,8 @@ const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const sidebar = document.getElementById("sidebar");
 const rightSidebar = document.getElementById("right-sidebar");
+const playerRulerToggle = document.getElementById("playerRulerToggle");
+const rulerToggle = document.getElementById("rulerToggle");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let isSwitchingMap = false;
@@ -4317,3 +4319,30 @@ function drawRuler(offsetX, offsetY, scale) {
     ctx.strokeStyle = "#c82a2aff";
     ctx.stroke();
 }
+
+playerRulerToggle.addEventListener("click", (e) => {
+    // Не блокируем всплытие, чтобы сработал существующий обработчик
+    // После того как сработает существующий обработчик, синхронизируем вторую кнопку
+    
+    // Используем setTimeout, чтобы дать время сработать существующему обработчику
+    setTimeout(() => {
+        // Синхронизируем состояние rulerToggle с playerRulerToggle
+        const isActive = playerRulerToggle.classList.contains("active");
+        rulerToggle.classList.toggle("active", isActive);
+        
+        // Если rulerToggle не активен, а playerRulerToggle активен - активируем rulerMode
+        if (isActive && !isRulerMode) {
+            isRulerMode = true;
+            rulerStart = null;
+            render();
+            updateCanvasCursor();
+        } else if (!isActive && isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+            render();
+            updateCanvasCursor();
+        }
+    }, 10);
+});
