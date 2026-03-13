@@ -156,8 +156,17 @@ function editExistingToken(name, ac, hp, type, avatarData) {
     // Обновляем данные токена
     token.name = name;
     token.armor_class = ac;
+
+    // Проверяем, изменилось ли максимальное HP
+    const maxHpChanged = token.max_health_points !== hp;
+
     token.max_health_points = hp;
-    if (token.health_points > hp) {
+
+    // Если максимальное HP изменилось, устанавливаем текущее HP равным максимальному
+    if (maxHpChanged) {
+        token.health_points = hp;
+    } else if (token.health_points > hp) {
+        // Если максимальное HP уменьшилось и текущее HP больше нового максимума
         token.health_points = hp;
     }
     token.is_player = type === "player";
@@ -626,7 +635,7 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
-        
+
         // Только один стиль выделения - цвет фона
         if (selectedZoneId === zone.id) {
             li.style.background = "#3a4a6b";
@@ -635,7 +644,7 @@ function updateSidebar() {
             li.style.background = "#2a2a3b";
             li.style.borderLeft = "none";
         }
-        
+
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
@@ -808,7 +817,7 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
-        
+
         // Единый стиль выделения для находок
         if (selectedFindId === find.id) {
             li.style.background = "#3a4a6b";
@@ -817,7 +826,7 @@ function updateSidebar() {
             li.style.background = "#2a2a3b";
             li.style.borderLeft = "none";
         }
-        
+
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
@@ -868,7 +877,7 @@ function updateSidebar() {
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.gap = "8px";
-        
+
         // Единый стиль выделения для портретов
         if (selectedCharacterId === character.id) {
             li.style.background = "#3a4a6b";
@@ -877,7 +886,7 @@ function updateSidebar() {
             li.style.background = "#2a2a3b";
             li.style.borderLeft = "none";
         }
-        
+
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
         li.style.marginBottom = "4px";
@@ -1875,8 +1884,8 @@ function drawZone(zone, offsetX, offsetY, scale) {
 
     ctx.beginPath();
 
-    ctx.strokeStyle = zone.is_visible ? "#4CAF50" : "#F44336";
-    ctx.fillStyle = zone.is_visible ? "rgba(76, 175, 80, 0.3)" : "rgba(244, 67, 54, 0.3)";
+    ctx.strokeStyle = zone.is_visible ? "#4caf4f00" : "#F44336";
+    ctx.fillStyle = zone.is_visible ? "rgba(76, 175, 79, 0)" : "rgba(244, 67, 54, 0.3)";
 
     const isSelected = zone.id === selectedZoneId;
     if (isSelected) {
@@ -1902,18 +1911,21 @@ function drawZone(zone, offsetX, offsetY, scale) {
         ctx.stroke();
     }
 
-    const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
-    const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
-    ctx.font = `18px Inter`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    // Отрисовываем подпись только если зона НЕ visible
+    if (!zone.is_visible) {
+        const centerX = transformed.reduce((a, b) => a + b[0], 0) / transformed.length;
+        const centerY = transformed.reduce((a, b) => a + b[1], 0) / transformed.length;
+        ctx.font = `18px Inter`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
 
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 4;
-    ctx.strokeText(zone.name, centerX, centerY);
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 4;
+        ctx.strokeText(zone.name, centerX, centerY);
 
-    ctx.fillStyle = "black";
-    ctx.fillText(zone.name, centerX, centerY);
+        ctx.fillStyle = "black";
+        ctx.fillText(zone.name, centerX, centerY);
+    }
 }
 
 function addZone() {
@@ -2037,7 +2049,7 @@ canvas.addEventListener("mousedown", (e) => {
 
     // Сбрасываем флаг клика
     isClick = true;
-    
+
     // Устанавливаем таймер для определения перетаскивания
     if (clickTimer) {
         clearTimeout(clickTimer);
@@ -2118,7 +2130,7 @@ canvas.addEventListener("mousedown", (e) => {
         }
 
         clicked = true;
-        
+
         // ВАЖНО: Всегда начинаем перетаскивание при клике на токен (независимо от Shift)
         draggingToken = clickedToken;
         const [tx, ty] = clickedToken.position;
@@ -2447,15 +2459,25 @@ function renderTokenContextMenu(token, x, y) {
             const newHpMax = parseInt(hpMaxInput.value, 10);
             const newAc = parseInt(acInput.value, 10);
 
-            if (!Number.isNaN(newHp)) {
-                token.health_points = newHp;
-            }
             if (!Number.isNaN(newHpMax) && newHpMax > 0) {
+                // Проверяем, изменилось ли максимальное HP
+                const maxHpChanged = token.max_health_points !== newHpMax;
+
                 token.max_health_points = newHpMax;
+
+                if (maxHpChanged) {
+                    // Если максимальное HP изменилось, устанавливаем текущее HP равным максимальному
+                    token.health_points = newHpMax;
+                } else if (!Number.isNaN(newHp) && newHp >= 0) {
+                    // Если максимальное HP не изменилось, используем введенное значение
+                    token.health_points = newHp;
+                }
+
                 if (token.health_points > newHpMax) {
                     token.health_points = newHpMax;
                 }
             }
+
             if (!Number.isNaN(newAc) && newAc > 0) {
                 token.armor_class = newAc;
             }
