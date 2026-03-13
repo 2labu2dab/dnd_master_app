@@ -1513,12 +1513,39 @@ function drawGrid(offsetX, offsetY, scale) {
     }
 }
 
+function isPointInHiddenZone(point, zones) {
+    if (!zones || !zones.length) return false;
+    
+    for (let i = 0; i < zones.length; i++) {
+        const zone = zones[i];
+        // Проверяем только зоны, которые скрыты от игроков (is_visible === false)
+        if (zone.is_visible === false && zone.vertices && zone.vertices.length >= 3) {
+            if (pointInPolygon(point, zone.vertices)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function drawToken(token, offsetX, offsetY, scale) {
     const [x, y] = token.position;
     const sx = x * scale + offsetX;
     const sy = y * scale + offsetY;
     const size = mapData.grid_settings.cell_size * scale;
     const radius = size / 2;
+
+    // Проверяем, находится ли токен под скрытой зоной
+    const isUnderHiddenZone = isPointInHiddenZone(token.position, mapData.zones);
+    // Проверяем, скрыт ли токен вручную мастером
+    const isManuallyHidden = token.is_visible === false;
+    
+    ctx.save();
+    
+    // Если токен под скрытой зоной ИЛИ скрыт вручную, делаем его полупрозрачным
+    if (isUnderHiddenZone || isManuallyHidden) {
+        ctx.globalAlpha = 0.4;
+    }
 
     ctx.beginPath();
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
@@ -1616,7 +1643,12 @@ function drawToken(token, offsetX, offsetY, scale) {
         ctx.lineWidth = 3;
         ctx.stroke();
     }
+    
+    ctx.restore();
+    
+    // Иконки УБРАНЫ - оставляем только прозрачность
 }
+
 function reloadTokenAvatar(tokenId) {
     if (!tokenId) return;
 
