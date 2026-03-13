@@ -3241,45 +3241,84 @@ function showTokenContextMenu(token, x, y) {
 
     document.getElementById("contextAcInput").value = token.armor_class || 10;
 
-    // Сначала показываем меню, чтобы получить его размеры
-    menu.style.display = "block";
-    menu.style.visibility = "hidden"; // Временно скрываем для измерения
+    // Установка активной кнопки типа
+    const typeButtons = document.querySelectorAll('.context-type-btn');
+    typeButtons.forEach(btn => btn.classList.remove('active'));
+    
+    if (token.is_player) {
+        document.querySelector('.context-type-btn[data-type="player"]').classList.add('active');
+    } else if (token.is_npc) {
+        document.querySelector('.context-type-btn[data-type="npc"]').classList.add('active');
+    } else {
+        document.querySelector('.context-type-btn[data-type="enemy"]').classList.add('active');
+    }
 
-    // Получаем размеры меню и окна
+    // ДОБАВЬТЕ ЭТОТ КОД - обработчики для кнопок типа
+    // Сначала удаляем старые обработчики, чтобы не было дублирования
+    typeButtons.forEach(btn => {
+        // Удаляем старый обработчик, если он был добавлен через onclick
+        btn.onclick = null;
+    });
+
+    // Добавляем новые обработчики
+    typeButtons.forEach(btn => {
+        btn.onclick = function(e) {
+            e.stopPropagation();
+            
+            if (!currentContextToken) return;
+            
+            const type = this.dataset.type;
+            
+            // Обновляем внешний вид кнопок
+            typeButtons.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Обновляем тип токена
+            currentContextToken.is_player = (type === 'player');
+            currentContextToken.is_npc = (type === 'npc');
+            
+            // Обновляем текст типа в заголовке
+            let typeText = type === 'player' ? 'Игрок' : (type === 'npc' ? 'НПС' : 'Враг');
+            document.getElementById("contextTokenType").textContent = typeText;
+            
+            // Сохраняем изменения
+            saveMapData();
+            
+            // Обновляем отображение в сайдбаре
+            updateSidebar();
+            
+            // Перерисовываем канвас
+            render();
+        };
+    });
+    // КОНЕЦ ДОБАВЛЕННОГО КОДА
+
+    // Позиционирование меню...
+    menu.style.display = "block";
+    menu.style.visibility = "hidden";
+
     const menuRect = menu.getBoundingClientRect();
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
 
-    // Корректируем позицию
     let left = x;
     let top = y;
 
-    // Проверяем правый край
     if (left + menuRect.width > windowWidth) {
-        left = windowWidth - menuRect.width - 10; // Отступ 10px от края
+        left = windowWidth - menuRect.width - 10;
     }
 
-    // Проверяем нижний край
     if (top + menuRect.height > windowHeight) {
-        top = windowHeight - menuRect.height - 10; // Отступ 10px от края
+        top = windowHeight - menuRect.height - 10;
     }
 
-    // Проверяем левый край (на всякий случай)
-    if (left < 10) {
-        left = 10;
-    }
+    if (left < 10) left = 10;
+    if (top < 10) top = 10;
 
-    // Проверяем верхний край
-    if (top < 10) {
-        top = 10;
-    }
-
-    // Применяем позицию и показываем меню
     menu.style.left = left + "px";
     menu.style.top = top + "px";
     menu.style.visibility = "visible";
 
-    // Скрываем другие меню
     document.getElementById("findContextMenu").style.display = "none";
     document.getElementById("zoneContextMenu").style.display = "none";
 }
