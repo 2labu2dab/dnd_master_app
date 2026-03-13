@@ -7,6 +7,8 @@ canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidt
 canvas.height = window.innerHeight;
 let isSwitchingMap = false;
 let selectedCharacterId = null;
+let isClick = true; // Флаг для определения клика vs перетаскивания
+let clickTimer = null; // Таймер для определения задержки
 
 let selectedTokens = new Set(); // Множество ID выбранных токенов
 let isDraggingMultiple = false; // Флаг перетаскивания нескольких токенов
@@ -2033,6 +2035,17 @@ canvas.addEventListener("mousedown", (e) => {
     const { scale, offsetX, offsetY } = getTransform();
     const isShiftPressed = e.shiftKey;
 
+    // Сбрасываем флаг клика
+    isClick = true;
+    
+    // Устанавливаем таймер для определения перетаскивания
+    if (clickTimer) {
+        clearTimeout(clickTimer);
+    }
+    clickTimer = setTimeout(() => {
+        isClick = false; // Если прошло больше 200ms - это перетаскивание
+    }, 200);
+
     if (isRulerMode) {
         const x = (mouseX - offsetX) / scale;
         const y = (mouseY - offsetY) / scale;
@@ -2100,14 +2113,8 @@ canvas.addEventListener("mousedown", (e) => {
                 selectedTokenId = null;
             }
         } else {
-            // Обычный клик без Shift
-            if (!selectedTokens.has(clickedToken.id)) {
-                // Если кликнули по токену не из выделения, сбрасываем выделение и выделяем этот токен
-                selectedTokens.clear();
-                selectedTokens.add(clickedToken.id);
-                selectedTokenId = clickedToken.id;
-            }
-            // Если кликнули по токену из выделения - оставляем текущее выделение как есть
+            // Обычный клик без Shift - пока просто запоминаем, что кликнули
+            // Окончательная обработка будет в обработчике click
         }
 
         clicked = true;
@@ -2559,6 +2566,12 @@ canvas.addEventListener("contextmenu", (e) => {
 
 
 canvas.addEventListener("mouseup", () => {
+    // Очищаем таймер
+    if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+    }
+
     // Завершаем групповое перетаскивание
     if (isDraggingMultiple && selectedTokens.size > 0) {
         if (window.multiTokenMoveThrottle) {
@@ -2639,6 +2652,43 @@ canvas.addEventListener("mouseleave", () => {
 });
 
 let zoomSyncTimeout;
+
+canvas.addEventListener("click", (e) => {
+    const { scale, offsetX, offsetY } = getTransform();
+    const isShiftPressed = e.shiftKey;
+
+    // Проверяем, был ли это именно клик, а не перетаскивание
+    if (!isClick) return;
+
+    // Проверяем клик по токену
+    let clickedToken = null;
+    for (const token of mapData.tokens) {
+        const [x, y] = token.position;
+        const sx = x * scale + offsetX;
+        const sy = y * scale + offsetY;
+        const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+        if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
+            clickedToken = token;
+            break;
+        }
+    }
+
+    if (clickedToken && !isShiftPressed) {
+        // Обычный клик без Shift - сбрасываем множественное выделение и выделяем этот токен
+        selectedTokens.clear();
+        selectedTokens.add(clickedToken.id);
+        selectedTokenId = clickedToken.id;
+
+        // Снимаем выделение с других объектов
+        selectedZoneId = null;
+        selectedFindId = null;
+        selectedCharacterId = null;
+
+        updateSidebar();
+        render();
+    }
+});
 
 canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
