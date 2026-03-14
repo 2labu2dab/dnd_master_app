@@ -147,6 +147,25 @@ def get_map_image(map_id):
         return send_file(image_path, mimetype="image/jpeg")
     return "", 404
 
+@socketio.on("characters_updated")
+def handle_characters_updated(data):
+    """Обработчик обновления портретов"""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+    
+    characters = data.get("characters")
+    if not characters:
+        return
+    
+    # Отправляем всем, кроме отправителя
+    emit(
+        "characters_updated",
+        {"map_id": map_id, "characters": characters},
+        broadcast=True,
+        include_self=False,
+    )
+
 
 @app.route("/api/map", methods=["POST"])
 def save_map():

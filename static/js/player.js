@@ -1528,3 +1528,11 @@ function getAvailableWidth() {
 // И используйте её в renderPortraits:
 // Замените строку с расчетом availableWidth на:
 const availableWidth = getAvailableWidth();
+
+socket.on("characters_updated", (data) => {
+    if (data.map_id === mapId && mapData) {
+        mapData.characters = data.characters;
+        updatePortraits();
+        requestRender();
+    }
+});

@@ -541,7 +541,15 @@ function showCharacterContextMenu(character, x, y) {
     document.getElementById("contextCharacterName").textContent = character.name;
     document.getElementById("contextCharacterVisible").checked = character.visible_to_players !== false;
 
-    // Сначала показываем меню для измерения
+    // Добавляем кнопку редактирования
+    const editBtn = document.getElementById("contextEditCharacter");
+    if (editBtn) {
+        editBtn.onclick = () => {
+            openEditCharacterModal(character);
+            menu.style.display = "none";
+        };
+    }
+
     menu.style.display = "block";
     menu.style.visibility = "hidden";
 
@@ -555,11 +563,9 @@ function showCharacterContextMenu(character, x, y) {
     if (left + menuRect.width > windowWidth) {
         left = windowWidth - menuRect.width - 10;
     }
-
     if (top + menuRect.height > windowHeight) {
         top = windowHeight - menuRect.height - 10;
     }
-
     if (left < 10) left = 10;
     if (top < 10) top = 10;
 
@@ -588,6 +594,9 @@ function createCharacterContextMenu() {
         </div>
 
         <div class="context-menu-section">
+            <button class="context-menu-item" id="contextEditCharacter">
+                <span class="context-icon">✎</span> Редактировать
+            </button>
             <button class="context-menu-item delete" id="contextDeleteCharacter">
                 <span class="context-icon">🗑️</span> Удалить
             </button>
@@ -596,18 +605,24 @@ function createCharacterContextMenu() {
 
     document.body.appendChild(menu);
 
-    // Добавляем обработчики
+    // Обработчик видимости
     document.getElementById("contextCharacterVisible").addEventListener("change", function (e) {
         if (window.currentContextCharacter) {
             window.currentContextCharacter.visible_to_players = e.target.checked;
             updateSidebar();
             saveMapData();
+
+            // Уведомляем игроков
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
         }
     });
 
+    // Обработчик удаления
     document.getElementById("contextDeleteCharacter").addEventListener("click", function () {
         if (window.currentContextCharacter && confirm(`Удалить портрет "${window.currentContextCharacter.name}"?`)) {
-            // Удаляем портрет
             fetch(`/api/portrait/${window.currentContextCharacter.id}`, {
                 method: 'DELETE'
             }).catch(err => console.error('Error deleting portrait:', err));
@@ -617,7 +632,15 @@ function createCharacterContextMenu() {
             saveMapData();
             render();
             updateSidebar();
-            document.getElementById("characterContextMenu").style.display = "none";
+            initCharacterDragAndDrop();
+
+            // Уведомляем игроков
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
+
+            menu.style.display = "none";
         }
     });
 
@@ -1719,8 +1742,21 @@ function openCharacterModal() {
 
 function closeCharacterModal() {
     document.getElementById("characterModal").style.display = "none";
+    document.getElementById("characterModalTitle").textContent = "Добавление портрета";
+    window.editingCharacterId = null;
+    
+    // Сбрасываем форму
+    document.getElementById("characterName").value = "";
+    const preview = document.getElementById("characterAvatarPreview");
+    preview.src = "";
+    preview.style.display = "none";
+    preview.removeAttribute("data-base64");
+    preview.removeAttribute("data-portrait-id");
+    
+    document.getElementById("characterAvatarOverlay").style.display = "block";
+    document.getElementById("characterAvatarMask").style.display = "none";
+    document.getElementById("characterEditIcon").style.display = "none";
 }
-
 function handleCharacterAvatarUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1766,37 +1802,83 @@ function handleCharacterAvatarUpload(event) {
     reader.readAsDataURL(file);
 }
 
+function openEditCharacterModal(character) {
+    document.getElementById("characterModal").style.display = "flex";
+    document.getElementById("characterModalTitle").textContent = "Редактирование портрета";
+    document.getElementById("characterName").value = character.name;
+
+    const preview = document.getElementById("characterAvatarPreview");
+    const overlay = document.getElementById("characterAvatarOverlay");
+    const mask = document.getElementById("characterAvatarMask");
+    const editIcon = document.getElementById("characterEditIcon");
+
+    // Загружаем существующий аватар
+    if (character.has_avatar) {
+        const portraitUrl = character.portrait_url || `/api/portrait/${character.id}?t=${Date.now()}`;
+        preview.src = portraitUrl;
+        preview.style.display = "block";
+        preview.dataset.portraitId = character.id; // Сохраняем ID для обновления
+
+        overlay.style.display = "none";
+        mask.style.display = "block";
+        editIcon.style.display = "block";
+    } else {
+        preview.src = "";
+        preview.style.display = "none";
+        preview.removeAttribute("data-base64");
+        preview.removeAttribute("data-portrait-id");
+
+        overlay.style.display = "block";
+        mask.style.display = "none";
+        editIcon.style.display = "none";
+    }
+
+    // Сохраняем ID редактируемого портрета
+    window.editingCharacterId = character.id;
+}
+
 function submitCharacter() {
     const name = document.getElementById("characterName").value.trim();
     const avatarPreview = document.getElementById("characterAvatarPreview");
-    const avatarData = avatarPreview.dataset.base64 || "";
+    const avatarData = avatarPreview.dataset.base64 || null;
+    const editingId = window.editingCharacterId;
 
-    if (!name || !avatarData) {
-        alert("Заполните имя и выберите аватар.");
+    if (!name) {
+        alert("Введите имя персонажа.");
         return;
     }
 
+    if (editingId) {
+        // Редактирование существующего портрета
+        editCharacter(editingId, name, avatarData);
+    } else {
+        // Создание нового портрета
+        if (!avatarData) {
+            alert("Выберите изображение для портрета.");
+            return;
+        }
+        createNewCharacter(name, avatarData);
+    }
+}
+
+function createNewCharacter(name, avatarData) {
     const characterId = `char_${Date.now()}`;
 
-    // Создаем объект персонажа
     const character = {
         id: characterId,
         name,
         has_avatar: true,
         visible_to_players: false,
-        // Не храним avatar_data в основном объекте
     };
 
-    // Добавляем персонажа в данные
     if (!mapData.characters) mapData.characters = [];
     mapData.characters.push(character);
 
-    // Сохраняем данные карты сначала
+    // Сохраняем данные карты
     saveMapData()
         .then(() => {
-            // Затем загружаем портрет на сервер отдельным запросом
+            // Загружаем портрет
             const formData = new FormData();
-            // Конвертируем base64 в blob
             const blob = dataURLtoBlob(avatarData);
             formData.append("portrait", blob, `${characterId}.png`);
             formData.append("character_id", characterId);
@@ -1807,29 +1889,90 @@ function submitCharacter() {
             });
         })
         .then(response => {
-            if (!response.ok) {
-                throw new Error("Failed to upload portrait");
-            }
+            if (!response.ok) throw new Error("Failed to upload portrait");
             return response.json();
         })
         .then(data => {
-            console.log("Portrait uploaded successfully:", data);
-            closeCharacterModal();
-            updateSidebar();
-
-            // Обновляем URL портрета в данных персонажа
             const character = mapData.characters.find(c => c.id === characterId);
             if (character && data.portrait_url) {
                 character.portrait_url = data.portrait_url;
             }
 
-            // Перезагружаем данные карты для получения URL портрета
-            fetchMap();
+            window.editingCharacterId = null;
+            closeCharacterModal();
+            updateSidebar();
             initCharacterDragAndDrop();
+
+            // Уведомляем игроков
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
         })
         .catch(error => {
-            console.error("Error saving character:", error);
-            alert("Ошибка при сохранении персонажа: " + error.message);
+            console.error("Error creating character:", error);
+            alert("Ошибка при создании персонажа");
+        });
+}
+
+function editCharacter(characterId, name, avatarData) {
+    const character = mapData.characters?.find(c => c.id === characterId);
+    if (!character) return;
+
+    // Обновляем имя
+    character.name = name;
+
+    // Функция для завершения редактирования
+    const finishEdit = () => {
+        window.editingCharacterId = null;
+        closeCharacterModal();
+        saveMapData();
+        updateSidebar();
+        initCharacterDragAndDrop();
+
+        // Уведомляем игроков об обновлении
+        socket.emit("characters_updated", {
+            map_id: currentMapId,
+            characters: mapData.characters
+        });
+    };
+
+    // Если аватар не изменился
+    if (!avatarData) {
+        finishEdit();
+        return;
+    }
+
+    // Обновляем аватар
+    const formData = new FormData();
+    const blob = dataURLtoBlob(avatarData);
+    formData.append("portrait", blob, `${characterId}.png`);
+    formData.append("character_id", characterId);
+
+    fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+    })
+        .then(response => {
+            if (!response.ok) throw new Error("Failed to upload portrait");
+            return response.json();
+        })
+        .then(data => {
+            character.has_avatar = true;
+            character.portrait_url = data.portrait_url;
+
+            // Очищаем кэш если есть
+            const imgElements = document.querySelectorAll(`img[src*="/api/portrait/${characterId}"]`);
+            imgElements.forEach(img => {
+                img.src = `${data.portrait_url}?t=${Date.now()}`;
+            });
+
+            finishEdit();
+        })
+        .catch(error => {
+            console.error("Error updating portrait:", error);
+            alert("Ошибка при обновлении портрета");
+            finishEdit();
         });
 }
 
@@ -4235,6 +4378,9 @@ function createCharacterContextMenu() {
         </div>
 
         <div class="context-menu-section">
+            <button class="context-menu-item" id="contextEditCharacter">
+                <span class="context-icon">✎</span> Редактировать
+            </button>
             <button class="context-menu-item delete" id="contextDeleteCharacter">
                 <span class="context-icon">🗑️</span> Удалить
             </button>
@@ -4249,12 +4395,26 @@ function createCharacterContextMenu() {
             window.currentContextCharacter.visible_to_players = e.target.checked;
             updateSidebar();
             saveMapData();
+            
+            // Уведомляем игроков
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
         }
     });
 
+    // Обработчик редактирования
+    document.getElementById("contextEditCharacter").addEventListener("click", function () {
+        if (window.currentContextCharacter) {
+            openEditCharacterModal(window.currentContextCharacter);
+            document.getElementById("characterContextMenu").style.display = "none";
+        }
+    });
+
+    // Обработчик удаления
     document.getElementById("contextDeleteCharacter").addEventListener("click", function () {
         if (window.currentContextCharacter && confirm(`Удалить портрет "${window.currentContextCharacter.name}"?`)) {
-            // Удаляем портрет
             fetch(`/api/portrait/${window.currentContextCharacter.id}`, {
                 method: 'DELETE'
             }).catch(err => console.error('Error deleting portrait:', err));
@@ -4264,7 +4424,15 @@ function createCharacterContextMenu() {
             saveMapData();
             render();
             updateSidebar();
-            document.getElementById("characterContextMenu").style.display = "none";
+            initCharacterDragAndDrop();
+            
+            // Уведомляем игроков
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
+            
+            menu.style.display = "none";
         }
     });
 
