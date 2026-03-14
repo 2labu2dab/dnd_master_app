@@ -4098,6 +4098,25 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
             currentContextToken.health_points = 1;
         }
 
+        // ===== НОВЫЙ КОД: Обновляем отображение HP =====
+        document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
+        
+        // Обновляем цвет индикатора
+        const hpDisplay = document.getElementById("contextHpDisplay");
+        hpDisplay.classList.remove('critical', 'warning', 'dead');
+        
+        if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
+            hpDisplay.classList.add('dead');
+        } else {
+            const percent = currentContextToken.health_points / currentContextToken.max_health_points;
+            if (percent <= 0.25) {
+                hpDisplay.classList.add('critical');
+            } else if (percent <= 0.5) {
+                hpDisplay.classList.add('warning');
+            }
+        }
+        // ===== КОНЕЦ НОВОГО КОДА =====
+
         saveMapData();
         render();
         updateSidebar();
