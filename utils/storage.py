@@ -6,9 +6,13 @@ import base64
 from PIL import Image
 import io
 from utils.character_bank import (
-    init_db, get_all_bank_characters, add_character_to_bank,
-    update_character_in_bank, delete_character_from_bank,
-    get_bank_character, save_bank_character_avatar
+    init_db,
+    get_all_bank_characters,
+    add_character_to_bank,
+    update_character_in_bank,
+    delete_character_from_bank,
+    get_bank_character,
+    save_bank_character_avatar,
 )
 
 DATA_DIR = "data"
@@ -30,13 +34,17 @@ def ensure_dirs():
     )  # Добавляем создание папки для аватаров
     os.makedirs(PORTRAITS_DIR, exist_ok=True)
 
+
 def get_all_maps_with_token(token_id):
     """Проверить, на каких картах используется токен"""
     ensure_dirs()
     maps_with_token = []
     
+    print(f"Checking all maps for token {token_id}")
+    
     for filename in os.listdir(MAPS_DIR):
         if filename.endswith(".json"):
+            map_id = filename[:-5]
             filepath = os.path.join(MAPS_DIR, filename)
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
@@ -47,15 +55,17 @@ def get_all_maps_with_token(token_id):
                     for token in data["tokens"]:
                         if token.get("id") == token_id:
                             maps_with_token.append({
-                                "map_id": filename[:-5],
+                                "map_id": map_id,
                                 "map_name": data.get("name", "Unknown")
                             })
+                            print(f"Found token {token_id} on map {map_id}")
                             break
             except Exception as e:
                 print(f"Error checking map {filename}: {e}")
                 continue
     
     return maps_with_token
+
 
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
@@ -139,8 +149,13 @@ def delete_token_avatar(token_id):
     """Удалить аватар токена"""
     img_path = get_token_avatar_filepath(token_id)
     if os.path.exists(img_path):
-        os.remove(img_path)
-        return True
+        try:
+            os.remove(img_path)
+            print(f"Deleted avatar for token {token_id}")
+            return True
+        except Exception as e:
+            print(f"Error deleting avatar for token {token_id}: {e}")
+            return False
     return False
 
 
