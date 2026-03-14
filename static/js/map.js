@@ -3901,6 +3901,31 @@ function showTokenContextMenu(token, x, y) {
     else typeText = "Враг";
     document.getElementById("contextTokenType").textContent = typeText;
 
+    // ===== НОВЫЙ КОД: Отображение HP =====
+    const hpValue = token.health_points ?? token.max_health_points ?? 10;
+    const hpMax = token.max_health_points ?? token.health_points ?? 10;
+
+    document.getElementById("contextHpValue").textContent = hpValue;
+    document.getElementById("contextHpMax").textContent = hpMax;
+
+    // Меняем цвет в зависимости от состояния
+    const hpDisplay = document.getElementById("contextHpDisplay");
+
+    // Убираем все классы
+    hpDisplay.classList.remove('critical', 'warning', 'dead');
+
+    if (token.is_dead || hpValue <= 0) {
+        hpDisplay.classList.add('dead');
+    } else {
+        const percent = hpValue / hpMax;
+        if (percent <= 0.25) {
+            hpDisplay.classList.add('critical');
+        } else if (percent <= 0.5) {
+            hpDisplay.classList.add('warning');
+        }
+    }
+    // ===== КОНЕЦ НОВОГО КОДА =====
+
     // Устанавливаем значения чекбоксов
     document.getElementById("contextTokenVisible").checked = token.is_visible !== false;
     document.getElementById("contextTokenDead").checked = token.is_dead || token.health_points <= 0;
@@ -3919,14 +3944,11 @@ function showTokenContextMenu(token, x, y) {
         document.querySelector('.context-type-btn[data-type="enemy"]').classList.add('active');
     }
 
-    // ДОБАВЬТЕ ЭТОТ КОД - обработчики для кнопок типа
-    // Сначала удаляем старые обработчики, чтобы не было дублирования
+    // Обработчики для кнопок типа
     typeButtons.forEach(btn => {
-        // Удаляем старый обработчик, если он был добавлен через onclick
         btn.onclick = null;
     });
 
-    // Добавляем новые обработчики
     typeButtons.forEach(btn => {
         btn.onclick = function (e) {
             e.stopPropagation();
@@ -3935,29 +3957,20 @@ function showTokenContextMenu(token, x, y) {
 
             const type = this.dataset.type;
 
-            // Обновляем внешний вид кнопок
             typeButtons.forEach(b => b.classList.remove('active'));
             this.classList.add('active');
 
-            // Обновляем тип токена
             currentContextToken.is_player = (type === 'player');
             currentContextToken.is_npc = (type === 'npc');
 
-            // Обновляем текст типа в заголовке
             let typeText = type === 'player' ? 'Игрок' : (type === 'npc' ? 'НПС' : 'Враг');
             document.getElementById("contextTokenType").textContent = typeText;
 
-            // Сохраняем изменения
             saveMapData();
-
-            // Обновляем отображение в сайдбаре
             updateSidebar();
-
-            // Перерисовываем канвас
             render();
         };
     });
-    // КОНЕЦ ДОБАВЛЕННОГО КОДА
 
     // Позиционирование меню...
     menu.style.display = "block";
@@ -4100,6 +4113,25 @@ document.getElementById("contextApplyDamage").addEventListener("click", function
             currentContextToken.is_dead = currentContextToken.health_points <= 0;
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
+            
+            // ===== НОВОЕ: Обновляем отображение HP =====
+            document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
+            
+            // Обновляем цвет
+            const hpDisplay = document.getElementById("contextHpDisplay");
+            hpDisplay.classList.remove('critical', 'warning', 'dead');
+            
+            if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
+                hpDisplay.classList.add('dead');
+            } else {
+                const percent = currentContextToken.health_points / currentContextToken.max_health_points;
+                if (percent <= 0.25) {
+                    hpDisplay.classList.add('critical');
+                } else if (percent <= 0.5) {
+                    hpDisplay.classList.add('warning');
+                }
+            }
+            // ===== КОНЕЦ НОВОГО КОДА =====
 
             saveMapData();
             render();
@@ -4118,6 +4150,25 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
             currentContextToken.is_dead = currentContextToken.health_points <= 0;
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
+            
+            // ===== НОВОЕ: Обновляем отображение HP =====
+            document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
+            
+            // Обновляем цвет
+            const hpDisplay = document.getElementById("contextHpDisplay");
+            hpDisplay.classList.remove('critical', 'warning', 'dead');
+            
+            if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
+                hpDisplay.classList.add('dead');
+            } else {
+                const percent = currentContextToken.health_points / currentContextToken.max_health_points;
+                if (percent <= 0.25) {
+                    hpDisplay.classList.add('critical');
+                } else if (percent <= 0.5) {
+                    hpDisplay.classList.add('warning');
+                }
+            }
+            // ===== КОНЕЦ НОВОГО КОДА =====
 
             saveMapData();
             render();
@@ -4307,6 +4358,7 @@ function copySelectedToken() {
         has_avatar: token.has_avatar,
         avatar_url: token.avatar_url,
         size: token.size,
+        is_dead: token.is_dead,
         is_visible: token.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
     };
 
@@ -4359,7 +4411,7 @@ function pasteToken() {
         name: copiedToken.name,
         position: [pasteX, pasteY],
         size: copiedToken.size || mapData.grid_settings.cell_size,
-        is_dead: false,
+        is_dead: copiedToken.is_dead,
         is_player: copiedToken.is_player,
         is_npc: copiedToken.is_npc,
         armor_class: copiedToken.armor_class,
@@ -5521,16 +5573,16 @@ function createImportTokenItem(token) {
     const div = document.createElement('div');
     div.className = 'bank-character-item';
     div.onclick = () => spawnImportedToken(token);
-    
+
     // Определяем тип
     let typeText = "Враг";
     if (token.is_player) typeText = "Игрок";
     else if (token.is_npc) typeText = "НПС";
-    
+
     // Статус HP с учётом смерти
     let hpStatus;
     let hpColor;
-    
+
     if (token.is_dead) {
         hpStatus = "МЁРТВ";
         hpColor = "#f44336"; // Красный
@@ -5538,17 +5590,17 @@ function createImportTokenItem(token) {
         const currentHp = token.health_points || 0;
         const maxHp = token.max_health_points || 10;
         hpStatus = `${currentHp}/${maxHp}`;
-        
+
         // Цвет в зависимости от процента HP
         const percent = currentHp / maxHp;
         hpColor = percent > 0.8 ? "#4CAF50" :    // Зелёный
-                  percent > 0.4 ? "#FFC107" :    // Жёлтый
-                  "#F44336";                      // Красный
+            percent > 0.4 ? "#FFC107" :    // Жёлтый
+                "#F44336";                      // Красный
     }
-    
+
     // Добавляем иконку смерти если нужно
     const deadIcon = token.is_dead ? '💀 ' : '';
-    
+
     div.innerHTML = `
         <img class="bank-character-avatar" src="${token.avatar_url || '/static/default-avatar.png'}" 
              onerror="this.src='/static/default-avatar.png'">
@@ -5560,13 +5612,13 @@ function createImportTokenItem(token) {
             КД: ${token.armor_class || 10} | ОЗ: ${hpStatus}
         </div>
     `;
-    
+
     // Добавляем класс для мёртвых токенов
     if (token.is_dead) {
         div.style.opacity = '0.8';
         div.style.backgroundColor = 'rgba(244, 67, 54, 0.1)';
     }
-    
+
     return div;
 }
 

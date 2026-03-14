@@ -1083,29 +1083,11 @@ canvas.map-panning {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.context-menu-header {
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  margin-bottom: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .context-menu-header span:first-child {
   font-weight: 600;
   font-size: 15px;
   color: white;
 }
-
-.context-token-type {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
-}
-
 .context-menu-section {
   padding: 6px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -1619,4 +1601,89 @@ canvas.map-panning {
 
 .add-button.bank-btn:hover {
     background-color: #7a3a9c;
+}
+
+/* Инлайн отображение HP в заголовке контекстного меню */
+.context-hp-inline {
+    font-size: 12px; /* Немного увеличил для лучшей читаемости */
+    font-weight: 600;
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin: 0 4px;
+    white-space: nowrap;
+    border: 1px solid rgba(76, 175, 80, 0.2);
+    line-height: 1.4;
+}
+
+.context-hp-inline.critical {
+    color: #F44336;
+    background: rgba(244, 67, 54, 0.1);
+    border-color: rgba(244, 67, 54, 0.2);
+}
+
+.context-hp-inline.warning {
+    color: #FFC107;
+    background: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.2);
+}
+
+.context-hp-inline.dead {
+    color: #aaa;
+    background: rgba(100, 100, 100, 0.1);
+    border-color: rgba(100, 100, 100, 0.2);
+    text-decoration: line-through;
+}
+
+/* Корректируем стили заголовка для правильного размещения */
+.context-menu-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 6px;
+}
+
+#contextTokenName {
+    font-weight: 600;
+    font-size: 13px; /* Увеличил для лучшей читаемости */
+    color: white;
+    flex-shrink: 0;
+}
+
+.context-token-type {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #aaa;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+/* ИСПРАВЛЕНО: одинаковые размеры для числителя и знаменателя */
+#contextHpValue, 
+#contextHpMax {
+    font-weight: 700;
+    color: inherit;
+    font-size: 12px; /* Одинаковый размер для обоих */
+}
+
+#contextHpValue {
+    margin-right: 1px;
+}
+
+#contextHpMax {
+    margin-left: 1px;
+    opacity: 0.8;
+}
+
+/* Для мертвых токенов тоже применяем наследование */
+.context-hp-inline.dead #contextHpValue,
+.context-hp-inline.dead #contextHpMax {
+    color: inherit;
+    font-size: 12px; /* И здесь одинаковый размер */
 }
