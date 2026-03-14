@@ -218,7 +218,7 @@ details[open] > summary::after {
   border: none;
   border-radius: 9999px;
   display: inline-flex;
-  justify-content: space-between; /* Разделяет текст и иконку */
+  justify-content: center; /* Разделяет текст и иконку */
   align-items: center;
   gap: 8px;
   cursor: pointer;
@@ -1588,4 +1588,35 @@ canvas.map-panning {
     font-size: 12px;
     color: #ccc;
     margin-left: 10px;
+}
+
+/* Стили для кнопок в ряд */
+.add-button-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.add-button-group .add-button {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 4px;
+    font-size: 13px;
+}
+
+/* Разные цвета для кнопок */
+.add-button.import-btn {
+    background-color: #4a6fa5;
+}
+
+.add-button.bank-btn {
+    background-color: #8e44ad;
+}
+
+.add-button.import-btn:hover {
+    background-color: #3a5a8c;
+}
+
+.add-button.bank-btn:hover {
+    background-color: #7a3a9c;
 }

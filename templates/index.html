@@ -57,14 +57,16 @@
         <!-- Токены -->
         <div class="section">
           <details open>
-            <summary>Токены персонажей</summary>
-            <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+            <summary>Токены</summary>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
               <button class="add-button" onclick="addToken()">
-                Создать токен
-                <span class="add-icon">+</span>
+                <span>Новый</span>
               </button>
-              <button class="bank-button" onclick="openBankModal()">
-                Банк
+              <button class="add-button" onclick="openImportTokenModal()">
+                <span>Существующий</span>
+              </button>
+              <button class="add-button" onclick="openBankModal()">
+                <span>Банк</span>
               </button>
             </div>
             <ul id="tokenList"></ul>
@@ -186,6 +188,25 @@
       <div class="token-buttons">
         <button class="save-btn" onclick="submitCharacter()">Сохранить</button>
         <button class="cancel-btn" onclick="closeCharacterModal()">Отменить</button>
+      </div>
+    </div>
+  </div>
+  <div id="importTokenModal" class="modal" style="display: none;">
+    <div class="modal-content large-modal" style="width: 600px; max-width: 90vw;">
+      <span class="close" onclick="closeImportTokenModal()">&times;</span>
+      <h3>Импорт существующего токена</h3>
+
+      <div style="margin-bottom: 15px;">
+        <input type="text" id="importTokenSearchInput" placeholder="Поиск по имени..."
+          style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #2a2a3b; color: white;">
+      </div>
+
+      <div id="importTokenList" style="max-height: 400px; overflow-y: auto; margin-bottom: 15px;">
+        <!-- Список токенов будет загружен сюда -->
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button class="cancel-btn" onclick="closeImportTokenModal()" style="margin-right: 10px;">Отмена</button>
       </div>
     </div>
   </div>

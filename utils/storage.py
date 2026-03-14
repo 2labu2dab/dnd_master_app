@@ -39,9 +39,9 @@ def get_all_maps_with_token(token_id):
     """Проверить, на каких картах используется токен"""
     ensure_dirs()
     maps_with_token = []
-    
+
     print(f"Checking all maps for token {token_id}")
-    
+
     for filename in os.listdir(MAPS_DIR):
         if filename.endswith(".json"):
             map_id = filename[:-5]
@@ -49,21 +49,23 @@ def get_all_maps_with_token(token_id):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                
+
                 # Проверяем, есть ли токен на этой карте
                 if "tokens" in data:
                     for token in data["tokens"]:
                         if token.get("id") == token_id:
-                            maps_with_token.append({
-                                "map_id": map_id,
-                                "map_name": data.get("name", "Unknown")
-                            })
+                            maps_with_token.append(
+                                {
+                                    "map_id": map_id,
+                                    "map_name": data.get("name", "Unknown"),
+                                }
+                            )
                             print(f"Found token {token_id} on map {map_id}")
                             break
             except Exception as e:
                 print(f"Error checking map {filename}: {e}")
                 continue
-    
+
     return maps_with_token
 
 
@@ -143,6 +145,72 @@ def load_token_avatar(token_id):
         except Exception as e:
             print(f"Error loading token avatar: {e}")
     return None
+
+
+def get_all_tokens_from_maps():
+    """Получить все токены со всех карт со всеми свойствами"""
+    ensure_dirs()
+    all_tokens = []
+    seen_ids = set()  # Для предотвращения дубликатов
+
+    for filename in os.listdir(MAPS_DIR):
+        if filename.endswith(".json"):
+            filepath = os.path.join(MAPS_DIR, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                # Собираем все токены
+                if "tokens" in data:
+                    for token in data["tokens"]:
+                        token_id = token.get("id")
+                        if token_id and token_id not in seen_ids:
+                            seen_ids.add(token_id)
+
+                            # Создаём копию со всеми полями
+                            token_copy = {
+                                "id": token.get("id"),
+                                "name": token.get("name", "Безымянный"),
+                                "is_player": token.get("is_player", False),
+                                "is_npc": token.get("is_npc", False),
+                                "armor_class": token.get("armor_class", 10),
+                                "health_points": token.get(
+                                    "health_points", 10
+                                ),
+                                "max_health_points": token.get(
+                                    "max_health_points", 10
+                                ),
+                                "is_dead": token.get("is_dead", False),
+                                "has_avatar": token.get("has_avatar", False),
+                                "size": token.get("size", 20),
+                                "is_visible": token.get("is_visible", True),
+                                "source_map": data.get(
+                                    "name", "Неизвестная карта"
+                                ),
+                                "source_map_id": filename[
+                                    :-5
+                                ],  # убираем .json
+                            }
+
+                            # Если есть аватар, добавляем URL
+                            if token_copy["has_avatar"]:
+                                from utils.storage import get_token_avatar_url
+
+                                token_copy["avatar_url"] = (
+                                    get_token_avatar_url(token_id)
+                                )
+
+                            all_tokens.append(token_copy)
+
+            except Exception as e:
+                print(f"Error loading map {filename}: {e}")
+                continue
+
+    # Сортируем по имени (мёртвые внизу или вверху? давайте мёртвых вниз)
+    all_tokens.sort(
+        key=lambda t: (t.get("is_dead", False), t.get("name", "").lower())
+    )
+    return all_tokens
 
 
 def delete_token_avatar(token_id):

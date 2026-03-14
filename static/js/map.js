@@ -7,6 +7,8 @@ const playerRulerToggle = document.getElementById("playerRulerToggle");
 const rulerToggle = document.getElementById("rulerToggle");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
+let allTokensFromMaps = [];
+let selectedImportToken = null;
 let isSwitchingMap = false;
 let selectedCharacterId = null;
 let spawnPosition = null;
@@ -5434,3 +5436,254 @@ function setupDragAndDropListeners() {
     // но с проверкой, что элементы уже есть
     initCharacterDragAndDrop();
 }
+
+function openImportTokenModal() {
+    const modal = document.getElementById("importTokenModal");
+    modal.style.display = "flex";
+
+    // Сохраняем позицию курсора для спавна
+    if (lastMouseX && lastMouseY) {
+        const { scale, offsetX, offsetY } = getTransform();
+        spawnPosition = [
+            (lastMouseX - offsetX) / scale,
+            (lastMouseY - offsetY) / scale
+        ];
+    } else if (mapImage && mapImage.complete) {
+        spawnPosition = [mapImage.width / 2, mapImage.height / 2];
+    } else {
+        spawnPosition = [500, 500];
+    }
+
+    loadAllTokens();
+}
+
+function closeImportTokenModal() {
+    document.getElementById("importTokenModal").style.display = "none";
+    document.getElementById("importTokenSearchInput").value = "";
+    selectedImportToken = null;
+}
+
+function loadAllTokens() {
+    const list = document.getElementById("importTokenList");
+    list.innerHTML = '<div style="text-align: center; padding: 20px;">Загрузка...</div>';
+
+    fetch("/api/tokens/all")
+        .then(res => res.json())
+        .then(tokens => {
+            allTokensFromMaps = tokens;
+
+            if (tokens.length === 0) {
+                list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Нет токенов на других картах</div>';
+                return;
+            }
+
+            displayImportTokens(tokens);
+        })
+        .catch(err => {
+            console.error("Error loading tokens:", err);
+            list.innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Ошибка загрузки</div>';
+        });
+}
+
+function displayImportTokens(tokens) {
+    const list = document.getElementById("importTokenList");
+    list.innerHTML = "";
+
+    tokens.forEach(token => {
+        const item = createImportTokenItem(token);
+        list.appendChild(item);
+    });
+}
+
+function filterImportTokens() {
+    const searchText = document.getElementById("importTokenSearchInput").value.toLowerCase().trim();
+
+    if (!allTokensFromMaps || allTokensFromMaps.length === 0) return;
+
+    if (searchText === "") {
+        displayImportTokens(allTokensFromMaps);
+        return;
+    }
+
+    const filtered = allTokensFromMaps.filter(token =>
+        token.name.toLowerCase().includes(searchText)
+    );
+
+    displayImportTokens(filtered);
+
+    if (filtered.length === 0) {
+        const list = document.getElementById("importTokenList");
+        list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Ничего не найдено</div>';
+    }
+}
+
+function createImportTokenItem(token) {
+    const div = document.createElement('div');
+    div.className = 'bank-character-item';
+    div.onclick = () => spawnImportedToken(token);
+    
+    // Определяем тип
+    let typeText = "Враг";
+    if (token.is_player) typeText = "Игрок";
+    else if (token.is_npc) typeText = "НПС";
+    
+    // Статус HP с учётом смерти
+    let hpStatus;
+    let hpColor;
+    
+    if (token.is_dead) {
+        hpStatus = "МЁРТВ";
+        hpColor = "#f44336"; // Красный
+    } else {
+        const currentHp = token.health_points || 0;
+        const maxHp = token.max_health_points || 10;
+        hpStatus = `${currentHp}/${maxHp}`;
+        
+        // Цвет в зависимости от процента HP
+        const percent = currentHp / maxHp;
+        hpColor = percent > 0.8 ? "#4CAF50" :    // Зелёный
+                  percent > 0.4 ? "#FFC107" :    // Жёлтый
+                  "#F44336";                      // Красный
+    }
+    
+    // Добавляем иконку смерти если нужно
+    const deadIcon = token.is_dead ? '💀 ' : '';
+    
+    div.innerHTML = `
+        <img class="bank-character-avatar" src="${token.avatar_url || '/static/default-avatar.png'}" 
+             onerror="this.src='/static/default-avatar.png'">
+        <div class="bank-character-info">
+            <div class="bank-character-name">${deadIcon}${token.name}</div>
+            <div class="bank-character-type">${typeText} | Карта: ${token.source_map || 'Неизвестно'}</div>
+        </div>
+        <div class="bank-character-stats" style="color: ${hpColor}; font-weight: ${token.is_dead ? 'bold' : 'normal'};">
+            КД: ${token.armor_class || 10} | ОЗ: ${hpStatus}
+        </div>
+    `;
+    
+    // Добавляем класс для мёртвых токенов
+    if (token.is_dead) {
+        div.style.opacity = '0.8';
+        div.style.backgroundColor = 'rgba(244, 67, 54, 0.1)';
+    }
+    
+    return div;
+}
+
+function spawnImportedToken(sourceToken) {
+    if (!spawnPosition) return;
+
+    // Создаем новый ID для токена
+    const newTokenId = `token_${Date.now()}`;
+
+    // Копируем ВСЕ данные из исходного токена
+    const newToken = {
+        id: newTokenId,
+        name: sourceToken.name,
+        position: spawnPosition,
+        size: sourceToken.size || mapData.grid_settings.cell_size,
+        is_dead: sourceToken.is_dead || false,           // Копируем состояние смерти
+        is_player: sourceToken.is_player || false,
+        is_npc: sourceToken.is_npc || false,
+        armor_class: sourceToken.armor_class || 10,
+        health_points: sourceToken.health_points || sourceToken.max_health_points || 10,
+        max_health_points: sourceToken.max_health_points || sourceToken.health_points || 10,
+        has_avatar: sourceToken.has_avatar || false,
+        is_visible: sourceToken.is_visible !== undefined ? sourceToken.is_visible : true
+    };
+
+    // Логируем для отладки
+    console.log("Importing token with all properties:", {
+        name: newToken.name,
+        is_dead: newToken.is_dead,
+        hp: `${newToken.health_points}/${newToken.max_health_points}`,
+        ac: newToken.armor_class
+    });
+
+    // Функция для создания токена на сервере
+    const createToken = (avatarData = null) => {
+        const requestBody = {
+            ...newToken,
+            avatar_data: avatarData
+        };
+
+        return fetch("/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+        })
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
+            .then(data => {
+                if (data.avatar_url) {
+                    newToken.avatar_url = data.avatar_url;
+                }
+
+                mapData.tokens.push(newToken);
+                render();
+                updateSidebar();
+                closeImportTokenModal();
+
+                // Показываем уведомление с учётом состояния
+                const statusText = newToken.is_dead ? " (мёртв)" : "";
+                showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, 'success');
+            })
+            .catch(error => {
+                console.error('Error importing token:', error);
+                showNotification('Ошибка при импорте токена', 'error');
+            });
+    };
+
+    // Если у исходного токена есть аватар, пытаемся его скопировать
+    if (sourceToken.has_avatar && sourceToken.id) {
+        showNotification('Копирование аватара...', 'info');
+
+        // Пытаемся получить аватар из кэша
+        const cachedImg = avatarCache.get(sourceToken.id);
+        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
+            // Конвертируем в base64
+            const canvas = document.createElement('canvas');
+            canvas.width = cachedImg.width;
+            canvas.height = cachedImg.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(cachedImg, 0, 0);
+            const avatarData = canvas.toDataURL('image/png');
+            createToken(avatarData);
+        } else {
+            // Загружаем аватар с сервера
+            const avatarUrl = sourceToken.avatar_url || `/api/token/avatar/${sourceToken.id}`;
+
+            fetch(avatarUrl.split('?')[0])
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to fetch avatar');
+                    return res.blob();
+                })
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        createToken(e.target.result);
+                    };
+                    reader.readAsDataURL(blob);
+                })
+                .catch(err => {
+                    console.warn('Could not copy avatar, creating without avatar:', err);
+                    createToken(null);
+                });
+        }
+    } else {
+        // Создаем без аватара
+        createToken(null);
+    }
+}
+
+// Добавляем обработчик поиска
+document.getElementById("importTokenSearchInput").addEventListener("input", filterImportTokens);
+
+document.getElementById("importTokenSearchInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        // Ничего не делаем, просто предотвращаем отправку формы
+    }
+});

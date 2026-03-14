@@ -1254,17 +1254,21 @@ def delete_token(token_id):
 
     # Проверяем, есть ли этот токен в банке
     from utils.character_bank import get_bank_character
+
     bank_char = get_bank_character(token_id)
-    
+
     # Проверяем, используется ли этот токен на других картах
     from utils.storage import get_all_maps_with_token
+
     maps_with_token = get_all_maps_with_token(token_id)
-    
+
     # Фильтруем текущую карту из списка
     other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
-    
-    print(f"Deleting token {token_id}: in_bank={bool(bank_char)}, other_maps={len(other_maps)}")
-    
+
+    print(
+        f"Deleting token {token_id}: in_bank={bool(bank_char)}, other_maps={len(other_maps)}"
+    )
+
     if bank_char:
         # Если персонаж есть в банке, НЕ удаляем аватар
         print(f"Token {token_id} is in bank, keeping avatar")
@@ -1273,8 +1277,11 @@ def delete_token(token_id):
         print(f"Token {token_id} is used on other maps, keeping avatar")
     else:
         # Удаляем аватар только если его нет в банке И он не используется на других картах
-        print(f"Token {token_id} not in bank and not on other maps, deleting avatar")
+        print(
+            f"Token {token_id} not in bank and not on other maps, deleting avatar"
+        )
         from utils.storage import delete_token_avatar
+
         delete_token_avatar(token_id)
 
     # Удаляем токен из данных текущей карты
@@ -1453,30 +1460,53 @@ def add_bank_character():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/tokens/all", methods=["GET"])
+def get_all_tokens():
+    """Получить все токены со всех карт"""
+    from utils.storage import get_all_tokens_from_maps
+
+    tokens = get_all_tokens_from_maps()
+
+    # Добавляем URL аватаров
+    for token in tokens:
+        if token.get("has_avatar"):
+            from utils.storage import get_token_avatar_url
+
+            token["avatar_url"] = get_token_avatar_url(token["id"])
+
+    return jsonify(tokens)
+
+
 @app.route("/api/bank/character/<char_id>", methods=["DELETE"])
 def delete_bank_character(char_id):
     """Удалить персонажа из банка"""
     try:
         # Проверяем, используется ли этот персонаж на картах
         from utils.storage import get_all_maps_with_token
+
         maps_with_token = get_all_maps_with_token(char_id)
-        
-        print(f"Deleting bank character {char_id}, used on {len(maps_with_token)} maps")
-        
+
+        print(
+            f"Deleting bank character {char_id}, used on {len(maps_with_token)} maps"
+        )
+
         # Если персонаж используется на картах, предупреждаем
         if maps_with_token:
             map_names = [m["map_name"] for m in maps_with_token]
-            return jsonify({
-                "error": f"Character is used on maps: {', '.join(map_names)}. Remove from maps first or delete maps."
-            }), 400
-        
+            return jsonify(
+                {
+                    "error": f"Character is used on maps: {', '.join(map_names)}. Remove from maps first or delete maps."
+                }
+            ), 400
+
         # Удаляем аватар
         from utils.storage import delete_token_avatar
+
         delete_token_avatar(char_id)
-        
+
         # Удаляем из базы данных
         delete_character_from_bank(char_id)
-        
+
         return jsonify({"status": "ok"})
     except Exception as e:
         print(f"Error deleting from bank: {e}")
