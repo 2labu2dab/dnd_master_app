@@ -408,9 +408,13 @@ if (mapId) {
     mapImage = new Image();
     fetchMap();
     
-    if (socket) {
-        socket.on('connect', () => {
-
+if (socket) {
+    socket.on('connect', () => {
+        console.log('Player socket connected');
+        
+        // Если есть mapId, запрашиваем синхронизацию
+        if (mapId) {
+            console.log('Requesting map sync for:', mapId);
             socket.emit("request_map_sync", { map_id: mapId });
             
             setTimeout(() => {
@@ -418,8 +422,16 @@ if (mapId) {
                     socket.emit("request_map_image", { map_id: mapId });
                 }
             }, 500);
-        });
-    }
+        } else {
+            // Если нет mapId, пробуем получить из parent
+            if (window.parent && window.parent.currentMapId) {
+                mapId = window.parent.currentMapId;
+                window.playerMapId = mapId;
+                fetchMap();
+            }
+        }
+    });
+}
 } else {
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1342,8 +1354,9 @@ socket.on("force_image_reload", (data) => {
         newImage.src = data.image_url;
     }
 });
-
 window.addEventListener('load', () => {
+    console.log('Player page loaded, mapId:', mapId);
+    
     if (mapId) {
         setTimeout(() => {
             if (socket && socket.connected) {
@@ -1351,6 +1364,15 @@ window.addEventListener('load', () => {
             }
             fetchMap();
         }, 1000);
+    } else {
+        // Если mapId не задан, пробуем получить из parent
+        if (window.parent && window.parent.currentMapId) {
+            mapId = window.parent.currentMapId;
+            window.playerMapId = mapId;
+            fetchMap();
+        } else {
+            console.error('No mapId available');
+        }
     }
     
     // Инициализируем портреты после загрузки
@@ -1536,3 +1558,152 @@ socket.on("characters_updated", (data) => {
         requestRender();
     }
 });
+
+function fetchMap(retryCount = 0) {
+    console.log("fetchMap called with mapId:", mapId);
+    
+    if (!mapId) {
+        console.error("No map ID provided");
+        
+        // Пытаемся получить map_id из parent если это iframe
+        if (window.parent && window.parent.currentMapId) {
+            console.log("Getting mapId from parent:", window.parent.currentMapId);
+            mapId = window.parent.currentMapId;
+            window.playerMapId = mapId;
+        } else {
+            // Пробуем получить из URL
+            const urlParams = new URLSearchParams(window.location.search);
+            mapId = urlParams.get('map_id');
+            console.log("Getting mapId from URL:", mapId);
+        }
+        
+        if (!mapId) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "24px Inter";
+            ctx.fillStyle = "#666";
+            ctx.textAlign = "center";
+            ctx.fillText("Карта не выбрана", canvas.width/2, canvas.height/2);
+            return Promise.reject("No map ID");
+        }
+    }
+    
+    const fetchUrl = `/api/map/${mapId}?ts=${Date.now()}`;
+    console.log("Fetching map from:", fetchUrl);
+    
+    return fetch(fetchUrl)
+        .then(res => {
+            if (!res.ok) {
+                if (res.status === 404) {
+                    console.error(`Map ${mapId} not found (404)`);
+                    
+                    // Если карта не найдена, пробуем получить список карт и взять первую
+                    return fetch("/api/maps")
+                        .then(mapsRes => mapsRes.json())
+                        .then(maps => {
+                            if (maps && maps.length > 0) {
+                                console.log("Map not found, switching to first map:", maps[0].id);
+                                mapId = maps[0].id;
+                                window.playerMapId = mapId;
+                                
+                                // Обновляем URL
+                                const url = new URL(window.location);
+                                url.searchParams.set('map_id', mapId);
+                                window.history.replaceState({}, '', url);
+                                
+                                // Пробуем снова с новым ID
+                                return fetchMap(0);
+                            }
+                            throw new Error("No maps available");
+                        });
+                }
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.error) {
+                console.error(data.error);
+                return;
+            }
+            
+            console.log("Map data loaded successfully");
+            mapData = data;
+            
+            // Сохраняем размеры канваса мастера
+            if (data.master_canvas_width) {
+                masterCanvasWidth = data.master_canvas_width;
+            }
+            if (data.master_canvas_height) {
+                masterCanvasHeight = data.master_canvas_height;
+            }
+            
+            zoomLevel = data.zoom_level || 1;
+            panX = data.pan_x || 0;
+            panY = data.pan_y || 0;
+
+            if (mapData.ruler_visible_to_players === undefined) {
+                mapData.ruler_visible_to_players = false;
+            }
+            
+            const disabledImg = document.getElementById("mapDisabledImage");
+            if (disabledImg) {
+                disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
+            }
+            
+            if (!mapData.player_map_enabled) {
+                canvas.style.display = "none";
+                return;
+            } else {
+                canvas.style.display = "block";
+            }
+            
+            if (mapData.has_image) {
+                const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+                console.log("Loading map image from:", imageUrl);
+                
+                const newImage = new Image();
+                newImage.onload = () => {
+                    console.log("Map image loaded successfully");
+                    mapImage = newImage;
+                    requestRender();
+                    updatePortraits();
+                };
+                newImage.onerror = (err) => {
+                    console.error("Error loading map image:", err);
+                    // Если не удалось загрузить изображение, пробуем запросить его через сокет
+                    if (socket && socket.connected) {
+                        socket.emit("request_map_image", { map_id: mapId });
+                    }
+                };
+                newImage.src = imageUrl;
+            } else {
+                console.log("Map has no image");
+                mapImage = new Image();
+                requestRender();
+                updatePortraits();
+            }
+        })
+        .catch(err => {
+            console.error("Error fetching map:", err);
+            
+            // Пробуем повторно через секунду если это не 404
+            if (retryCount < 3 && !err.message.includes("404")) {
+                console.log(`Retrying fetchMap (${retryCount + 1}/3)...`);
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        resolve(fetchMap(retryCount + 1));
+                    }, 1000);
+                });
+            }
+            
+            // Показываем сообщение об ошибке на canvas
+            resizeCanvasToDisplaySize();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "24px Inter";
+            ctx.fillStyle = "#666";
+            ctx.textAlign = "center";
+            ctx.fillText("Ошибка загрузки карты", canvas.width/2, canvas.height/2);
+            
+            throw err;
+        });
+}

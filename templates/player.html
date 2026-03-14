@@ -144,7 +144,8 @@
 
 <body>
   <script>
-    window.MAP_ID = "{{ map_id }}";
+    // Устанавливаем MAP_ID из атрибута data-map-id
+    window.MAP_ID = document.body.getAttribute('data-map-id') || "{{ map_id }}";
   </script>
   <div id="main">
     <div id="map-container">
@@ -159,7 +160,6 @@
   </div>
   <script src="{{ url_for('static', filename='js/socket.js') }}"></script>
   <script src="{{ url_for('static', filename='js/player.js') }}"></script>
-
 </body>
 
 </html>

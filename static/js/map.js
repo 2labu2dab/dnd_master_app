@@ -78,6 +78,19 @@ const avatarCache = new Map();
 
 let socketId = null;
 
+function saveCurrentMapToStorage(mapId) {
+    if (mapId) {
+        localStorage.setItem('dnd_last_map_id', mapId);
+        console.log('Saved map ID to storage:', mapId);
+    }
+}
+
+function loadCurrentMapFromStorage() {
+    const mapId = localStorage.getItem('dnd_last_map_id');
+    console.log('Loaded map ID from storage:', mapId);
+    return mapId;
+}
+
 
 socket.on('connect', () => {
     socketId = socket.id;
@@ -995,6 +1008,10 @@ function checkMapExists() {
 }
 function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
+
+    // СОХРАНЯЕМ ID В STORAGE
+    saveCurrentMapToStorage(mapId);
+
     avatarCache.clear();
 
     // Очищаем кэш аватаров
@@ -1021,7 +1038,7 @@ function switchMap(mapId) {
             finds: [],
             zones: [],
             characters: [],
-            grid_settings: { cell_size: 20, color: "#888888", visible: false, visible_to_players: true } // Добавлено visible_to_players
+            grid_settings: { cell_size: 20, color: "#888888", visible: false, visible_to_players: true }
         };
         render();
         updateSidebar();
@@ -1049,7 +1066,7 @@ function switchMap(mapId) {
 
             // Убеждаемся, что grid_settings.visible_to_players определен
             if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
-                mapData.grid_settings.visible_to_players = true; // По умолчанию включено
+                mapData.grid_settings.visible_to_players = true;
             }
 
             // ВАЖНО: сначала устанавливаем сохранённые значения
@@ -1156,6 +1173,9 @@ function submitNewMap() {
                 select.appendChild(option);
             });
 
+            // СОХРАНЯЕМ ID НОВОЙ КАРТЫ
+            saveCurrentMapToStorage(data.map_id);
+            
             switchMap(data.map_id);
         });
 }
@@ -1182,10 +1202,18 @@ function deleteCurrentMap() {
                         if (map.id === data.maps[0].id) option.selected = true;
                         select.appendChild(option);
                     });
+                    
+                    // СОХРАНЯЕМ ID ПЕРВОЙ КАРТЫ
+                    saveCurrentMapToStorage(data.maps[0].id);
+                    
                     switchMap(data.maps[0].id);
                 } else {
                     // Нет карт
                     select.innerHTML = '<option value="">Нет карт</option>';
+                    
+                    // ОЧИЩАЕМ STORAGE
+                    localStorage.removeItem('dnd_last_map_id');
+                    
                     switchMap(null);
                 }
             }
@@ -1323,6 +1351,8 @@ function fetchMap() {
             const currentZoom = zoomLevel;
             const currentPanX = panX;
             const currentPanY = panY;
+            const select = document.getElementById('mapSelect');
+            const currentOption = select.querySelector(`option[value="${currentMapId}"]`);
 
             mapData = data;
 
@@ -1414,6 +1444,10 @@ function fetchMap() {
                 console.log("Map has no image");
                 mapImage = new Image();
                 render();
+            }
+
+            if (currentOption && data.name) {
+                currentOption.textContent = data.name;
             }
 
             return data;
@@ -1744,7 +1778,7 @@ function closeCharacterModal() {
     document.getElementById("characterModal").style.display = "none";
     document.getElementById("characterModalTitle").textContent = "Добавление портрета";
     window.editingCharacterId = null;
-    
+
     // Сбрасываем форму
     document.getElementById("characterName").value = "";
     const preview = document.getElementById("characterAvatarPreview");
@@ -1752,7 +1786,7 @@ function closeCharacterModal() {
     preview.style.display = "none";
     preview.removeAttribute("data-base64");
     preview.removeAttribute("data-portrait-id");
-    
+
     document.getElementById("characterAvatarOverlay").style.display = "block";
     document.getElementById("characterAvatarMask").style.display = "none";
     document.getElementById("characterEditIcon").style.display = "none";
@@ -3254,18 +3288,42 @@ window.onload = () => {
             select.innerHTML = '';
 
             if (maps.length > 0) {
+                // ПЫТАЕМСЯ ЗАГРУЗИТЬ СОХРАНЕННУЮ КАРТУ
+                const savedMapId = loadCurrentMapFromStorage();
+                
+                // Проверяем, существует ли сохраненная карта в списке
+                const savedMapExists = savedMapId && maps.some(map => map.id === savedMapId);
+                
+                let mapToLoad;
+                if (savedMapExists) {
+                    // Используем сохраненную карту
+                    mapToLoad = savedMapId;
+                    console.log('Loading saved map:', mapToLoad);
+                } else {
+                    // Иначе берем первую
+                    mapToLoad = maps[0].id;
+                    console.log('Saved map not found, loading first map:', mapToLoad);
+                    
+                    // Сохраняем первую карту как текущую
+                    saveCurrentMapToStorage(mapToLoad);
+                }
+                
+                // Заполняем select
                 maps.forEach(map => {
                     const option = document.createElement('option');
                     option.value = map.id;
                     option.textContent = map.name;
+                    if (map.id === mapToLoad) option.selected = true;
                     select.appendChild(option);
                 });
-                select.value = maps[0].id;
-                // Убираем fetchMap(), оставляем только switchMap
-                switchMap(maps[0].id);
+                
+                // Загружаем карту
+                switchMap(mapToLoad);
                 setTimeout(updateSliderVisual, 100);
             } else {
                 select.innerHTML = '<option value="">Нет карт</option>';
+                // Очищаем storage если карт нет
+                localStorage.removeItem('dnd_last_map_id');
                 switchMap(null);
             }
         });
@@ -3405,6 +3463,9 @@ window.onload = () => {
 socket.on("map_created", (data) => {
     console.log("Map created event received:", data);
 
+    // СОХРАНЯЕМ ID НОВОЙ КАРТЫ
+    saveCurrentMapToStorage(data.current_map);
+
     // Обновляем селект карт
     const select = document.getElementById('mapSelect');
     select.innerHTML = '';
@@ -3429,7 +3490,6 @@ socket.on("map_created", (data) => {
         playerFrame.src = `/player?map_id=${data.current_map}`;
     }
 });
-
 socket.on("map_image_updated", (data) => {
 
     if (data.map_id === currentMapId) {
@@ -4395,7 +4455,7 @@ function createCharacterContextMenu() {
             window.currentContextCharacter.visible_to_players = e.target.checked;
             updateSidebar();
             saveMapData();
-            
+
             // Уведомляем игроков
             socket.emit("characters_updated", {
                 map_id: currentMapId,
@@ -4425,13 +4485,13 @@ function createCharacterContextMenu() {
             render();
             updateSidebar();
             initCharacterDragAndDrop();
-            
+
             // Уведомляем игроков
             socket.emit("characters_updated", {
                 map_id: currentMapId,
                 characters: mapData.characters
             });
-            
+
             menu.style.display = "none";
         }
     });
