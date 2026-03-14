@@ -237,41 +237,30 @@ details[open] > summary::after {
 
 /* Стили для маленькой кнопки банка */
 .bank-button {
-  width: 50px !important; /* Фиксированная маленькая ширина */
+  width: 100px !important;
   min-width: 50px !important;
-  max-width: 50px !important;
-  height: 36px; /* Фиксированная высота */
+  max-width: 100px !important;
+  height: 36px;
   padding: 8px 0 !important;
-  font-size: 18px; /* Увеличен размер иконки */
+  font-size: 14px; /* Уменьшил размер шрифта для текста */
   font-family: 'Inter', sans-serif;
   background-color: #4C5BEF;
   color: white;
   border: none;
   border-radius: 9999px;
   display: inline-flex;
-  justify-content: center; /* Центрируем иконку */
+  justify-content: center;
   align-items: center;
   cursor: pointer;
   transition: background-color 0.2s ease;
   box-shadow: 0 0 4px rgba(0,0,0,0.2);
   margin-bottom: 15px;
-  flex: 0 0 auto; /* Запрещаем растягивание */
+  flex: 0 0 auto;
+  text-align: center; /* Добавил для надежности */
 }
 
 .bank-button:hover {
   background-color: #3e4cd4;
-}
-
-.bank-button .add-icon {
-  display: inline-block;
-  width: 24px;
-  height: 24px;
-  border: 1px solid white;
-  border-radius: 50%;
-  text-align: center;
-  line-height: 22px;
-  font-size: 16px;
-  margin: 0; /* Убираем отступы */
 }
 
 .add-icon {
