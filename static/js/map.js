@@ -1175,7 +1175,7 @@ function submitNewMap() {
 
             // СОХРАНЯЕМ ID НОВОЙ КАРТЫ
             saveCurrentMapToStorage(data.map_id);
-            
+
             switchMap(data.map_id);
         });
 }
@@ -1202,18 +1202,18 @@ function deleteCurrentMap() {
                         if (map.id === data.maps[0].id) option.selected = true;
                         select.appendChild(option);
                     });
-                    
+
                     // СОХРАНЯЕМ ID ПЕРВОЙ КАРТЫ
                     saveCurrentMapToStorage(data.maps[0].id);
-                    
+
                     switchMap(data.maps[0].id);
                 } else {
                     // Нет карт
                     select.innerHTML = '<option value="">Нет карт</option>';
-                    
+
                     // ОЧИЩАЕМ STORAGE
                     localStorage.removeItem('dnd_last_map_id');
-                    
+
                     switchMap(null);
                 }
             }
@@ -3290,10 +3290,10 @@ window.onload = () => {
             if (maps.length > 0) {
                 // ПЫТАЕМСЯ ЗАГРУЗИТЬ СОХРАНЕННУЮ КАРТУ
                 const savedMapId = loadCurrentMapFromStorage();
-                
+
                 // Проверяем, существует ли сохраненная карта в списке
                 const savedMapExists = savedMapId && maps.some(map => map.id === savedMapId);
-                
+
                 let mapToLoad;
                 if (savedMapExists) {
                     // Используем сохраненную карту
@@ -3303,11 +3303,11 @@ window.onload = () => {
                     // Иначе берем первую
                     mapToLoad = maps[0].id;
                     console.log('Saved map not found, loading first map:', mapToLoad);
-                    
+
                     // Сохраняем первую карту как текущую
                     saveCurrentMapToStorage(mapToLoad);
                 }
-                
+
                 // Заполняем select
                 maps.forEach(map => {
                     const option = document.createElement('option');
@@ -3316,7 +3316,7 @@ window.onload = () => {
                     if (map.id === mapToLoad) option.selected = true;
                     select.appendChild(option);
                 });
-                
+
                 // Загружаем карту
                 switchMap(mapToLoad);
                 setTimeout(updateSliderVisual, 100);
@@ -3955,7 +3955,8 @@ function copySelectedToken() {
         is_npc: token.is_npc,
         has_avatar: token.has_avatar,
         avatar_url: token.avatar_url,
-        size: token.size
+        size: token.size,
+        is_visible: token.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
     };
 
     // Если у токена есть аватар, пытаемся получить его данные
@@ -3974,7 +3975,6 @@ function copySelectedToken() {
 
     showNotification('Токен скопирован', 'success');
 }
-
 function pasteToken() {
     if (!copiedToken) {
         showNotification('Нет скопированного токена', 'warning');
@@ -4016,8 +4016,9 @@ function pasteToken() {
         max_health_points: copiedToken.max_health_points,
         has_avatar: copiedToken.has_avatar,
         avatar_url: copiedToken.avatar_url,
-        is_visible: true
+        is_visible: copiedToken.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
     };
+
 
     // Отправляем на сервер вместе с avatar_data если есть
     const requestBody = {
@@ -4115,7 +4116,7 @@ function duplicateToken(sourceToken) {
         max_health_points: sourceToken.max_health_points,
         has_avatar: sourceToken.has_avatar,
         avatar_url: sourceToken.avatar_url, // Временный URL
-        is_visible: true
+        is_visible: sourceToken.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
     };
 
     // Отправляем на сервер вместе с данными аватара если есть
