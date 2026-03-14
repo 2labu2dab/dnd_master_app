@@ -5,6 +5,11 @@ import uuid
 import base64
 from PIL import Image
 import io
+from utils.character_bank import (
+    init_db, get_all_bank_characters, add_character_to_bank,
+    update_character_in_bank, delete_character_from_bank,
+    get_bank_character, save_bank_character_avatar
+)
 
 DATA_DIR = "data"
 MAPS_DIR = os.path.join(DATA_DIR, "maps")
@@ -25,6 +30,32 @@ def ensure_dirs():
     )  # Добавляем создание папки для аватаров
     os.makedirs(PORTRAITS_DIR, exist_ok=True)
 
+def get_all_maps_with_token(token_id):
+    """Проверить, на каких картах используется токен"""
+    ensure_dirs()
+    maps_with_token = []
+    
+    for filename in os.listdir(MAPS_DIR):
+        if filename.endswith(".json"):
+            filepath = os.path.join(MAPS_DIR, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                # Проверяем, есть ли токен на этой карте
+                if "tokens" in data:
+                    for token in data["tokens"]:
+                        if token.get("id") == token_id:
+                            maps_with_token.append({
+                                "map_id": filename[:-5],
+                                "map_name": data.get("name", "Unknown")
+                            })
+                            break
+            except Exception as e:
+                print(f"Error checking map {filename}: {e}")
+                continue
+    
+    return maps_with_token
 
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
@@ -236,6 +267,7 @@ def list_maps():
 
 
 def create_new_map(name="Новая карта"):
+    create_new_map
     """Создать новую карту"""
     ensure_dirs()
     map_id = str(uuid.uuid4())[:8]  # короткий ID

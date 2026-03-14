@@ -3,6 +3,22 @@ body, input, button, label, canvas {
   font-family: 'Inter', sans-serif;
 }
 
+#addToCharactersCheckbox,
+#addToBankCheckbox,
+#addToCharactersCheckbox-parent,
+#addToBankCheckbox-parent,
+.visibility-toggle input[type="checkbox"] {
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.visibility-toggle {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
 #tokenList li {
   font-size: 14px;
   line-height: 1.2;
@@ -217,6 +233,45 @@ details[open] > summary::after {
 
 .add-button .add-icon {
   order: 2; /* Иконка будет расположена справа */
+}
+
+/* Стили для маленькой кнопки банка */
+.bank-button {
+  width: 50px !important; /* Фиксированная маленькая ширина */
+  min-width: 50px !important;
+  max-width: 50px !important;
+  height: 36px; /* Фиксированная высота */
+  padding: 8px 0 !important;
+  font-size: 18px; /* Увеличен размер иконки */
+  font-family: 'Inter', sans-serif;
+  background-color: #4C5BEF;
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  display: inline-flex;
+  justify-content: center; /* Центрируем иконку */
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  box-shadow: 0 0 4px rgba(0,0,0,0.2);
+  margin-bottom: 15px;
+  flex: 0 0 auto; /* Запрещаем растягивание */
+}
+
+.bank-button:hover {
+  background-color: #3e4cd4;
+}
+
+.bank-button .add-icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 1px solid white;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 22px;
+  font-size: 16px;
+  margin: 0; /* Убираем отступы */
 }
 
 .add-icon {
@@ -733,24 +788,25 @@ body.mini-map .portrait-item {
 }
 
 .visibility-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  font-size: 14px;
-  color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.visibility-toggle:hover {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .visibility-toggle input[type="checkbox"] {
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border: 2px solid #4C5BEF;
-  border-radius: 4px;
-  background-color: white;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.2s ease;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #4C5BEF;
 }
 
 .visibility-toggle input[type="checkbox"]:checked {
@@ -758,6 +814,28 @@ body.mini-map .portrait-item {
   border-color: #4C5BEF;
 }
 
+.visibility-toggle label {
+    color: #e5e7eb;
+    font-size: 14px;
+    cursor: pointer;
+    flex: 1;
+}
+#addToCharactersCheckbox,
+#addToBankCheckbox {
+    display: inline-block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+}
+
+#addToCharactersCheckbox-parent,
+#addToBankCheckbox-parent {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
 .add-button input[type="checkbox"]::after {
   content: "";
   position: absolute;
@@ -1468,4 +1546,57 @@ canvas.map-panning {
     pointer-events: none;
     border-radius: 4px; /* Скруглим углы аватаров */
     border: 1px solid rgba(255, 255, 255, 0.1); /* Тонкая обводка */
+}
+
+/* Добавить в static/css/styles.css */
+.bank-toggle {
+    margin-top: 5px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bank-character-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.bank-character-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid #3a3a4a;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.bank-character-item:hover {
+    background: #3a4a6b;
+}
+
+.bank-character-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 10px;
+    object-fit: cover;
+    background: #2a2a3b;
+}
+
+.bank-character-info {
+    flex: 1;
+}
+
+.bank-character-name {
+    font-weight: bold;
+    color: #fff;
+}
+
+.bank-character-type {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.bank-character-stats {
+    font-size: 12px;
+    color: #ccc;
+    margin-left: 10px;
 }

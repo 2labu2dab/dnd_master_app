@@ -58,10 +58,15 @@
         <div class="section">
           <details open>
             <summary>Токены персонажей</summary>
-            <button class="add-button" onclick="addToken()">
-              Создать токен
-              <span class="add-icon">+</span>
-            </button>
+            <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+              <button class="add-button" onclick="addToken()">
+                Создать токен
+                <span class="add-icon">+</span>
+              </button>
+              <button class="bank-button" onclick="openBankModal()">
+                <span class="add-icon">📚</span>
+              </button>
+            </div>
             <ul id="tokenList"></ul>
           </details>
         </div>
@@ -184,6 +189,27 @@
       </div>
     </div>
   </div>
+  <div id="bankModal" class="modal" style="display:none;">
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeBankModal()">&times;</span>
+      <h3>Банк персонажей</h3>
+
+      <!-- Поле поиска -->
+      <div style="margin-bottom: 15px;">
+        <input type="text" id="bankSearchInput" placeholder="Поиск по имени..." style="width: 100%; padding: 8px 12px; border-radius: 9999px; border: 1px solid #3a3a4a; 
+                    background: #2a2a3b; color: white; font-family: 'Inter', sans-serif; 
+                    box-sizing: border-box; outline: none;" oninput="filterBankCharacters()">
+      </div>
+
+      <div id="bankCharacterList" class="bank-character-list">
+        <!-- Список будет загружаться динамически -->
+      </div>
+
+      <div class="token-buttons" style="margin-top: 15px;">
+        <button class="cancel-btn" onclick="closeBankModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
   <div id="tokenModal" class="modal" style="display:none;">
     <div class="modal-content large-modal">
       <span class="close" onclick="closeTokenModal()">&times;</span>
@@ -226,6 +252,10 @@
       <div class="visibility-toggle">
         <input type="checkbox" id="addToCharactersCheckbox" />
         <label for="addToCharactersCheckbox">Добавить в портреты</label>
+      </div>
+      <div class="visibility-toggle bank-toggle">
+        <input type="checkbox" id="addToBankCheckbox" />
+        <label for="addToBankCheckbox">Добавить в банк персонажей</label>
       </div>
 
       <!-- Кнопки -->
@@ -303,11 +333,11 @@
     </div>
 
     <div class="context-menu-section type-selector">
-        <div class="token-type-buttons context-type-buttons">
-            <button data-type="player" class="type-btn context-type-btn active">Игрок</button>
-            <button data-type="npc" class="type-btn context-type-btn">НПС</button>
-            <button data-type="enemy" class="type-btn context-type-btn">Враг</button>
-        </div>
+      <div class="token-type-buttons context-type-buttons">
+        <button data-type="player" class="type-btn context-type-btn active">Игрок</button>
+        <button data-type="npc" class="type-btn context-type-btn">НПС</button>
+        <button data-type="enemy" class="type-btn context-type-btn">Враг</button>
+      </div>
     </div>
 
     <div class="context-menu-section">
@@ -352,7 +382,7 @@
 
     <div class="context-menu-section">
       <button class="context-menu-item" id="contextDuplicateToken">
-          <span class="context-icon">📋</span> Создать копию
+        <span class="context-icon">📋</span> Создать копию
       </button>
       <button class="context-menu-item" id="contextEditToken">
         <span class="context-icon">✎</span> Редактировать

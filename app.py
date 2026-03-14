@@ -5,6 +5,11 @@ import math
 import os
 import time
 import uuid
+from utils.character_bank import (
+    init_db, get_all_bank_characters, add_character_to_bank,
+    update_character_in_bank, delete_character_from_bank,
+    get_bank_character, save_bank_character_avatar
+)
 
 from flask import (
     Flask,
@@ -1243,8 +1248,16 @@ def delete_token(token_id):
     if not data:
         return jsonify({"error": "Map not found"}), 404
 
-    # Удаляем аватар если есть
-    delete_token_avatar(token_id)
+    # Проверяем, есть ли этот токен в банке
+    from utils.character_bank import get_bank_character
+    bank_char = get_bank_character(token_id)
+    
+    if bank_char:
+        # Если персонаж есть в банке, НЕ удаляем аватар
+        print(f"Token {token_id} is in bank, keeping avatar")
+    else:
+        # Удаляем аватар только если его нет в банке
+        delete_token_avatar(token_id)
 
     # Удаляем токен из данных
     tokens = data.get("tokens", [])
@@ -1258,7 +1271,6 @@ def delete_token(token_id):
     )
 
     return jsonify({"status": "token deleted"})
-
 
 @app.route("/api/portrait/<portrait_id>")
 def get_portrait(portrait_id):
@@ -1384,6 +1396,146 @@ def handle_characters_reordered(data):
             include_self=False,
         )
 
+@app.route("/api/bank/characters", methods=["GET"])
+def get_bank_characters():
+    """Получить всех персонажей из банка"""
+    characters = get_all_bank_characters()
+    
+    # Добавляем URL аватаров
+    for char in characters:
+        if char.get('has_avatar'):
+            char['avatar_url'] = f"/api/token/avatar/{char['id']}?t={int(time.time())}"
+    
+    return jsonify(characters)
+
+@app.route("/api/bank/character", methods=["POST"])
+def add_bank_character():
+    """Добавить персонажа в банк"""
+    try:
+        data = request.get_json()
+        
+        # Извлекаем avatar_data если есть
+        avatar_data = data.pop('avatar_data', None)
+        
+        # Добавляем в банк
+        char_id = add_character_to_bank(data)
+        
+        # Если есть аватар, сохраняем его
+        if avatar_data:
+            save_bank_character_avatar(avatar_data, char_id)
+        
+        return jsonify({"status": "ok", "id": char_id})
+    except Exception as e:
+        print(f"Error adding to bank: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/bank/character/<char_id>", methods=["DELETE"])
+def delete_bank_character(char_id):
+    """Удалить персонажа из банка"""
+    try:
+        # Проверяем, есть ли этот персонаж на какой-либо карте
+        from utils.storage import get_all_maps_with_token
+        maps_with_token = get_all_maps_with_token(char_id)
+        
+        if maps_with_token:
+            # Если персонаж используется на картах, не удаляем аватар
+            print(f"Character {char_id} is used on maps, keeping avatar")
+        else:
+            # Удаляем аватар только если персонаж нигде не используется
+            from utils.storage import delete_token_avatar
+            delete_token_avatar(char_id)
+        
+        delete_character_from_bank(char_id)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Error deleting from bank: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/bank/character/<char_id>/spawn", methods=["POST"])
+def spawn_bank_character(char_id):
+    """Создать токен на карте из персонажа из банка"""
+    try:
+        data = request.get_json()
+        map_id = data.get('map_id')
+        position = data.get('position')
+        
+        if not map_id or not position:
+            return jsonify({"error": "Missing map_id or position"}), 400
+        
+        # Получаем персонажа из банка
+        bank_char = get_bank_character(char_id)
+        if not bank_char:
+            return jsonify({"error": "Character not found"}), 404
+        
+        # Загружаем данные карты
+        map_data = load_map_data(map_id)
+        if not map_data:
+            return jsonify({"error": "Map not found"}), 404
+        
+        # Создаем токен
+        token_id = f"token_{uuid.uuid4().hex[:8]}"
+        
+        token = {
+            "id": token_id,
+            "name": bank_char['name'],
+            "position": position,
+            "size": map_data.get('grid_settings', {}).get('cell_size', 20),
+            "is_dead": False,
+            "is_player": bank_char['type'] == 'player',
+            "is_npc": bank_char['type'] == 'npc',
+            "armor_class": bank_char['armor_class'],
+            "health_points": bank_char['max_health'],
+            "max_health_points": bank_char['max_health'],
+            "has_avatar": bank_char.get('has_avatar', False),
+            "is_visible": True
+        }
+        
+        # Копируем аватар если есть
+        if bank_char.get('has_avatar'):
+            from utils.storage import get_token_avatar_filepath, save_token_avatar
+            
+            source_path = get_token_avatar_filepath(char_id)
+            if os.path.exists(source_path):
+                with open(source_path, 'rb') as f:
+                    avatar_data = f.read()
+                save_token_avatar(avatar_data, token_id)
+                token['has_avatar'] = True
+                token['avatar_url'] = f"/api/token/avatar/{token_id}?t={int(time.time())}"
+        
+        # Добавляем токен на карту
+        map_data.setdefault('tokens', []).append(token)
+        save_map_data(map_data, map_id)
+        
+        # Подготавливаем данные для игроков
+        tokens_for_players = []
+        for t in map_data.get('tokens', []):
+            token_copy = t.copy()
+            if token_copy.get('has_avatar'):
+                token_copy['avatar_url'] = f"/api/token/avatar/{token_copy['id']}?t={int(time.time())}"
+            token_copy.pop('avatar_data', None)
+            tokens_for_players.append(token_copy)
+        
+        # Отправляем обновление
+        player_data = {
+            "map_id": map_id,
+            "tokens": tokens_for_players,
+            "zones": map_data.get('zones', []),
+            "finds": map_data.get('finds', []),
+            "grid_settings": map_data.get('grid_settings', {}),
+            "player_map_enabled": map_data.get('player_map_enabled', True),
+            "has_image": map_data.get('has_image', False)
+        }
+        
+        if map_data.get('has_image'):
+            player_data['image_url'] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        
+        socketio.emit("map_updated", player_data)
+        
+        return jsonify({"status": "ok", "token": token})
+        
+    except Exception as e:
+        print(f"Error spawning character: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     # Создаем необходимые директории
