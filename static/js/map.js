@@ -5706,7 +5706,7 @@ function createImportTokenItem(token) {
              onerror="this.src='/static/default-avatar.png'">
         <div class="bank-character-info">
             <div class="bank-character-name">${deadIcon}${token.name}</div>
-            <div class="bank-character-type">${typeText} | Карта: ${token.source_map || 'Неизвестно'}</div>
+            <div class="bank-character-type">${typeText}</div>
         </div>
         <div class="bank-character-stats" style="color: ${hpColor}; font-weight: ${token.is_dead ? 'bold' : 'normal'};">
             КД: ${token.armor_class || 10} | ОЗ: ${hpStatus}
@@ -5725,16 +5725,27 @@ function createImportTokenItem(token) {
 function spawnImportedToken(sourceToken) {
     if (!spawnPosition) return;
 
-    // Создаем новый ID для токена
-    const newTokenId = `token_${Date.now()}`;
+    // Проверяем, существует ли уже токен с таким ID на текущей карте
+    const existingToken = mapData.tokens.find(t => t.id === sourceToken.id);
+    
+    if (existingToken) {
+        // Если токен уже есть на карте, спрашиваем, что делать
+        if (confirm(`Токен "${sourceToken.name}" уже есть на этой карте. Создать копию с новым ID?`)) {
+            // Создаём копию с новым ID
+            createTokenCopyWithNewId(sourceToken);
+        } else {
+            closeImportTokenModal();
+        }
+        return;
+    }
 
-    // Копируем ВСЕ данные из исходного токена
+    // Используем оригинальный ID из исходного токена
     const newToken = {
-        id: newTokenId,
+        id: sourceToken.id,  // ВАЖНО: используем оригинальный ID!
         name: sourceToken.name,
         position: spawnPosition,
         size: sourceToken.size || mapData.grid_settings.cell_size,
-        is_dead: sourceToken.is_dead || false,           // Копируем состояние смерти
+        is_dead: sourceToken.is_dead || false,
         is_player: sourceToken.is_player || false,
         is_npc: sourceToken.is_npc || false,
         armor_class: sourceToken.armor_class || 10,
@@ -5745,90 +5756,102 @@ function spawnImportedToken(sourceToken) {
     };
 
     // Логируем для отладки
-    console.log("Importing token with all properties:", {
-        name: newToken.name,
-        is_dead: newToken.is_dead,
-        hp: `${newToken.health_points}/${newToken.max_health_points}`,
-        ac: newToken.armor_class
-    });
+    console.log("Importing token with original ID:", sourceToken.id, newToken);
 
-    // Функция для создания токена на сервере
-    const createToken = (avatarData = null) => {
-        const requestBody = {
+    // Функция для создания токена с новым ID (как запасной вариант)
+    function createTokenCopyWithNewId(sourceToken) {
+        const newId = `token_${Date.now()}`;
+        const copyToken = {
             ...newToken,
-            avatar_data: avatarData
+            id: newId
+        };
+        
+        createTokenWithAvatar(sourceToken, copyToken);
+    }
+
+    // Функция для создания токена (с аватаром или без)
+    function createTokenWithAvatar(sourceToken, targetToken) {
+        const createToken = (avatarData = null) => {
+            const requestBody = {
+                ...targetToken,
+                avatar_data: avatarData
+            };
+
+            return fetch("/api/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestBody),
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.avatar_url) {
+                        targetToken.avatar_url = data.avatar_url;
+                    }
+
+                    mapData.tokens.push(targetToken);
+                    render();
+                    updateSidebar();
+                    closeImportTokenModal();
+
+                    // Показываем уведомление с учётом состояния
+                    const statusText = targetToken.is_dead ? " (мёртв)" : "";
+                    showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, 'success');
+                })
+                .catch(error => {
+                    console.error('Error importing token:', error);
+                    showNotification('Ошибка при импорте токена', 'error');
+                });
         };
 
-        return fetch("/api/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-        })
-            .then(response => {
-                if (!response.ok) throw new Error('Network response was not ok');
-                return response.json();
-            })
-            .then(data => {
-                if (data.avatar_url) {
-                    newToken.avatar_url = data.avatar_url;
-                }
+        // Если у исходного токена есть аватар, пытаемся его скопировать
+        if (sourceToken.has_avatar && sourceToken.id) {
+            showNotification('Копирование аватара...', 'info');
 
-                mapData.tokens.push(newToken);
-                render();
-                updateSidebar();
-                closeImportTokenModal();
+            // Пытаемся получить аватар из кэша
+            const cachedImg = avatarCache.get(sourceToken.id);
+            if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
+                // Конвертируем в base64
+                const canvas = document.createElement('canvas');
+                canvas.width = cachedImg.width;
+                canvas.height = cachedImg.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(cachedImg, 0, 0);
+                const avatarData = canvas.toDataURL('image/png');
+                createToken(avatarData);
+            } else {
+                // Загружаем аватар с сервера
+                const avatarUrl = sourceToken.avatar_url || `/api/token/avatar/${sourceToken.id}`;
 
-                // Показываем уведомление с учётом состояния
-                const statusText = newToken.is_dead ? " (мёртв)" : "";
-                showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, 'success');
-            })
-            .catch(error => {
-                console.error('Error importing token:', error);
-                showNotification('Ошибка при импорте токена', 'error');
-            });
-    };
-
-    // Если у исходного токена есть аватар, пытаемся его скопировать
-    if (sourceToken.has_avatar && sourceToken.id) {
-        showNotification('Копирование аватара...', 'info');
-
-        // Пытаемся получить аватар из кэша
-        const cachedImg = avatarCache.get(sourceToken.id);
-        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-            // Конвертируем в base64
-            const canvas = document.createElement('canvas');
-            canvas.width = cachedImg.width;
-            canvas.height = cachedImg.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(cachedImg, 0, 0);
-            const avatarData = canvas.toDataURL('image/png');
-            createToken(avatarData);
+                fetch(avatarUrl.split('?')[0])
+                    .then(res => {
+                        if (!res.ok) throw new Error('Failed to fetch avatar');
+                        return res.blob();
+                    })
+                    .then(blob => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            createToken(e.target.result);
+                        };
+                        reader.readAsDataURL(blob);
+                    })
+                    .catch(err => {
+                        console.warn('Could not copy avatar, creating without avatar:', err);
+                        createToken(null);
+                    });
+            }
         } else {
-            // Загружаем аватар с сервера
-            const avatarUrl = sourceToken.avatar_url || `/api/token/avatar/${sourceToken.id}`;
-
-            fetch(avatarUrl.split('?')[0])
-                .then(res => {
-                    if (!res.ok) throw new Error('Failed to fetch avatar');
-                    return res.blob();
-                })
-                .then(blob => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        createToken(e.target.result);
-                    };
-                    reader.readAsDataURL(blob);
-                })
-                .catch(err => {
-                    console.warn('Could not copy avatar, creating without avatar:', err);
-                    createToken(null);
-                });
+            // Создаем без аватара
+            createToken(null);
         }
-    } else {
-        // Создаем без аватара
-        createToken(null);
     }
+
+    // Запускаем процесс импорта с оригинальным ID
+    createTokenWithAvatar(sourceToken, newToken);
 }
+
 
 // Добавляем обработчик поиска
 document.getElementById("importTokenSearchInput").addEventListener("input", filterImportTokens);

@@ -214,12 +214,10 @@ def get_all_tokens_from_maps():
                 if "tokens" in data:
                     for token in data["tokens"]:
                         token_id = token.get("id")
-                        if token_id and token_id not in seen_ids:
-                            seen_ids.add(token_id)
-
+                        if token_id:  # Не фильтруем по seen_ids, чтобы получить все токены
                             # Создаём копию со всеми полями
                             token_copy = {
-                                "id": token.get("id"),
+                                "id": token.get("id"),  # Оригинальный ID!
                                 "name": token.get("name", "Безымянный"),
                                 "is_player": token.get("is_player", False),
                                 "is_npc": token.get("is_npc", False),
@@ -258,8 +256,16 @@ def get_all_tokens_from_maps():
     all_tokens.sort(
         key=lambda t: (t.get("is_dead", False), t.get("name", "").lower())
     )
-    return all_tokens
-
+    
+    # Убираем дубликаты ID, оставляя первый встретившийся
+    unique_tokens = []
+    seen_ids = set()
+    for token in all_tokens:
+        if token["id"] not in seen_ids:
+            seen_ids.add(token["id"])
+            unique_tokens.append(token)
+    
+    return unique_tokens
 
 def delete_token_avatar(token_id):
     """Удалить аватар токена"""
