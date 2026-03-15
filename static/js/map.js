@@ -1412,7 +1412,10 @@ function switchMap(mapId) {
 
             // Загружаем изображение карты
             if (mapData.has_image) {
-                const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+                // Добавляем timestamp для сброса кэша
+                const timestamp = Date.now();
+                const imageUrl = `/api/map/image/${mapId}?t=${timestamp}`;
+
                 mapImage = new Image();
                 mapImage.onload = () => {
                     console.log("Map image loaded, rendering with restored position");
@@ -1731,7 +1734,8 @@ function fetchMap() {
 
             // Загружаем изображение карты только если оно изменилось
             if (mapData.has_image) {
-                const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
+                const timestamp = Date.now();
+                const imageUrl = `/api/map/image/${currentMapId}?t=${timestamp}`;
 
                 if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
                     console.log("Loading map image from:", imageUrl);
@@ -6063,43 +6067,112 @@ function submitMap() {
         return;
     }
 
-    const formData = new FormData();
-    formData.append("name", name);
-    if (currentMapImageFile) {
-        formData.append("map_image", currentMapImageFile);
-    }
-
-    const url = editingMapId
-        ? `/api/map/update/${editingMapId}`
-        : "/api/map/new";
-
-    fetch(url, {
-        method: "POST",
-        body: formData
-    })
-        .then(res => res.json())
-        .then(data => {
-            closeMapModal();
-
-            // Обновляем список карт
-            loadMapsList(); // ЭТА СТРОКА УЖЕ ДОЛЖНА БЫТЬ
-
-            // Если создана новая карта или обновлена текущая
-            if (data.map_id === currentMapId || (!editingMapId && mapsList.length === 0)) {
-                switchMap(data.map_id);
-            }
-
-            showNotification(
-                editingMapId ? "Карта обновлена" : "Карта создана",
-                "success"
-            );
+    // Если это создание новой карты (без редактирования)
+    if (!editingMapId) {
+        // Сначала создаем карту с именем
+        fetch("/api/map/new", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name })
         })
-        .catch(err => {
-            console.error("Error saving map:", err);
-            showNotification("Ошибка при сохранении карты", "error");
-        });
-}
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Network response was not ok: ' + res.status);
+                }
+                return res.json();
+            })
+            .then(data => {
+                // Если есть изображение для загрузки, загружаем его отдельно
+                if (currentMapImageFile) {
+                    const formData = new FormData();
+                    formData.append("map_image", currentMapImageFile);
 
+                    return fetch("/upload_map", {
+                        method: "POST",
+                        body: formData
+                    }).then(() => data);
+                }
+                return data;
+            })
+            .then(data => {
+                closeMapModal();
+                loadMapsList();
+
+                if (data.map_id) {
+                    switchMap(data.map_id);
+                }
+
+                showNotification("Карта создана", "success");
+            })
+            .catch(err => {
+                console.error("Error saving map:", err);
+                showNotification("Ошибка при создании карты: " + err.message, "error");
+            });
+    } else {
+        // Редактирование существующей карты
+        const formData = new FormData();
+        formData.append("name", name);
+        if (currentMapImageFile) {
+            formData.append("map_image", currentMapImageFile);
+        }
+
+        fetch(`/api/map/update/${editingMapId}`, {
+            method: "POST",
+            body: formData
+        })
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Network response was not ok: ' + res.status);
+                }
+                return res.json();
+            })
+            .then(data => {
+                closeMapModal();
+                loadMapsList();
+
+                if (data.map_id === currentMapId) {
+                    // ОЧИЩАЕМ КЭШ И ПЕРЕЗАГРУЖАЕМ ТЕКУЩУЮ КАРТУ
+                    // Удаляем старую ссылку на изображение
+                    if (mapImage) {
+                        // Создаем новый объект Image
+                        mapImage = new Image();
+                        mapImage.crossOrigin = "Anonymous"; // Добавляем для работы с кэшем
+                    }
+
+                    // Перезагружаем карту с новым параметром timestamp
+                    const timestamp = Date.now();
+                    const imageUrl = `/api/map/image/${currentMapId}?t=${timestamp}`;
+
+                    mapImage.onload = () => {
+                        console.log("New map image loaded after edit");
+                        render();
+
+                        // Сохраняем позицию
+                        mapData.zoom_level = zoomLevel;
+                        mapData.pan_x = panX;
+                        mapData.pan_y = panY;
+
+                        // Отправляем всем игрокам принудительную перезагрузку
+                        socket.emit("notify_image_loaded", {
+                            map_id: currentMapId,
+                            image_url: imageUrl
+                        });
+                    };
+
+                    mapImage.src = imageUrl;
+
+                    // Обновляем has_image в mapData
+                    mapData.has_image = true;
+                }
+
+                showNotification("Карта обновлена", "success");
+            })
+            .catch(err => {
+                console.error("Error updating map:", err);
+                showNotification("Ошибка при обновлении карты", "error");
+            });
+    }
+}
 // Показать контекстное меню карты
 function showMapContextMenu(mapId, event) {
     event.preventDefault();
