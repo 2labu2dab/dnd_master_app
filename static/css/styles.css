@@ -2231,3 +2231,61 @@ body.sidebar-collapsed-both #canvas-container {
 #mapModal .cancel-btn {
   min-width: 120px;
 }
+
+.icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #4C5BEF;
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.icon-button:hover {
+  background: #3e4cd4;
+  transform: scale(1.05);
+}
+
+.icon-button:active {
+  transform: scale(0.95);
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+}
+
+/* Группа иконок-кнопок */
+.icon-button-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+/* Для секций с одной кнопкой */
+.section-header-with-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.section-header-with-button summary {
+  margin-bottom: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Обновляем существующие стили для details */
+.section details[open] .icon-button-group,
+.section details[open] .section-header-with-button {
+  margin-top: 15px;
+}

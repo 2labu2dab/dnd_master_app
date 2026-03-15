@@ -44,11 +44,14 @@
         <div class="section">
           <details open>
             <summary>Скрытые области</summary>
-
-            <button class="add-button" onclick="addZone()">
-              Создать зону
-              <span class="add-icon">+</span>
-            </button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <button class="icon-button" onclick="addZone()" title="Создать зону">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
             <ul id="zoneList"></ul>
           </details>
         </div>
@@ -58,14 +61,24 @@
           <details open>
             <summary>Токены</summary>
             <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-              <button class="add-button" onclick="addToken()">
-                <span>Новый</span>
+              <button class="icon-button" onclick="addToken()" title="Новый токен">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
               </button>
-              <button class="add-button" onclick="openImportTokenModal()">
-                <span>Существующий</span>
+              <button class="icon-button" onclick="openImportTokenModal()" title="Импорт существующего">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                  <polyline points="8 12 12 16 16 12" />
+                  <line x1="12" y1="2" x2="12" y2="16" />
+                </svg>
               </button>
-              <button class="add-button" onclick="openBankModal()">
-                <span>Банк</span>
+              <button class="icon-button" onclick="openBankModal()" title="Банк персонажей">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                </svg>
               </button>
             </div>
             <ul id="tokenList"></ul>
@@ -76,10 +89,14 @@
         <div class="section">
           <details open>
             <summary>Находки</summary>
-            <button class="add-button" onclick="openFindModal()">
-              Создать находку
-              <span class="add-icon">+</span>
-            </button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <button class="icon-button" onclick="openFindModal()" title="Создать находку">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
             <ul id="findList"></ul>
           </details>
         </div>
@@ -126,10 +143,14 @@
       <div class="section">
         <details open>
           <summary>Портреты персонажей</summary>
-          <button class="add-button" onclick="openCharacterModal()">
-            Добавить портрет
-            <span class="add-icon">+</span>
-          </button>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <button class="icon-button" onclick="openCharacterModal()" title="Добавить портрет">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          </div>
           <ul id="characterList"></ul>
         </details>
       </div>
@@ -508,18 +529,18 @@
   </div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
   <div id="mapContextMenu" class="context-menu" style="display: none;">
-  <div class="context-menu-header">
-    <span id="contextMapName"></span>
+    <div class="context-menu-header">
+      <span id="contextMapName"></span>
+    </div>
+    <div class="context-menu-section">
+      <button class="context-menu-item" id="contextEditMap">
+        <span class="context-icon">✎</span> Редактировать
+      </button>
+      <button class="context-menu-item delete" id="contextDeleteMap">
+        <span class="context-icon">🗑️</span> Удалить
+      </button>
+    </div>
   </div>
-  <div class="context-menu-section">
-    <button class="context-menu-item" id="contextEditMap">
-      <span class="context-icon">✎</span> Редактировать
-    </button>
-    <button class="context-menu-item delete" id="contextDeleteMap">
-      <span class="context-icon">🗑️</span> Удалить
-    </button>
-  </div>
-</div>
   <div id="newMapModal" class="modal" style="display: none;">
     <div class="modal-content small-modal">
       <span class="close" onclick="closeNewMapModal()">&times;</span>
