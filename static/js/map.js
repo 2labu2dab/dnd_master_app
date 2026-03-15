@@ -3472,57 +3472,66 @@ document.addEventListener("keydown", (e) => {
     }
 
     if (e.key === "Delete") {
-        let changed = false;
+    let changed = false;
 
-        // Существующий код для токенов
-        if (selectedTokenId) {
-            fetch(`/api/token/avatar/${selectedTokenId}`, {
-                method: 'DELETE'
-            }).catch(err => console.error('Error deleting token avatar:', err));
-
-            mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
-            selectedTokenId = null;
-            changed = true;
-        }
-
-        // Существующий код для зон
-        if (selectedZoneId) {
-            mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
-            selectedZoneId = null;
-            changed = true;
-        }
-
-        // Существующий код для находок
-        if (selectedFindId) {
-            mapData.finds = mapData.finds.filter(f => f.id !== selectedFindId);
-            selectedFindId = null;
-            changed = true;
-        }
-
-        // Код для портретов
-        if (selectedCharacterId) {
-            const character = mapData.characters?.find(c => c.id === selectedCharacterId);
-
-            if (character) {
-                fetch(`/api/portrait/${selectedCharacterId}`, {
-                    method: 'DELETE'
-                }).catch(err => console.error('Error deleting portrait:', err));
-
-                mapData.characters = mapData.characters.filter(c => c.id !== selectedCharacterId);
-                changed = true;
+    // Существующий код для токенов
+    if (selectedTokenId) {
+        // Отправляем запрос на удаление токена (сервер сам решит, удалять ли аватар)
+        fetch(`/api/token/${selectedTokenId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'token deleted') {
+                console.log('Token deleted successfully');
             }
+        })
+        .catch(err => console.error('Error deleting token:', err));
 
-            selectedCharacterId = null;
-        }
-
-        if (changed) {
-            render();
-            saveMapData().then(() => {
-                socket.emit("force_avatar_reload", { map_id: currentMapId });
-            });
-            updateSidebar();
-        }
+        // Удаляем токен из локальных данных
+        mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
+        selectedTokenId = null;
+        changed = true;
     }
+
+    // Существующий код для зон
+    if (selectedZoneId) {
+        mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
+        selectedZoneId = null;
+        changed = true;
+    }
+
+    // Существующий код для находок
+    if (selectedFindId) {
+        mapData.finds = mapData.finds.filter(f => f.id !== selectedFindId);
+        selectedFindId = null;
+        changed = true;
+    }
+
+    // Код для портретов
+    if (selectedCharacterId) {
+        const character = mapData.characters?.find(c => c.id === selectedCharacterId);
+
+        if (character) {
+            fetch(`/api/portrait/${selectedCharacterId}`, {
+                method: 'DELETE'
+            }).catch(err => console.error('Error deleting portrait:', err));
+
+            mapData.characters = mapData.characters.filter(c => c.id !== selectedCharacterId);
+            changed = true;
+        }
+
+        selectedCharacterId = null;
+    }
+
+    if (changed) {
+        render();
+        saveMapData().then(() => {
+            socket.emit("force_avatar_reload", { map_id: currentMapId });
+        });
+        updateSidebar();
+    }
+}
 
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
         // Проверяем, есть ли выбранный токен
@@ -4285,15 +4294,22 @@ document.getElementById("contextDuplicateToken").addEventListener("click", funct
 
 document.getElementById("contextDeleteToken").addEventListener("click", function () {
     if (currentContextToken && confirm(`Удалить токен "${currentContextToken.name}"?`)) {
-        // Удаляем аватар если есть
-        if (currentContextToken.has_avatar) {
-            fetch(`/api/token/avatar/${currentContextToken.id}`, {
-                method: 'DELETE'
-            }).catch(err => console.error('Error deleting token avatar:', err));
-        }
+        // Отправляем запрос на удаление токена
+        fetch(`/api/token/${currentContextToken.id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'token deleted') {
+                console.log('Token deleted successfully');
+            }
+        })
+        .catch(err => console.error('Error deleting token:', err));
 
+        // Удаляем токен из локальных данных
         mapData.tokens = mapData.tokens.filter(t => t.id !== currentContextToken.id);
         selectedTokenId = null;
+        
         saveMapData();
         render();
         updateSidebar();

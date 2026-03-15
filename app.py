@@ -280,15 +280,14 @@ def new_map():
             new_map_data["tokens"] = []
 
         # Вычисляем центр карты для размещения токенов
-        center_x = 500  # Значения по умолчанию
+        center_x = 500
         center_y = 500
 
-        # Проверяем, есть ли изображение карты, чтобы использовать реальные размеры
+        # Проверяем, есть ли изображение карты
         image_path = get_image_filepath(map_id)
         if os.path.exists(image_path):
             try:
                 from PIL import Image
-
                 img = Image.open(image_path)
                 center_x = img.width / 2
                 center_y = img.height / 2
@@ -308,12 +307,12 @@ def new_map():
                 pos_x = center_x
                 pos_y = center_y
 
-            # Создаем токен для героя
+            # ВАЖНО: Используем тот же ID, что и у героя
             token = {
-                "id": hero["id"],
+                "id": hero["id"],  # Оставляем оригинальный ID!
                 "name": hero["name"],
                 "position": [pos_x, pos_y],
-                "size": 20,  # Размер по умолчанию
+                "size": 20,
                 "is_dead": False,
                 "is_player": True,
                 "is_npc": hero.get("is_npc", False),
@@ -329,7 +328,7 @@ def new_map():
 
         # Сохраняем обновленные данные
         save_map_data(new_map_data, map_id)
-        print(f"Added {len(all_heroes)} hero tokens to new map")
+        print(f"Added {len(all_heroes)} hero tokens to new map with original IDs")
 
     session["current_map_id"] = map_id
 
@@ -1296,7 +1295,7 @@ def create_default_avatar():
 
 @app.route("/api/token/<token_id>", methods=["DELETE"])
 def delete_token(token_id):
-    """Удалить токен и его аватар"""
+    """Удалить токен и его аватар (только если не используется на других картах)"""
     map_id = session.get("current_map_id")
     if not map_id:
         return jsonify({"error": "No map selected"}), 400
@@ -1305,50 +1304,85 @@ def delete_token(token_id):
     if not data:
         return jsonify({"error": "Map not found"}), 404
 
-    # Проверяем, есть ли этот токен в банке
-    from utils.character_bank import get_bank_character, bank_avatar_exists
-    from utils.bank_storage import bank_avatar_exists
-
-    bank_char = get_bank_character(token_id)
-    has_bank_avatar = bank_avatar_exists(token_id) if bank_char else False
-
-    # Если персонаж есть в банке - НЕ удаляем аватар (он хранится отдельно в банке)
-    if bank_char:
-        print(f"Token {token_id} is in bank, keeping bank avatar")
-        # Удаляем только аватар токена, если он есть (но не банковский)
-        from utils.storage import delete_token_avatar
-
-        delete_token_avatar(token_id)  # Удаляем только аватар токена, не банка
-    else:
-        # Если персонажа нет в банке, проверяем другие карты
-        from utils.storage import get_all_maps_with_token
-
-        maps_with_token = get_all_maps_with_token(token_id)
-
-        # Фильтруем текущую карту из списка
-        other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
-
-        if not other_maps:
-            # Удаляем аватар только если он не используется на других картах
-            from utils.storage import delete_token_avatar
-
-            delete_token_avatar(token_id)
-        else:
-            print(f"Token {token_id} is used on other maps, keeping avatar")
+    # Проверяем, есть ли токен в данных текущей карты
+    token_exists = any(t.get("id") == token_id for t in data.get("tokens", []))
+    if not token_exists:
+        return jsonify({"error": "Token not found on current map"}), 404
 
     # Удаляем токен из данных текущей карты
-    tokens = data.get("tokens", [])
-    data["tokens"] = [t for t in tokens if t.get("id") != token_id]
-
+    data["tokens"] = [t for t in data.get("tokens", []) if t.get("id") != token_id]
     save_map_data(data, map_id)
+
+    # Проверяем, используется ли этот токен на ДРУГИХ картах
+    from utils.storage import get_all_maps_with_token
+
+    maps_with_token = get_all_maps_with_token(token_id)
+    
+    # Фильтруем текущую карту из списка
+    other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
+
+    print(f"Token {token_id} is used on {len(other_maps)} other maps: {other_maps}")
+
+    # Удаляем аватар ТОЛЬКО если токен НЕ используется на других картах
+    if not other_maps:
+        from utils.storage import delete_token_avatar
+        avatar_deleted = delete_token_avatar(token_id)
+        if avatar_deleted:
+            print(f"✓ Token {token_id} not used elsewhere, avatar deleted")
+        else:
+            print(f"✗ Token {token_id} avatar file not found or could not be deleted")
+    else:
+        print(f"→ Token {token_id} used on other maps, keeping avatar")
 
     # Отправляем обновление игрокам
     socketio.emit(
-        "map_updated", {"map_id": map_id, "tokens": data.get("tokens", [])}
+        "map_updated", {
+            "map_id": map_id, 
+            "tokens": data.get("tokens", []),
+            "zones": data.get("zones", []),
+            "finds": data.get("finds", []),
+            "grid_settings": data.get("grid_settings", {}),
+            "player_map_enabled": data.get("player_map_enabled", True),
+            "has_image": data.get("has_image", False),
+        }
     )
 
     return jsonify({"status": "token deleted"})
 
+@app.route("/api/token/cleanup-avatars", methods=["POST"])
+def cleanup_token_avatars():
+    """Очистить аватары токенов, которые нигде не используются"""
+    from utils.storage import TOKENS_AVATARS_DIR, get_all_maps_with_token
+    
+    deleted_count = 0
+    kept_count = 0
+    
+    # Получаем все файлы аватаров
+    if os.path.exists(TOKENS_AVATARS_DIR):
+        for filename in os.listdir(TOKENS_AVATARS_DIR):
+            if filename.endswith(".png"):
+                token_id = filename[:-4]  # убираем .png
+                
+                # Проверяем, используется ли токен на каких-либо картах
+                maps_with_token = get_all_maps_with_token(token_id)
+                
+                if not maps_with_token:
+                    # Токен нигде не используется - удаляем аватар
+                    filepath = os.path.join(TOKENS_AVATARS_DIR, filename)
+                    try:
+                        os.remove(filepath)
+                        deleted_count += 1
+                        print(f"Cleaned up unused avatar: {filename}")
+                    except Exception as e:
+                        print(f"Error deleting {filename}: {e}")
+                else:
+                    kept_count += 1
+    
+    return jsonify({
+        "status": "ok", 
+        "deleted": deleted_count,
+        "kept": kept_count
+    })
 
 @app.route("/api/portrait/<portrait_id>")
 def get_portrait(portrait_id):

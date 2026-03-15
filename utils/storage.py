@@ -125,12 +125,13 @@ def get_all_maps_with_token(token_id):
                                     "map_name": data.get("name", "Unknown"),
                                 }
                             )
-                            print(f"Found token {token_id} on map {map_id}")
+                            print(f"  Found token {token_id} on map {map_id} ({data.get('name', 'Unknown')})")
                             break
             except Exception as e:
                 print(f"Error checking map {filename}: {e}")
                 continue
 
+    print(f"Token {token_id} found on {len(maps_with_token)} maps total")
     return maps_with_token
 
 
@@ -266,12 +267,14 @@ def delete_token_avatar(token_id):
     if os.path.exists(img_path):
         try:
             os.remove(img_path)
-            print(f"Deleted avatar for token {token_id}")
+            print(f"✓ Deleted avatar file: {img_path}")
             return True
         except Exception as e:
-            print(f"Error deleting avatar for token {token_id}: {e}")
+            print(f"✗ Error deleting avatar for token {token_id}: {e}")
             return False
-    return False
+    else:
+        print(f"→ Avatar file for token {token_id} does not exist at {img_path}")
+        return False
 
 
 def get_token_avatar_url(token_id, force_timestamp=False):
