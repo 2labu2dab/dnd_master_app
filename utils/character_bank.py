@@ -1,10 +1,16 @@
+# utils/character_bank.py
 import sqlite3
 import os
 import json
-import base64
-import io
 from datetime import datetime
-from PIL import Image
+from utils.bank_storage import (
+    save_bank_avatar,
+    get_bank_avatar_url,
+    delete_bank_avatar,
+    bank_avatar_exists,
+    ensure_bank_avatars_dir,
+)
+from utils.bank_storage import bank_avatar_exists as bank_storage_avatar_exists
 
 DB_PATH = os.path.join("data", "character_bank.db")
 
@@ -12,6 +18,7 @@ DB_PATH = os.path.join("data", "character_bank.db")
 def init_db():
     """Инициализация базы данных банка персонажей"""
     os.makedirs("data", exist_ok=True)
+    ensure_bank_avatars_dir()  # Создаем папку для аватаров
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -60,10 +67,34 @@ def get_all_bank_characters():
                 char["metadata"] = json.loads(char["metadata"])
             except:
                 char["metadata"] = {}
+
+        # Добавляем URL аватара, если есть аватар
+        if char.get("has_avatar"):
+            char["avatar_url"] = get_bank_avatar_url(char["id"])
+        else:
+            # Проверяем, может быть файл есть, а в БД не отмечено
+            if bank_avatar_exists(char["id"]):
+                char["has_avatar"] = True
+                char["avatar_url"] = get_bank_avatar_url(char["id"])
+                # Обновляем БД
+                update_character_avatar_status(char["id"], True)
+
         characters.append(char)
 
     conn.close()
     return characters
+
+
+def update_character_avatar_status(char_id, has_avatar):
+    """Обновить статус наличия аватара в БД"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE characters SET has_avatar = ? WHERE id = ?",
+        (1 if has_avatar else 0, char_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def add_character_to_bank(character_data):
@@ -154,6 +185,9 @@ def delete_character_from_bank(char_id):
     conn.commit()
     conn.close()
 
+    # Удаляем аватар
+    delete_bank_avatar(char_id)
+
 
 def get_bank_character(char_id):
     """Получить конкретного персонажа из банка"""
@@ -174,30 +208,52 @@ def get_bank_character(char_id):
                 char["metadata"] = json.loads(char["metadata"])
             except:
                 char["metadata"] = {}
+
+        if char.get("has_avatar") or bank_avatar_exists(char_id):
+            char["has_avatar"] = True
+            # ИСПРАВЛЕНО: используем URL для банка
+            char["avatar_url"] = get_bank_avatar_url(char["id"])
+            
         return char
     return None
 
 
+def bank_avatar_exists(char_id):
+    """Проверить, существует ли аватар для персонажа в банке"""
+    return bank_storage_avatar_exists(char_id)
+
+
 def save_bank_character_avatar(image_data, char_id):
     """Сохранить аватар для персонажа из банка"""
-    from utils.storage import save_token_avatar
-
-    success = save_token_avatar(image_data, char_id)
+    success = save_bank_avatar(image_data, char_id)
 
     if success:
-        # Обновляем путь к аватару в БД
-        init_db()
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            UPDATE characters 
-            SET has_avatar = 1, avatar_path = ? 
-            WHERE id = ?
-        """,
-            (f"{char_id}.png", char_id),
-        )
-        conn.commit()
-        conn.close()
+        # Обновляем статус в БД
+        update_character_avatar_status(char_id, True)
+        print(f"Updated database for bank character {char_id}: has_avatar=1")
 
     return success
+
+
+def migrate_existing_avatars_to_bank():
+    """Перенести существующие аватары из token_avatars в bank_avatars для персонажей в банке"""
+    from utils.storage import get_token_avatar_filepath
+
+    characters = get_all_bank_characters()
+    migrated = 0
+
+    for char in characters:
+        if char.get("has_avatar") and not bank_avatar_exists(char["id"]):
+            # Проверяем, есть ли аватар в старой папке
+            old_path = get_token_avatar_filepath(char["id"])
+            if os.path.exists(old_path):
+                # Копируем в новую папку
+                with open(old_path, "rb") as f:
+                    avatar_data = f.read()
+
+                if save_bank_avatar(avatar_data, char["id"]):
+                    migrated += 1
+                    print(f"Migrated avatar for {char['name']} ({char['id']})")
+
+    print(f"Migration complete: {migrated} avatars migrated to bank storage")
+    return migrated

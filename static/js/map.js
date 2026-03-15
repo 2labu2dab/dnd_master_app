@@ -5476,9 +5476,13 @@ function createBankCharacterItem(character) {
 
     const typeText = character.type === 'player' ? 'Игрок' : (character.type === 'npc' ? 'НПС' : 'Враг');
 
+    // Убеждаемся, что используем правильный URL для аватара
+    const avatarUrl = character.avatar_url || '/static/default-avatar.png';
+    console.log(`Bank character ${character.name} avatar URL:`, avatarUrl);
+
     div.innerHTML = `
-        <img class="bank-character-avatar" src="${character.avatar_url || '/static/default-avatar.png'}" 
-             onerror="this.src='/static/default-avatar.png'">
+        <img class="bank-character-avatar" src="${avatarUrl}" 
+             onerror="this.src='/static/default-avatar.png'; console.error('Failed to load avatar for ${character.name}')">
         <div class="bank-character-info">
             <div class="bank-character-name">${character.name}</div>
             <div class="bank-character-type">${typeText}</div>

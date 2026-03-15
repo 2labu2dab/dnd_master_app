@@ -22,6 +22,73 @@ TOKENS_AVATARS_DIR = os.path.join(
     DATA_DIR, "token_avatars"
 )  # Папка для аватаров токенов
 PORTRAITS_DIR = os.path.join("data", "portrait_images")
+BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
+
+
+def get_bank_avatar_filepath(character_id):
+    """Получить путь к файлу аватара персонажа из банка"""
+    return os.path.join(BANK_AVATARS_DIR, f"{character_id}.png")
+
+
+def save_bank_avatar(image_data, character_id):
+    """Сохранить аватар для персонажа из банка"""
+    try:
+        print(f"Attempting to save bank avatar for character {character_id}")
+
+        # Если пришла base64 строка
+        if isinstance(image_data, str) and image_data.startswith("data:image"):
+            header, encoded = image_data.split(",", 1)
+            image_bytes = base64.b64decode(encoded)
+        elif isinstance(image_data, bytes):
+            image_bytes = image_data
+        else:
+            print(f"Unsupported image data type: {type(image_data)}")
+            return False
+
+        # Оптимизируем изображение
+        img = Image.open(io.BytesIO(image_bytes))
+
+        # Конвертируем в RGBA для поддержки прозрачности
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+
+        # Изменяем размер если слишком большое
+        max_size = 256
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+        # Сохраняем как PNG
+        img_path = get_bank_avatar_filepath(character_id)
+        os.makedirs(BANK_AVATARS_DIR, exist_ok=True)
+
+        img.save(img_path, "PNG", optimize=True)
+        print(f"Bank avatar saved successfully: {img_path}")
+
+        return True
+    except Exception as e:
+        print(f"Error saving bank avatar: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return False
+
+
+def delete_bank_avatar(character_id):
+    """Удалить аватар персонажа из банка"""
+    img_path = get_bank_avatar_filepath(character_id)
+    if os.path.exists(img_path):
+        try:
+            os.remove(img_path)
+            print(f"Deleted bank avatar for character {character_id}")
+            return True
+        except Exception as e:
+            print(f"Error deleting bank avatar: {e}")
+    return False
+
+
+def get_bank_avatar_url(character_id):
+    """Получить URL для загрузки аватара из банка"""
+    return f"/api/bank/avatar/{character_id}"
 
 
 def ensure_dirs():
@@ -29,9 +96,7 @@ def ensure_dirs():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(MAPS_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
-    os.makedirs(
-        TOKENS_AVATARS_DIR, exist_ok=True
-    )  # Добавляем создание папки для аватаров
+    os.makedirs(TOKENS_AVATARS_DIR, exist_ok=True)
     os.makedirs(PORTRAITS_DIR, exist_ok=True)
 
 
@@ -78,21 +143,12 @@ def save_token_avatar(image_data, token_id):
     """Сохранить аватар токена как файл"""
     try:
         print(f"Attempting to save avatar for token {token_id}")
-        print(f"Image data type: {type(image_data)}")
-        print(
-            f"Image data preview: {str(image_data)[:100] if image_data else 'None'}"
-        )
 
         # Если пришла base64 строка
         if isinstance(image_data, str) and image_data.startswith("data:image"):
-            print("Detected base64 image data")
-            # Извлекаем base64 данные
             header, encoded = image_data.split(",", 1)
-            print(f"Image header: {header}")
             image_bytes = base64.b64decode(encoded)
-            print(f"Decoded {len(image_bytes)} bytes")
         elif isinstance(image_data, bytes):
-            print("Detected bytes image data")
             image_bytes = image_data
         else:
             print(f"Unsupported image data type: {type(image_data)}")
@@ -100,26 +156,19 @@ def save_token_avatar(image_data, token_id):
 
         # Оптимизируем изображение
         img = Image.open(io.BytesIO(image_bytes))
-        print(f"Image opened: {img.size}, mode: {img.mode}")
 
         # Конвертируем в RGBA для поддержки прозрачности
         if img.mode != "RGBA":
-            print(f"Converting from {img.mode} to RGBA")
             img = img.convert("RGBA")
 
         # Изменяем размер если слишком большое
         max_size = 256
         if img.width > max_size or img.height > max_size:
-            print(f"Resizing from {img.size} to max {max_size}")
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
         # Сохраняем как PNG для поддержки прозрачности
         img_path = get_token_avatar_filepath(token_id)
-        print(f"Saving to: {img_path}")
-
-        # Убедимся, что директория существует
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
-
         img.save(img_path, "PNG", optimize=True)
         print(
             f"Avatar saved successfully, file exists: {os.path.exists(img_path)}"
@@ -194,8 +243,6 @@ def get_all_tokens_from_maps():
 
                             # Если есть аватар, добавляем URL
                             if token_copy["has_avatar"]:
-                                from utils.storage import get_token_avatar_url
-
                                 token_copy["avatar_url"] = (
                                     get_token_avatar_url(token_id)
                                 )
@@ -206,7 +253,7 @@ def get_all_tokens_from_maps():
                 print(f"Error loading map {filename}: {e}")
                 continue
 
-    # Сортируем по имени (мёртвые внизу или вверху? давайте мёртвых вниз)
+    # Сортируем по имени (мёртвые внизу)
     all_tokens.sort(
         key=lambda t: (t.get("is_dead", False), t.get("name", "").lower())
     )

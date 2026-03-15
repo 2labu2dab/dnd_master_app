@@ -1241,6 +1241,59 @@ def handle_force_avatar_reload(data):
         )
 
 
+@app.route("/api/bank/avatar/<character_id>")
+def get_bank_avatar(character_id):
+    """Получить аватар персонажа из банка как файл"""
+    from utils.bank_storage import get_bank_avatar_filepath
+
+    image_path = get_bank_avatar_filepath(character_id)
+
+    if os.path.exists(image_path):
+        return send_file(image_path, mimetype="image/png")
+
+    # Возвращаем 404 если аватар не найден
+    return "", 404
+
+
+def create_default_avatar():
+    """Создать заглушку для аватара"""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # Рисуем серый круг
+    draw.ellipse(
+        [20, 20, 236, 236],
+        fill=(100, 100, 100, 255),
+        outline=(150, 150, 150, 255),
+        width=2,
+    )
+
+    # Добавляем вопросительный знак
+    try:
+        from PIL import ImageFont
+
+        try:
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 120
+            )
+        except:
+            font = ImageFont.load_default()
+
+        draw.text(
+            (128, 128), "?", fill=(150, 150, 150, 255), font=font, anchor="mm"
+        )
+    except:
+        draw.line((78, 78, 178, 178), fill=(150, 150, 150, 255), width=10)
+        draw.line((178, 78, 78, 178), fill=(150, 150, 150, 255), width=10)
+
+    img_io = io.BytesIO()
+    img.save(img_io, "PNG")
+    img_io.seek(0)
+    return img_io
+
+
 @app.route("/api/token/<token_id>", methods=["DELETE"])
 def delete_token(token_id):
     """Удалить токен и его аватар"""
@@ -1253,36 +1306,35 @@ def delete_token(token_id):
         return jsonify({"error": "Map not found"}), 404
 
     # Проверяем, есть ли этот токен в банке
-    from utils.character_bank import get_bank_character
+    from utils.character_bank import get_bank_character, bank_avatar_exists
+    from utils.bank_storage import bank_avatar_exists
 
     bank_char = get_bank_character(token_id)
+    has_bank_avatar = bank_avatar_exists(token_id) if bank_char else False
 
-    # Проверяем, используется ли этот токен на других картах
-    from utils.storage import get_all_maps_with_token
-
-    maps_with_token = get_all_maps_with_token(token_id)
-
-    # Фильтруем текущую карту из списка
-    other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
-
-    print(
-        f"Deleting token {token_id}: in_bank={bool(bank_char)}, other_maps={len(other_maps)}"
-    )
-
+    # Если персонаж есть в банке - НЕ удаляем аватар (он хранится отдельно в банке)
     if bank_char:
-        # Если персонаж есть в банке, НЕ удаляем аватар
-        print(f"Token {token_id} is in bank, keeping avatar")
-    elif other_maps:
-        # Если персонаж используется на других картах, НЕ удаляем аватар
-        print(f"Token {token_id} is used on other maps, keeping avatar")
-    else:
-        # Удаляем аватар только если его нет в банке И он не используется на других картах
-        print(
-            f"Token {token_id} not in bank and not on other maps, deleting avatar"
-        )
+        print(f"Token {token_id} is in bank, keeping bank avatar")
+        # Удаляем только аватар токена, если он есть (но не банковский)
         from utils.storage import delete_token_avatar
 
-        delete_token_avatar(token_id)
+        delete_token_avatar(token_id)  # Удаляем только аватар токена, не банка
+    else:
+        # Если персонажа нет в банке, проверяем другие карты
+        from utils.storage import get_all_maps_with_token
+
+        maps_with_token = get_all_maps_with_token(token_id)
+
+        # Фильтруем текущую карту из списка
+        other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
+
+        if not other_maps:
+            # Удаляем аватар только если он не используется на других картах
+            from utils.storage import delete_token_avatar
+
+            delete_token_avatar(token_id)
+        else:
+            print(f"Token {token_id} is used on other maps, keeping avatar")
 
     # Удаляем токен из данных текущей карты
     tokens = data.get("tokens", [])
@@ -1428,12 +1480,12 @@ def get_bank_characters():
     """Получить всех персонажей из банка"""
     characters = get_all_bank_characters()
 
-    # Добавляем URL аватаров
+    # Добавляем URL аватаров из банка, а не из токенов!
     for char in characters:
         if char.get("has_avatar"):
-            char["avatar_url"] = (
-                f"/api/token/avatar/{char['id']}?t={int(time.time())}"
-            )
+            # ИСПРАВЛЕНО: используем URL для банка, а не для токенов
+            char["avatar_url"] = f"/api/bank/avatar/{char['id']}?t={int(time.time())}"
+            print(f"Bank character {char['name']} avatar URL: {char['avatar_url']}")
 
     return jsonify(characters)
 
@@ -1450,9 +1502,14 @@ def add_bank_character():
         # Добавляем в банк
         char_id = add_character_to_bank(data)
 
-        # Если есть аватар, сохраняем его
+        # Если есть аватар, сохраняем его в банк
         if avatar_data:
+            from utils.character_bank import save_bank_character_avatar
             save_bank_character_avatar(avatar_data, char_id)
+            print(f"✓ Bank avatar saved for character {char_id}")
+
+            # Также создаем копию для токена на текущей карте, если это нужно
+            # Но это опционально
 
         return jsonify({"status": "ok", "id": char_id})
     except Exception as e:
@@ -1552,22 +1609,21 @@ def spawn_bank_character(char_id):
             "is_visible": True,
         }
 
-        # Копируем аватар если есть
+        # Копируем аватар из банка, если есть
         if bank_char.get("has_avatar"):
-            from utils.storage import (
-                get_token_avatar_filepath,
-                save_token_avatar,
-            )
+            from utils.storage import save_token_avatar
+            from utils.bank_storage import get_bank_avatar_filepath
 
-            source_path = get_token_avatar_filepath(char_id)
-            if os.path.exists(source_path):
-                with open(source_path, "rb") as f:
+            bank_avatar_path = get_bank_avatar_filepath(char_id)
+            if os.path.exists(bank_avatar_path):
+                with open(bank_avatar_path, "rb") as f:
                     avatar_data = f.read()
                 save_token_avatar(avatar_data, token_id)
                 token["has_avatar"] = True
                 token["avatar_url"] = (
                     f"/api/token/avatar/{token_id}?t={int(time.time())}"
                 )
+                print(f"✓ Avatar copied from bank to token {token_id}")
 
         # Добавляем токен на карту
         map_data.setdefault("tokens", []).append(token)
