@@ -15,6 +15,9 @@
   <div id="main">
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
+      <div class="sidebar-toggle left-toggle" id="toggleLeftSidebar" title="Свернуть левую панель">
+    ◀
+  </div>
       <div class="map-selector">
         <select id="mapSelect" onchange="switchMap(this.value)">
           {% if maps %}
@@ -121,6 +124,9 @@
       <canvas id="mapCanvas"></canvas>
     </section>
     <aside id="right-sidebar">
+      <div class="sidebar-toggle right-toggle" id="toggleRightSidebar" title="Свернуть правую панель">
+    ▶
+  </div>
       <div class="section">
         <details open>
           <summary>Портреты персонажей</summary>
@@ -351,8 +357,8 @@
     <div class="context-menu-header">
       <span id="contextTokenName"></span>
       <span class="context-hp-inline" id="contextHpDisplay">
-            <span id="contextHpValue">33</span>/<span id="contextHpMax">55</span>
-        </span>
+        <span id="contextHpValue">33</span>/<span id="contextHpMax">55</span>
+      </span>
       <span id="contextTokenType" class="context-token-type"></span>
     </div>
 

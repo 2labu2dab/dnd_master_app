@@ -3800,6 +3800,7 @@ window.onload = () => {
     });
 
     updateSliderVisual();
+    initSidebarCollapse();
 };
 
 socket.on("map_created", (data) => {
@@ -5762,3 +5763,131 @@ document.getElementById("importTokenSearchInput").addEventListener("keypress", (
         // Ничего не делаем, просто предотвращаем отправку формы
     }
 });
+
+function initSidebarCollapse() {
+    const leftSidebar = document.getElementById('sidebar');
+    const rightSidebar = document.getElementById('right-sidebar');
+    const canvasContainer = document.getElementById('canvas-container');
+    const body = document.body;
+
+    if (!leftSidebar || !rightSidebar || !canvasContainer) {
+        console.error('Sidebar elements not found');
+        return;
+    }
+
+    console.log('Initializing sidebar collapse');
+
+    // Загружаем сохраненное состояние
+    const leftCollapsed = localStorage.getItem('sidebar_left_collapsed') === 'true';
+    const rightCollapsed = localStorage.getItem('sidebar_right_collapsed') === 'true';
+
+    // Применяем начальное состояние
+    if (leftCollapsed) {
+        leftSidebar.classList.add('collapsed');
+        body.classList.add('sidebar-collapsed-left');
+        const leftToggle = document.getElementById('toggleLeftSidebar');
+        if (leftToggle) {
+            leftToggle.innerHTML = '▶';
+            leftToggle.title = 'Развернуть левую панель';
+        }
+    }
+
+    if (rightCollapsed) {
+        rightSidebar.classList.add('collapsed');
+        body.classList.add('sidebar-collapsed-right');
+        const rightToggle = document.getElementById('toggleRightSidebar');
+        if (rightToggle) {
+            rightToggle.innerHTML = '◀';
+            rightToggle.title = 'Развернуть правую панель';
+        }
+    }
+
+    // Обработчик для левой панели
+    const leftToggle = document.getElementById('toggleLeftSidebar');
+    if (leftToggle) {
+        leftToggle.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isCollapsed = leftSidebar.classList.toggle('collapsed');
+
+            if (isCollapsed) {
+                body.classList.add('sidebar-collapsed-left');
+                this.innerHTML = '▶';
+                this.title = 'Развернуть левую панель';
+            } else {
+                body.classList.remove('sidebar-collapsed-left');
+                this.innerHTML = '◀';
+                this.title = 'Свернуть левую панель';
+            }
+
+            localStorage.setItem('sidebar_left_collapsed', isCollapsed);
+
+            setTimeout(() => {
+                resizeCanvas();
+                render();
+            }, 300);
+        };
+    }
+
+    // Обработчик для правой панели
+    const rightToggle = document.getElementById('toggleRightSidebar');
+    if (rightToggle) {
+        rightToggle.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isCollapsed = rightSidebar.classList.toggle('collapsed');
+
+            if (isCollapsed) {
+                body.classList.add('sidebar-collapsed-right');
+                this.innerHTML = '◀';
+                this.title = 'Развернуть правую панель';
+            } else {
+                body.classList.remove('sidebar-collapsed-right');
+                this.innerHTML = '▶';
+                this.title = 'Свернуть правую панель';
+            }
+
+            localStorage.setItem('sidebar_right_collapsed', isCollapsed);
+
+            setTimeout(() => {
+                resizeCanvas();
+                render();
+            }, 300);
+        };
+    }
+}
+function resizeCanvas() {
+    const leftSidebar = document.getElementById('sidebar');
+    const rightSidebar = document.getElementById('right-sidebar');
+    const canvas = document.getElementById('mapCanvas');
+
+    if (!canvas || !leftSidebar || !rightSidebar) return;
+
+    console.log('Resizing canvas:', {
+        leftWidth: leftSidebar.offsetWidth,
+        rightWidth: rightSidebar.offsetWidth,
+        windowWidth: window.innerWidth
+    });
+
+    canvas.width = window.innerWidth - leftSidebar.offsetWidth - rightSidebar.offsetWidth;
+    canvas.height = window.innerHeight;
+
+    // Центрируем карту после изменения размера
+    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
+        centerMap();
+    }
+}
+window.addEventListener('resize', function () {
+    resizeCanvas();
+    render();
+});
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(initSidebarCollapse, 200);
+    });
+} else {
+    setTimeout(initSidebarCollapse, 200);
+}

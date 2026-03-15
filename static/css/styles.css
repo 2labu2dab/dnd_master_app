@@ -1687,3 +1687,184 @@ canvas.map-panning {
     color: inherit;
     font-size: 12px; /* И здесь одинаковый размер */
 }
+/* ===== Сворачиваемые сайдбары ===== */
+
+/* Левая панель */
+#sidebar {
+    position: relative;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.sidebar-toggle.left-toggle {
+    position: absolute;
+    top: 10px; /* Поднял выше */
+    right: 10px;
+    width: 20px; /* Уменьшил в 2 раза (было 40px) */
+    height: 20px; /* Уменьшил в 2 раза (было 40px) */
+    background: #2a2a3b;
+    border: 1px solid #444;
+    border-radius: 4px; /* Уменьшил скругление пропорционально */
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10000 !important;
+    transition: all 0.2s ease;
+    color: #ddd;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    font-size: 12px; /* Уменьшил размер иконки */
+    line-height: 1;
+    padding: 0;
+}
+
+.sidebar-toggle.left-toggle:hover {
+    background: #3a3a4f;
+    border-color: #666;
+    color: white;
+    transform: scale(1.05);
+}
+
+/* Убираем старый псевдоэлемент, который мог остаться */
+.sidebar-toggle.left-toggle::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* Правая панель */
+#right-sidebar {
+    position: relative;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.sidebar-toggle.right-toggle {
+    position: absolute;
+    top: 10px; /* Поднял выше */
+    left: 10px;
+    width: 20px; /* Уменьшил в 2 раза (было 40px) */
+    height: 20px; /* Уменьшил в 2 раза (было 40px) */
+    background: #2a2a3b;
+    border: 1px solid #444;
+    border-radius: 4px; /* Уменьшил скругление пропорционально */
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10000 !important;
+    transition: all 0.2s ease;
+    color: #ddd;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    font-size: 12px; /* Уменьшил размер иконки */
+    line-height: 1;
+    padding: 0;
+}
+
+.sidebar-toggle.right-toggle:hover {
+    background: #3a3a4f;
+    border-color: #666;
+    color: white;
+    transform: scale(1.05);
+}
+
+/* Убираем старый псевдоэлемент, который мог остаться */
+.sidebar-toggle.right-toggle::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* Свернутое состояние левой панели */
+#sidebar.collapsed {
+    width: 60px !important;
+    min-width: 60px !important;
+    padding: 20px 8px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+#sidebar.collapsed > *:not(.sidebar-toggle) {
+    display: none !important;
+}
+
+#sidebar.collapsed .sidebar-toggle.left-toggle {
+    display: flex !important;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 20px;
+    height: 20px;
+}
+
+/* Свернутое состояние правой панели */
+#right-sidebar.collapsed {
+    width: 60px !important;
+    min-width: 60px !important;
+    padding: 20px 8px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+#right-sidebar.collapsed > *:not(.sidebar-toggle) {
+    display: none !important;
+}
+
+#right-sidebar.collapsed .sidebar-toggle.right-toggle {
+    display: flex !important;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 20px;
+    height: 20px;
+}
+
+/* Анимация */
+#sidebar,
+#right-sidebar,
+#canvas-container {
+    transition: width 0.3s ease, padding 0.3s ease, min-width 0.3s ease;
+}
+
+/* Подсказки при наведении - исправлено */
+.sidebar-toggle.left-toggle:hover::after,
+.sidebar-toggle.right-toggle:hover::after {
+    content: attr(title) !important;
+    position: absolute;
+    background: #2a2a3b;
+    color: white;
+    padding: 4px 8px; /* Уменьшил подсказку */
+    border-radius: 4px;
+    font-size: 12px; /* Уменьшил шрифт подсказки */
+    white-space: nowrap;
+    border: 1px solid #444;
+    z-index: 10001 !important;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.sidebar-toggle.left-toggle:hover::after {
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 6px;
+}
+
+.sidebar-toggle.right-toggle:hover::after {
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 6px;
+}
+
+/* Отключаем подсказки когда не наведено */
+.sidebar-toggle.left-toggle::after,
+.sidebar-toggle.right-toggle::after {
+    display: none;
+    content: none;
+}
+
+/* Адаптация канваса при свернутых панелях */
+body.sidebar-collapsed-left #canvas-container,
+body.sidebar-collapsed-right #canvas-container,
+body.sidebar-collapsed-both #canvas-container {
+    width: calc(100% - 120px) !important;
+}
