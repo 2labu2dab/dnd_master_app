@@ -3471,8 +3471,12 @@ document.addEventListener("keydown", (e) => {
     }
 
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
-        e.preventDefault();
-        copySelectedToken();
+        // Проверяем, есть ли выбранный токен
+        if (selectedTokenId) {
+            e.preventDefault(); // Блокируем только если есть выбранный токен
+            copySelectedToken();
+        }
+        // Если нет выбранного токена - ничего не делаем, позволяем стандартному поведению
     }
 
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
@@ -4100,11 +4104,11 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
 
         // ===== НОВЫЙ КОД: Обновляем отображение HP =====
         document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
-        
+
         // Обновляем цвет индикатора
         const hpDisplay = document.getElementById("contextHpDisplay");
         hpDisplay.classList.remove('critical', 'warning', 'dead');
-        
+
         if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
             hpDisplay.classList.add('dead');
         } else {
@@ -4132,14 +4136,14 @@ document.getElementById("contextApplyDamage").addEventListener("click", function
             currentContextToken.is_dead = currentContextToken.health_points <= 0;
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
-            
+
             // ===== НОВОЕ: Обновляем отображение HP =====
             document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
-            
+
             // Обновляем цвет
             const hpDisplay = document.getElementById("contextHpDisplay");
             hpDisplay.classList.remove('critical', 'warning', 'dead');
-            
+
             if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
                 hpDisplay.classList.add('dead');
             } else {
@@ -4169,14 +4173,14 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
             currentContextToken.is_dead = currentContextToken.health_points <= 0;
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
-            
+
             // ===== НОВОЕ: Обновляем отображение HP =====
             document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
-            
+
             // Обновляем цвет
             const hpDisplay = document.getElementById("contextHpDisplay");
             hpDisplay.classList.remove('critical', 'warning', 'dead');
-            
+
             if (currentContextToken.is_dead || currentContextToken.health_points <= 0) {
                 hpDisplay.classList.add('dead');
             } else {
