@@ -1609,6 +1609,75 @@ def spawn_bank_character(char_id):
         return jsonify({"error": str(e)}), 500
 
 
+@socketio.on("maps_list_updated")
+def handle_maps_list_updated(data):
+    """Обработчик обновления списка карт"""
+    emit("maps_list_updated", data, broadcast=True, include_self=False)
+
+
+@app.route("/api/map/update/<map_id>", methods=["POST"])
+def update_map(map_id):
+    """Обновить карту (название и/или изображение)"""
+    try:
+        name = request.form.get("name")
+        if not name:
+            return jsonify({"error": "Name required"}), 400
+
+        # Загружаем существующие данные
+        map_data = load_map_data(map_id)
+        if not map_data:
+            return jsonify({"error": "Map not found"}), 404
+
+        # Обновляем название
+        map_data["name"] = name
+
+        # Если загружено новое изображение
+        if "map_image" in request.files:
+            file = request.files["map_image"]
+            if file.filename:
+                if save_map_image(file.read(), map_id):
+                    map_data["has_image"] = True
+
+        # Сохраняем данные
+        save_map_data(map_data, map_id)
+
+        # Обновляем список карт для всех
+        socketio.emit("maps_list_updated", {"maps": list_maps()})
+
+        return jsonify({"status": "ok", "map_id": map_id})
+    except Exception as e:
+        print(f"Error updating map: {e}")
+
+
+@app.route("/api/map/thumbnail/<map_id>")
+def get_map_thumbnail(map_id):
+    """Получить миниатюру карты"""
+    from utils.storage import get_image_filepath
+    from PIL import Image
+    import io
+
+    image_path = get_image_filepath(map_id)
+    if not os.path.exists(image_path):
+        return "", 404
+
+    try:
+        # Открываем изображение
+        img = Image.open(image_path)
+
+        # Создаем миниатюру
+        img.thumbnail((100, 100), Image.Resampling.LANCZOS)
+
+        # Сохраняем в BytesIO
+        img_io = io.BytesIO()
+        img.save(img_io, "JPEG", quality=70)
+        img_io.seek(0)
+
+        return send_file(img_io, mimetype="image/jpeg")
+    except Exception as e:
+        print(f"Error creating thumbnail: {e}")
+        return "", 500
+
+
 if __name__ == "__main__":
     # Создаем необходимые директории
     os.makedirs("data", exist_ok=True)

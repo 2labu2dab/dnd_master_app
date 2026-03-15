@@ -6,8 +6,7 @@ body, input, button, label, canvas {
 #addToCharactersCheckbox,
 #addToBankCheckbox,
 #addToCharactersCheckbox-parent,
-#addToBankCheckbox-parent,
-.visibility-toggle input[type="checkbox"] {
+#addToBankCheckbox-parent{
     display: inline-block !important;
     visibility: visible !important;
     opacity: 1 !important;
@@ -15,8 +14,13 @@ body, input, button, label, canvas {
 
 .visibility-toggle {
     display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: transparent; /* Прозрачный фон */
+    border-radius: 8px;
+    transition: background 0.2s;
 }
 
 #tokenList li {
@@ -35,7 +39,6 @@ body {
 .section {
   margin-top: 0px;
   padding-top: 0px;
-  /* border-top: 1px solid #3a3a3a; */
 }
 
 summary {
@@ -776,17 +779,6 @@ body.mini-map .portrait-item {
   color: #4C5BEF; /* ← Цвет для stroke SVG */
 }
 
-.visibility-toggle {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 10px 0;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    transition: background 0.2s;
-}
-
 .visibility-toggle:hover {
     background: rgba(255, 255, 255, 0.1);
 }
@@ -795,7 +787,16 @@ body.mini-map .portrait-item {
     width: 18px;
     height: 18px;
     cursor: pointer;
-    accent-color: #4C5BEF;
+    accent-color: #4C5BEF; /* Цвет для современного чекбокса */
+    margin: 0;
+    padding: 0;
+    background: transparent; /* Прозрачный фон */
+    border: 2px solid #9ca3af; /* Светлая обводка */
+    border-radius: 4px;
+    appearance: none; /* Убираем стандартный вид */
+    -webkit-appearance: none;
+    position: relative;
+    transition: all 0.2s ease;
 }
 
 .visibility-toggle input[type="checkbox"]:checked {
@@ -1108,7 +1109,7 @@ canvas.map-panning {
 }
 
 .context-checkbox:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0);
   border-radius: 6px;
 }
 
@@ -1119,7 +1120,7 @@ canvas.map-panning {
 .checkbox-custom {
   width: 18px;
   height: 18px;
-  border: 2px solid #4b5563;
+  border: 2px solid #4b556300;
   border-radius: 4px;
   display: inline-block;
   position: relative;
@@ -1522,7 +1523,6 @@ canvas.map-panning {
 /* Добавить в static/css/styles.css */
 .bank-toggle {
     margin-top: 5px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .bank-character-list {
@@ -1867,4 +1867,367 @@ body.sidebar-collapsed-left #canvas-container,
 body.sidebar-collapsed-right #canvas-container,
 body.sidebar-collapsed-both #canvas-container {
     width: calc(100% - 120px) !important;
+}
+/* Горизонтальный список карт */
+.maps-panel {
+  padding-bottom: 15px;
+}
+
+.maps-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.maps-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #f9fafb;
+  font-weight: 600;
+}
+
+.create-map-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #4C5BEF;
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.create-map-btn:hover {
+  background: #3e4cd4;
+  transform: scale(1.05);
+}
+
+.create-map-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Горизонтальный скролл список */
+.maps-list {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 8px 2px;
+  scrollbar-width: thin;
+  min-height: 90px;
+  align-items: center;
+}
+
+.maps-list::-webkit-scrollbar {
+  height: 4px;
+}
+
+.maps-list::-webkit-scrollbar-track {
+  background: #2a2a3b;
+  border-radius: 4px;
+}
+
+.maps-list::-webkit-scrollbar-thumb {
+  background: #4C5BEF;
+  border-radius: 4px;
+}
+
+/* Карточка карты без фона */
+.map-card {
+  flex: 0 0 auto;
+  width: 50px;
+  background: transparent; /* Убрали фон */
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+}
+
+.map-card:hover {
+  background: transparent; /* Прозрачный при наведении */
+  border-color: #4C5BEF;
+  transform: translateY(-1px);
+  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); убрали тень */
+}
+
+.map-card.active {
+  background: transparent; /* Прозрачный для активной */
+  border: 2px solid #4C5BEF;
+}
+
+/* Миниатюра */
+.map-thumbnail {
+  width: 42px;
+  height: 42px;
+  border-radius: 4px;
+  background: #1a1f2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.map-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.map-thumbnail svg {
+  width: 20px;
+  height: 20px;
+  stroke: #666;
+}
+
+/* Название карты */
+.map-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+}
+
+/* Кнопка меню */
+.map-more-btn {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  opacity: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.map-card:hover .map-more-btn {
+  opacity: 1;
+}
+
+.map-more-btn:hover {
+  background: #4C5BEF;
+  transform: scale(1.1);
+}
+
+.map-more-btn svg {
+  width: 8px;
+  height: 8px;
+  stroke: white;
+}
+
+/* Пустое состояние */
+.empty-maps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 80px;
+  color: #666;
+  text-align: center;
+  gap: 6px;
+}
+
+.empty-maps svg {
+  width: 30px;
+  height: 30px;
+  stroke: #666;
+}
+
+.empty-maps p {
+  margin: 0;
+  font-size: 12px;
+  color: #999;
+}
+
+.empty-maps small {
+  font-size: 10px;
+  color: #666;
+}
+
+#mapContextMenu {
+    min-width: 180px;
+}
+
+#mapContextMenu .context-menu-header {
+    background: #1a1f2e;
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#contextMapName {
+    font-weight: 600;
+    font-size: 13px;
+    color: white;
+}
+
+/* Модальное окно карты */
+#mapModal .modal-content.large-modal {
+  width: 500px;
+  max-width: 90vw;
+}
+
+.map-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.map-form-field label {
+  display: block;
+  font-size: 14px;
+  color: #9ca3af;
+  margin-bottom: 6px;
+}
+
+.map-form-field input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #2a2a3b;
+  border: 1px solid #3f4555;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
+}
+
+.map-form-field input:focus {
+  border-color: #4C5BEF;
+}
+
+.map-form-field input::placeholder {
+  color: #6b7280;
+  opacity: 0.7;
+}
+
+/* Загрузка изображения карты */
+.map-image-upload {
+  margin-top: 5px;
+}
+
+.map-image-upload label {
+  display: block;
+  font-size: 14px;
+  color: #9ca3af;
+  margin-bottom: 10px;
+}
+
+.image-dropzone {
+  width: 100%;
+  height: 200px;
+  border: 2px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a1f2e 0%, #111827 100%);
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-dropzone:hover {
+  border-color: #4C5BEF;
+  background: linear-gradient(135deg, #1f2538 0%, #151e30 100%);
+  box-shadow: 0 0 20px rgba(76, 91, 239, 0.3);
+}
+
+.dropzone-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #9ca3af;
+  text-align: center;
+  padding: 20px;
+}
+
+.dropzone-placeholder strong {
+  color: #e5e7eb;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.dropzone-placeholder small {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#mapImagePreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: relative;
+  z-index: 1;
+}
+
+.image-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+
+.image-dropzone:hover .image-overlay {
+  opacity: 1;
+}
+
+.edit-icon {
+  background: #4C5BEF;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Стили для кнопок в модальном окне карты */
+#mapModal .token-buttons {
+  margin-top: 25px;
+  padding-top: 5px;
+}
+
+#mapModal .save-btn {
+  min-width: 120px;
+}
+
+#mapModal .cancel-btn {
+  min-width: 120px;
 }

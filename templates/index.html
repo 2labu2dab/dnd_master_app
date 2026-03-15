@@ -16,27 +16,23 @@
     <aside id="sidebar">
       <h2>D&D Map Master</h2>
       <div class="sidebar-toggle left-toggle" id="toggleLeftSidebar" title="Свернуть левую панель">
-    ◀
-  </div>
-      <div class="map-selector">
-        <select id="mapSelect" onchange="switchMap(this.value)">
-          {% if maps %}
-          {% for map in maps %}
-          <option value="{{ map.id }}" {% if map.id==current_map %}selected{% endif %}>
-            {{ map.name }}
-          </option>
-          {% endfor %}
-          {% else %}
-          <option value="">Нет карт</option>
-          {% endif %}
-        </select>
-        <button class="icon-button" onclick="createNewMap()" title="Создать новую карту">➕</button>
-        <button class="icon-button" onclick="deleteCurrentMap()" title="Удалить текущую карту">🗑️</button>
+        ◀
       </div>
-      <label id="map-label">
-        Загрузить карту
-        <input type="file" name="map_image" accept="image/*" onchange="autoUploadMap(this)" hidden />
-      </label>
+      <div class="maps-panel">
+        <div class="maps-header">
+          <h3>Карты</h3>
+          <button class="create-map-btn" onclick="openCreateMapModal()" title="Создать новую карту">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+        </div>
+
+        <div id="mapsList" class="maps-list">
+          <!-- Карточки карт будут добавляться динамически -->
+        </div>
+      </div>
       <div class="section">
         <details open>
           <summary>Сетка</summary>
@@ -125,8 +121,8 @@
     </section>
     <aside id="right-sidebar">
       <div class="sidebar-toggle right-toggle" id="toggleRightSidebar" title="Свернуть правую панель">
-    ▶
-  </div>
+        ▶
+      </div>
       <div class="section">
         <details open>
           <summary>Портреты персонажей</summary>
@@ -323,7 +319,47 @@
   </div>
   <div id="findTooltip" style="display: none;"></div>
 
+  <div id="mapModal" class="modal" style="display: none;">
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeMapModal()">&times;</span>
+      <h3 id="mapModalTitle">Создание новой карты</h3>
 
+      <div class="map-form">
+        <!-- Название карты -->
+        <div class="map-form-field">
+          <label>Название карты</label>
+          <input type="text" id="mapName" placeholder="Введите название карты">
+        </div>
+
+        <!-- Загрузка изображения -->
+        <div class="map-image-upload">
+          <label>Изображение карты</label>
+          <div id="mapImageDropzone" class="image-dropzone" onclick="document.getElementById('mapImageInput').click()">
+            <img id="mapImagePreview" src="" alt="Map preview" style="display: none;">
+            <div id="mapImagePlaceholder" class="dropzone-placeholder">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1.5">
+                <rect x="2" y="2" width="20" height="20" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" fill="#666" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              <strong>Нажмите для выбора</strong>
+              <small>PNG, JPG до 50MB</small>
+            </div>
+            <div id="mapImageOverlay" class="image-overlay" style="display: none;">
+              <span class="edit-icon">✎ Изменить</span>
+            </div>
+            <input type="file" id="mapImageInput" accept="image/*" style="display: none;"
+              onchange="handleMapImageUpload(this)">
+          </div>
+        </div>
+      </div>
+
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitMap()">Сохранить</button>
+        <button class="cancel-btn" onclick="closeMapModal()">Отменить</button>
+      </div>
+    </div>
+  </div>
   <div id="zoneModal" class="modal" style="display: none;">
     <div class="modal-content large-modal">
       <span class="close" onclick="closeZoneModal()">&times;</span>
@@ -471,6 +507,19 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+  <div id="mapContextMenu" class="context-menu" style="display: none;">
+  <div class="context-menu-header">
+    <span id="contextMapName"></span>
+  </div>
+  <div class="context-menu-section">
+    <button class="context-menu-item" id="contextEditMap">
+      <span class="context-icon">✎</span> Редактировать
+    </button>
+    <button class="context-menu-item delete" id="contextDeleteMap">
+      <span class="context-icon">🗑️</span> Удалить
+    </button>
+  </div>
+</div>
   <div id="newMapModal" class="modal" style="display: none;">
     <div class="modal-content small-modal">
       <span class="close" onclick="closeNewMapModal()">&times;</span>

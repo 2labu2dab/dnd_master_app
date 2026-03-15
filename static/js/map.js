@@ -7,6 +7,9 @@ const playerRulerToggle = document.getElementById("playerRulerToggle");
 const rulerToggle = document.getElementById("rulerToggle");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
+let mapsList = [];
+let editingMapId = null;
+let currentMapImageFile = null;
 let allTokensFromMaps = [];
 let selectedImportToken = null;
 let isSwitchingMap = false;
@@ -1319,6 +1322,7 @@ function switchMap(mapId) {
 
     // СОХРАНЯЕМ ID В STORAGE
     saveCurrentMapToStorage(mapId);
+    updateActiveMapInList(mapId);
 
     avatarCache.clear();
 
@@ -3622,57 +3626,53 @@ function updateSliderVisual() {
     gridSlider.style.setProperty('--percent', `${adjustedPercent}%`);
 }
 
+socket.on("maps_list_updated", (data) => {
+    if (data.maps) {
+        mapsList = data.maps;
+        renderMapsList(data.maps);
+    }
+});
+
 window.onload = () => {
+    // Загружаем список карт для новой панели
+    loadMapsList();
+
+    // ===== ИСПРАВЛЕННЫЙ КОД: загружаем сохраненную карту =====
+    const savedMapId = loadCurrentMapFromStorage();
+
+    // Сначала загружаем список карт, потом проверяем сохраненную
     fetch("/api/maps")
         .then(res => res.json())
         .then(maps => {
-            const select = document.getElementById('mapSelect');
-            select.innerHTML = '';
-
             if (maps.length > 0) {
-                // ПЫТАЕМСЯ ЗАГРУЗИТЬ СОХРАНЕННУЮ КАРТУ
-                const savedMapId = loadCurrentMapFromStorage();
-
-                // Проверяем, существует ли сохраненная карта в списке
+                // Проверяем, существует ли сохраненная карта
                 const savedMapExists = savedMapId && maps.some(map => map.id === savedMapId);
 
-                let mapToLoad;
                 if (savedMapExists) {
-                    // Используем сохраненную карту
-                    mapToLoad = savedMapId;
-                    console.log('Loading saved map:', mapToLoad);
+                    // Загружаем сохраненную карту
+                    console.log('Loading saved map:', savedMapId);
+                    switchMap(savedMapId);
                 } else {
-                    // Иначе берем первую
-                    mapToLoad = maps[0].id;
-                    console.log('Saved map not found, loading first map:', mapToLoad);
-
+                    // Если сохраненной нет, загружаем первую
+                    console.log('Loading first map:', maps[0].id);
+                    switchMap(maps[0].id);
                     // Сохраняем первую карту как текущую
-                    saveCurrentMapToStorage(mapToLoad);
+                    saveCurrentMapToStorage(maps[0].id);
                 }
-
-                // Заполняем select
-                maps.forEach(map => {
-                    const option = document.createElement('option');
-                    option.value = map.id;
-                    option.textContent = map.name;
-                    if (map.id === mapToLoad) option.selected = true;
-                    select.appendChild(option);
-                });
-
-                // Загружаем карту
-                switchMap(mapToLoad);
-                setTimeout(updateSliderVisual, 100);
             } else {
-                select.innerHTML = '<option value="">Нет карт</option>';
-                // Очищаем storage если карт нет
-                localStorage.removeItem('dnd_last_map_id');
+                // Если карт нет
                 switchMap(null);
             }
+        })
+        .catch(err => {
+            console.error("Error loading maps:", err);
         });
+    // ===== КОНЕЦ ИСПРАВЛЕННОГО КОДА =====
 
     setupEnterHandler("contextDamageInput", "contextApplyDamage");
     setupEnterHandler("contextHealInput", "contextApplyHeal");
     setupEnterHandler("contextAcInput", "contextApplyAc");
+
     const toggleBtn = document.getElementById("togglePlayerMini");
 
     function updateMiniToggleIcon() {
@@ -3682,7 +3682,6 @@ window.onload = () => {
     toggleBtn.addEventListener("click", () => {
         const enabled = mapData.player_map_enabled !== false;
         mapData.player_map_enabled = !enabled;
-
 
         updateMiniToggleIcon();
 
@@ -3695,13 +3694,11 @@ window.onload = () => {
             player_map_enabled: mapData.player_map_enabled
         });
 
-        // === НОВОЕ: отправляем сигнал всем вкладкам игрока о необходимости перезагрузки ===
         playerChannel.postMessage({
             type: 'reload_player',
             map_id: currentMapId,
             enabled: mapData.player_map_enabled
         });
-        // ===============================================
     });
 
     socket.on("player_visibility_change", (data) => {
@@ -3731,7 +3728,6 @@ window.onload = () => {
             mapData.ruler_start = null;
             mapData.ruler_end = null;
 
-            // Отправляем обновление линейки
             socket.emit("ruler_update", {
                 ruler_start: null,
                 ruler_end: null
@@ -3768,11 +3764,8 @@ window.onload = () => {
         mapData.ruler_visible_to_players = !current;
         playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-
-        // Сохраняем через обычный saveMapData
         saveMapData();
 
-        // Отправляем специальное событие для немедленного обновления игроков
         socket.emit("ruler_visibility_change", {
             map_id: currentMapId,
             ruler_visible_to_players: mapData.ruler_visible_to_players
@@ -3793,16 +3786,29 @@ window.onload = () => {
     });
 
     document.addEventListener("click", (e) => {
-        const menu = document.getElementById("tokenContextMenu");
-        if (!menu.contains(e.target)) {
-            menu.style.display = "none";
+        const tokenMenu = document.getElementById("tokenContextMenu");
+        const findMenu = document.getElementById("findContextMenu");
+        const zoneMenu = document.getElementById("zoneContextMenu");
+        const characterMenu = document.getElementById("characterContextMenu");
+        const mapMenu = document.getElementById("mapContextMenu");
+
+        if (!tokenMenu?.contains(e.target) &&
+            !findMenu?.contains(e.target) &&
+            !zoneMenu?.contains(e.target) &&
+            !characterMenu?.contains(e.target) &&
+            !mapMenu?.contains(e.target)) {
+
+            if (tokenMenu) tokenMenu.style.display = "none";
+            if (findMenu) findMenu.style.display = "none";
+            if (zoneMenu) zoneMenu.style.display = "none";
+            if (characterMenu) characterMenu.style.display = "none";
+            if (mapMenu) mapMenu.style.display = "none";
         }
     });
 
     updateSliderVisual();
     initSidebarCollapse();
 };
-
 socket.on("map_created", (data) => {
     console.log("Map created event received:", data);
 
@@ -5890,4 +5896,322 @@ if (document.readyState === 'loading') {
     });
 } else {
     setTimeout(initSidebarCollapse, 200);
+}
+
+function loadMapsList() {
+    fetch("/api/maps")
+        .then(res => res.json())
+        .then(maps => {
+            mapsList = maps;
+            renderMapsList(maps);
+        });
+}
+
+// Функция отрисовки списка карт
+function renderMapsList(maps) {
+    const container = document.getElementById("mapsList");
+    if (!container) return;
+
+    if (maps.length === 0) {
+        container.innerHTML = `
+            <div class="empty-maps">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
+                    <line x1="8" y1="2" x2="8" y2="22"/>
+                    <line x1="16" y1="2" x2="16" y2="22"/>
+                    <line x1="2" y1="8" x2="22" y2="8"/>
+                    <line x1="2" y1="16" x2="22" y2="16"/>
+                </svg>
+                <p>Нет карт</p>
+                <small>Создайте новую карту</small>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = maps.map(map => {
+        const isActive = map.id === currentMapId;
+        // Обрезаем длинное название до 8 символов + троеточие
+        const displayName = map.name.length > 8 ? map.name.substring(0, 8) + '…' : map.name;
+
+        return `
+            <div class="map-card ${isActive ? 'active' : ''}" data-map-id="${map.id}" onclick="selectMap('${map.id}')">
+                <div class="map-thumbnail">
+                    ${map.has_image
+                ? `<img src="/api/map/thumbnail/${map.id}?t=${Date.now()}" alt="${map.name}" loading="lazy">`
+                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                            <polyline points="21 15 16 10 5 21"/>
+                          </svg>`
+            }
+                </div>
+                <div class="map-name" title="${map.name}">${displayName}</div>
+                <button class="map-more-btn" onclick="event.stopPropagation(); showMapContextMenu('${map.id}', event)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="5" r="2"/>
+                        <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                </button>
+            </div>
+        `;
+    }).join('');
+
+    // Обновляем активное состояние
+    updateActiveMapInList(currentMapId);
+}
+function selectMap(mapId) {
+    if (mapId === currentMapId) return;
+    switchMap(mapId);
+}
+
+function openCreateMapModal() {
+    editingMapId = null;
+    currentMapImageFile = null;
+    document.getElementById("mapModalTitle").textContent = "Создание новой карты";
+    document.getElementById("mapName").value = "";
+    document.getElementById("mapImagePreview").style.display = "none";
+    document.getElementById("mapImagePlaceholder").style.display = "flex";
+    document.getElementById("mapImageOverlay").style.display = "none";
+    document.getElementById("mapImagePreview").src = "";
+    document.getElementById("mapModal").style.display = "flex";
+}
+
+// Открытие модального окна редактирования карты
+function openEditMapModal(mapId) {
+    const map = mapsList.find(m => m.id === mapId);
+    if (!map) return;
+
+    editingMapId = mapId;
+    currentMapImageFile = null;
+    document.getElementById("mapModalTitle").textContent = "Редактирование карты";
+    document.getElementById("mapName").value = map.name;
+
+    const preview = document.getElementById("mapImagePreview");
+    const placeholder = document.getElementById("mapImagePlaceholder");
+    const overlay = document.getElementById("mapImageOverlay");
+
+    if (map.has_image) {
+        // ИСПРАВЛЕНО: используем полноразмерное изображение вместо миниатюры
+        preview.src = `/api/map/image/${mapId}?t=${Date.now()}`;
+        preview.style.display = "block";
+
+        // Добавляем обработчик для правильного масштабирования изображения в модальном окне
+        preview.onload = function () {
+            // Автоматически подгоняем изображение под размер контейнера
+            const container = document.getElementById("mapImageDropzone");
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+
+            // Сохраняем пропорции
+            if (this.naturalWidth > this.naturalHeight) {
+                this.style.width = "100%";
+                this.style.height = "auto";
+            } else {
+                this.style.width = "auto";
+                this.style.height = "100%";
+            }
+        };
+
+        placeholder.style.display = "none";
+        overlay.style.display = "flex";
+    } else {
+        preview.src = "";
+        preview.style.display = "none";
+        placeholder.style.display = "flex";
+        overlay.style.display = "none";
+    }
+
+    document.getElementById("mapModal").style.display = "flex";
+}
+
+// Закрытие модального окна
+function closeMapModal() {
+    document.getElementById("mapModal").style.display = "none";
+}
+
+// Обработка загрузки изображения
+function handleMapImageUpload(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    // Проверяем размер
+    if (file.size > 50 * 1024 * 1024) {
+        alert("Файл слишком большой. Максимальный размер 50MB.");
+        return;
+    }
+
+    currentMapImageFile = file;
+
+    // Показываем превью
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const preview = document.getElementById("mapImagePreview");
+        preview.src = e.target.result;
+        preview.style.display = "block";
+        document.getElementById("mapImagePlaceholder").style.display = "none";
+        document.getElementById("mapImageOverlay").style.display = "flex";
+    };
+    reader.readAsDataURL(file);
+}
+
+function submitMap() {
+    const name = document.getElementById("mapName").value.trim();
+    if (!name) {
+        alert("Введите название карты");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("name", name);
+    if (currentMapImageFile) {
+        formData.append("map_image", currentMapImageFile);
+    }
+
+    const url = editingMapId
+        ? `/api/map/update/${editingMapId}`
+        : "/api/map/new";
+
+    fetch(url, {
+        method: "POST",
+        body: formData
+    })
+        .then(res => res.json())
+        .then(data => {
+            closeMapModal();
+
+            // Обновляем список карт
+            loadMapsList(); // ЭТА СТРОКА УЖЕ ДОЛЖНА БЫТЬ
+
+            // Если создана новая карта или обновлена текущая
+            if (data.map_id === currentMapId || (!editingMapId && mapsList.length === 0)) {
+                switchMap(data.map_id);
+            }
+
+            showNotification(
+                editingMapId ? "Карта обновлена" : "Карта создана",
+                "success"
+            );
+        })
+        .catch(err => {
+            console.error("Error saving map:", err);
+            showNotification("Ошибка при сохранении карты", "error");
+        });
+}
+
+// Показать контекстное меню карты
+function showMapContextMenu(mapId, event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const map = mapsList.find(m => m.id === mapId);
+    if (!map) return;
+
+    const menu = document.getElementById("mapContextMenu");
+    document.getElementById("contextMapName").textContent = map.name;
+
+    // Настраиваем кнопки
+    document.getElementById("contextEditMap").onclick = () => {
+        menu.style.display = "none";
+        openEditMapModal(mapId);
+    };
+
+    document.getElementById("contextDeleteMap").onclick = () => {
+        menu.style.display = "none";
+        if (confirm(`Удалить карту "${map.name}"?`)) {
+            deleteMap(mapId);
+        }
+    };
+
+    // Позиционирование меню
+    menu.style.display = "block";
+    menu.style.visibility = "hidden";
+
+    const menuRect = menu.getBoundingClientRect();
+    let left = event.pageX;
+    let top = event.pageY;
+
+    if (left + menuRect.width > window.innerWidth) {
+        left = window.innerWidth - menuRect.width - 10;
+    }
+    if (top + menuRect.height > window.innerHeight) {
+        top = window.innerHeight - menuRect.height - 10;
+    }
+
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    menu.style.visibility = "visible";
+
+    // ===== НОВЫЙ КОД: добавляем временный обработчик для закрытия меню =====
+    // Сохраняем ссылку на текущее меню
+    window.currentMapMenu = menu;
+    window.currentMapId = mapId;
+
+    // Функция для закрытия меню при клике вне его
+    const closeMenuOnClickOutside = (e) => {
+        // Если кликнули не по меню и не по кнопке, которая его открыла
+        if (!menu.contains(e.target) && !e.target.closest('.map-more-btn')) {
+            menu.style.display = "none";
+            // Удаляем обработчики
+            document.removeEventListener('click', closeMenuOnClickOutside);
+            document.removeEventListener('contextmenu', closeMenuOnContextMenu);
+        }
+    };
+
+    // Функция для закрытия при правом клике где-то ещё
+    const closeMenuOnContextMenu = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.style.display = "none";
+            document.removeEventListener('click', closeMenuOnClickOutside);
+            document.removeEventListener('contextmenu', closeMenuOnContextMenu);
+        }
+    };
+
+    // Добавляем обработчики с небольшой задержкой, чтобы не поймать текущий клик
+    setTimeout(() => {
+        document.addEventListener('click', closeMenuOnClickOutside);
+        document.addEventListener('contextmenu', closeMenuOnContextMenu);
+    }, 100);
+}
+
+function deleteMap(mapId) {
+    fetch(`/api/map/delete/${mapId}`, {
+        method: "DELETE"
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                loadMapsList();
+
+                if (mapId === currentMapId) {
+                    if (data.maps && data.maps.length > 0) {
+                        switchMap(data.maps[0].id);
+                    } else {
+                        switchMap(null);
+                    }
+                }
+
+                showNotification("Карта удалена", "success");
+            }
+        })
+        .catch(err => {
+            console.error("Error deleting map:", err);
+            showNotification("Ошибка при удалении карты", "error");
+        });
+}
+
+function updateActiveMapInList(mapId) {
+    // Убираем active класс у всех карточек
+    document.querySelectorAll('.map-card').forEach(card => {
+        card.classList.remove('active');
+    });
+
+    // Добавляем active класс текущей карте
+    if (mapId) {
+        const activeCard = document.querySelector(`.map-card[data-map-id="${mapId}"]`);
+        if (activeCard) {
+            activeCard.classList.add('active');
+        }
+    }
 }
