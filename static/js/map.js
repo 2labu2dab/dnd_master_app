@@ -3354,75 +3354,121 @@ canvas.addEventListener("wheel", (e) => {
         });
     }, 200);
 });
+
 document.addEventListener("keydown", (e) => {
     // Проверяем, не находится ли фокус на поле ввода
     const isInputActive = document.activeElement.tagName === 'INPUT' ||
         document.activeElement.tagName === 'TEXTAREA' ||
         document.activeElement.isContentEditable;
 
+    // Обработка Escape - всегда работает, даже если фокус на поле ввода
+    if (e.key === "Escape") {
+        e.preventDefault(); // Предотвращаем стандартное поведение браузера
+
+        // Проверяем, открыто ли какое-либо модальное окно
+        const anyModalOpen = [
+            'characterModal',
+            'tokenModal',
+            'findModal',
+            'zoneModal',
+            'mapModal',
+            'importTokenModal',
+            'bankModal',
+            'newMapModal'
+        ].some(modalId => {
+            const modal = document.getElementById(modalId);
+            return modal && modal.style.display === 'flex';
+        });
+
+        if (anyModalOpen) {
+            // Если открыто модальное окно - закрываем все модалки
+            closeAllModals();
+        } else {
+            // Если модалки закрыты, обрабатываем другие режимы
+
+            // Отключаем линейку
+            if (isRulerMode) {
+                isRulerMode = false;
+                rulerStart = null;
+                mapData.ruler_start = null;
+                mapData.ruler_end = null;
+
+                // Отключаем видимость линейки для игроков
+                mapData.ruler_visible_to_players = false;
+
+                // Обновляем кнопку в интерфейсе мастера
+                const playerRulerToggle = document.getElementById("playerRulerToggle");
+                if (playerRulerToggle) {
+                    playerRulerToggle.classList.remove("active");
+                }
+
+                // Отправляем обновление линейки
+                socket.emit("ruler_update", {
+                    map_id: currentMapId,
+                    ruler_start: null,
+                    ruler_end: null
+                });
+
+                socket.emit("ruler_visibility_change", {
+                    map_id: currentMapId,
+                    ruler_visible_to_players: false
+                });
+
+                // Обновляем кнопку линейки мастера
+                const rulerBtn = document.getElementById("rulerToggle");
+                if (rulerBtn) {
+                    rulerBtn.classList.remove("active");
+                }
+
+                saveMapData();
+                render();
+                updateCanvasCursor();
+                console.log("Ruler disabled with Escape, player visibility also disabled");
+            }
+
+            // Отключаем рисование зон
+            if (drawingZone) {
+                drawingZone = false;
+                currentZoneVertices = [];
+                updateCanvasCursor();
+
+                // Удаляем подсказку
+                const hint = document.getElementById('drawing-hint');
+                if (hint) hint.remove();
+
+                render();
+            }
+
+            // Снимаем выделение с токенов
+            if (selectedTokens.size > 0) {
+                selectedTokens.clear();
+                updateSidebar();
+                render();
+            }
+
+            // Закрываем контекстные меню
+            const contextMenus = [
+                'tokenContextMenu',
+                'findContextMenu',
+                'zoneContextMenu',
+                'characterContextMenu',
+                'mapContextMenu'
+            ];
+
+            contextMenus.forEach(menuId => {
+                const menu = document.getElementById(menuId);
+                if (menu) {
+                    menu.style.display = 'none';
+                }
+            });
+        }
+
+        return; // Выходим, чтобы не обрабатывать другие клавиши
+    }
+
     // Если фокус на поле ввода - не перехватываем комбинации клавиш
     if (isInputActive) {
         return; // Позволяем стандартному поведению (включая Ctrl+V)
-    }
-
-    if (e.key === "Escape") {
-        // Отключаем линейку при Escape
-        if (isRulerMode) {
-            isRulerMode = false;
-            rulerStart = null;
-            mapData.ruler_start = null;
-            mapData.ruler_end = null;
-
-            // НОВОЕ: Отключаем видимость линейки для игроков
-            mapData.ruler_visible_to_players = false;
-
-            // Обновляем кнопку в интерфейсе мастера
-            const playerRulerToggle = document.getElementById("playerRulerToggle");
-            if (playerRulerToggle) {
-                playerRulerToggle.classList.remove("active");
-            }
-
-            // Отправляем обновление линейки
-            socket.emit("ruler_update", {
-                map_id: currentMapId,
-                ruler_start: null,
-                ruler_end: null
-            });
-
-            // НОВОЕ: Отправляем событие об изменении видимости для игроков
-            socket.emit("ruler_visibility_change", {
-                map_id: currentMapId,
-                ruler_visible_to_players: false
-            });
-
-            // Обновляем кнопку линейки мастера
-            const rulerBtn = document.getElementById("rulerToggle");
-            if (rulerBtn) {
-                rulerBtn.classList.remove("active");
-            }
-
-            saveMapData();
-            render();
-            updateCanvasCursor();
-            console.log("Ruler disabled with Escape, player visibility also disabled");
-        }
-
-        if (drawingZone) {
-            drawingZone = false;
-            currentZoneVertices = [];
-            updateCanvasCursor();
-
-            // Удаляем подсказку
-            const hint = document.getElementById('drawing-hint');
-            if (hint) hint.remove();
-
-            render();
-        }
-        if (selectedTokens.size > 0) {
-            selectedTokens.clear();
-            updateSidebar();
-            render();
-        }
     }
 
     if (e.key === "Delete") {
@@ -3453,7 +3499,7 @@ document.addEventListener("keydown", (e) => {
             changed = true;
         }
 
-        // НОВЫЙ КОД ДЛЯ ПОРТРЕТОВ (БЕЗ ПОДТВЕРЖДЕНИЯ)
+        // Код для портретов
         if (selectedCharacterId) {
             const character = mapData.characters?.find(c => c.id === selectedCharacterId);
 
@@ -3474,7 +3520,7 @@ document.addEventListener("keydown", (e) => {
             saveMapData().then(() => {
                 socket.emit("force_avatar_reload", { map_id: currentMapId });
             });
-            updateSidebar(); // Добавить эту строку
+            updateSidebar();
         }
     }
 
@@ -6287,4 +6333,97 @@ function updateActiveMapInList(mapId) {
             activeCard.classList.add('active');
         }
     }
+}
+
+function closeAllModals() {
+    // Список всех модальных окон
+    const modals = [
+        'characterModal',
+        'tokenModal',
+        'findModal',
+        'zoneModal',
+        'mapModal',
+        'importTokenModal',
+        'bankModal',
+        'newMapModal'
+    ];
+
+    modals.forEach(modalId => {
+        const modal = document.getElementById(modalId);
+        if (modal && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+        }
+    });
+
+    // Сбрасываем режимы рисования, если они активны
+    if (drawingZone) {
+        drawingZone = false;
+        currentZoneVertices = [];
+        updateCanvasCursor();
+        const hint = document.getElementById('drawing-hint');
+        if (hint) hint.remove();
+        render();
+    }
+
+    // Сбрасываем линейку, если она активна
+    if (isRulerMode) {
+        isRulerMode = false;
+        rulerStart = null;
+        mapData.ruler_start = null;
+        mapData.ruler_end = null;
+
+        // Отключаем видимость линейки для игроков
+        mapData.ruler_visible_to_players = false;
+
+        // Обновляем кнопки
+        const playerRulerToggle = document.getElementById("playerRulerToggle");
+        if (playerRulerToggle) {
+            playerRulerToggle.classList.remove("active");
+        }
+
+        const rulerBtn = document.getElementById("rulerToggle");
+        if (rulerBtn) {
+            rulerBtn.classList.remove("active");
+        }
+
+        socket.emit("ruler_update", {
+            map_id: currentMapId,
+            ruler_start: null,
+            ruler_end: null
+        });
+
+        socket.emit("ruler_visibility_change", {
+            map_id: currentMapId,
+            ruler_visible_to_players: false
+        });
+
+        saveMapData();
+        render();
+        updateCanvasCursor();
+    }
+
+    // Закрываем контекстные меню
+    const contextMenus = [
+        'tokenContextMenu',
+        'findContextMenu',
+        'zoneContextMenu',
+        'characterContextMenu',
+        'mapContextMenu'
+    ];
+
+    contextMenus.forEach(menuId => {
+        const menu = document.getElementById(menuId);
+        if (menu) {
+            menu.style.display = 'none';
+        }
+    });
+
+    // Сбрасываем состояния редактирования
+    editingTokenId = null;
+    editingFindId = null;
+    editingZoneId = null;
+    window.editingCharacterId = null;
+    pendingZoneVertices = null;
+
+    console.log('All modals closed with Escape');
 }
