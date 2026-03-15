@@ -52,24 +52,56 @@ summary {
   color: white;
   cursor: pointer;
   user-select: none;
-  margin-bottom: 15px; /* Добавлен отступ снизу */
-  margin-top: 15px; /* Добавлен отступ снизу */
+  margin-bottom: 15px;
+  margin-top: 15px;
 }
 
 summary::-webkit-details-marker {
   display: none;
 }
 
-details{
+details {
   margin-bottom: 15px;
 }
 
+.summary-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 8px;
+}
+
+.summary-title {
+  font-weight: 600;
+  color: #e0e0e0;
+  position: relative;
+  padding-left: 20px;
+}
+
 summary::after {
-  content: "▾";
-  font-size: 14px;
-  transition: transform 0.3s ease;
-  margin-left: 8px;
-  color: white;
+  display: none; /* Отключаем старую стрелку */
+}
+
+.summary-title::before {
+  content: '▼';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg); /* По умолчанию повернута (закрыто) */
+  font-size: 10px;
+  color: #888;
+  transition: transform 0.2s;
+}
+
+details[open] .summary-title::before {
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.summary-buttons {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
 details[open] > summary::after {
@@ -2288,4 +2320,12 @@ body.sidebar-collapsed-both #canvas-container {
 .section details[open] .icon-button-group,
 .section details[open] .section-header-with-button {
   margin-top: 15px;
+}
+
+.section details summary .summary-content:not(:has(.summary-buttons)) {
+  justify-content: flex-start; /* Выравниваем только заголовок влево */
+}
+
+.section details summary .summary-content .summary-title {
+  margin-right: auto;
 }

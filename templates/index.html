@@ -18,88 +18,105 @@
       <div class="sidebar-toggle left-toggle" id="toggleLeftSidebar" title="Свернуть левую панель">
         ◀
       </div>
-      <div class="maps-panel">
-        <div class="maps-header">
-          <h3>Карты</h3>
-          <button class="create-map-btn" onclick="openCreateMapModal()" title="Создать новую карту">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-        </div>
-
-        <div id="mapsList" class="maps-list">
-          <!-- Карточки карт будут добавляться динамически -->
-        </div>
+      <div class="section">
+        <details open>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Карты</span>
+              <button class="create-map-btn" onclick="openCreateMapModal()" title="Создать новую карту">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
+          </summary>
+          <div id="mapsList" class="maps-list">
+            <!-- Карточки карт будут добавляться динамически -->
+          </div>
+        </details>
       </div>
       <div class="section">
         <details open>
-          <summary>Сетка</summary>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Сетка</span>
+              <!-- Без кнопок, просто заголовок -->
+            </div>
+          </summary>
           <div class="grid-control">
             <input type="number" id="gridInput" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
             <input type="range" id="gridSlider" min="10" max="200" value="20" oninput="syncGridInputs(this.value)" />
           </div>
         </details>
-        <div class="section">
-          <details open>
-            <summary>Скрытые области</summary>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      </div>
+      <div class="section">
+        <details open>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Скрытые области</span>
               <button class="icon-button" onclick="addZone()" title="Создать зону">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               </button>
             </div>
-            <ul id="zoneList"></ul>
-          </details>
-        </div>
+          </summary>
+          <ul id="zoneList"></ul>
+        </details>
+      </div>
 
-        <!-- Токены -->
-        <div class="section">
-          <details open>
-            <summary>Токены</summary>
-            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-              <button class="icon-button" onclick="addToken()" title="Новый токен">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
-              <button class="icon-button" onclick="openImportTokenModal()" title="Импорт существующего">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-                  <polyline points="8 12 12 16 16 12" />
-                  <line x1="12" y1="2" x2="12" y2="16" />
-                </svg>
-              </button>
-              <button class="icon-button" onclick="openBankModal()" title="Банк персонажей">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                </svg>
-              </button>
+      <!-- Токены -->
+      <div class="section">
+        <details open>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Токены</span>
+              <div class="summary-buttons">
+                <button class="icon-button" onclick="addToken()" title="Новый токен">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </button>
+                <button class="icon-button" onclick="openImportTokenModal()" title="Импорт существующего">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                    <polyline points="8 12 12 16 16 12" />
+                    <line x1="12" y1="2" x2="12" y2="16" />
+                  </svg>
+                </button>
+                <button class="icon-button" onclick="openBankModal()" title="Банк персонажей">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <ul id="tokenList"></ul>
-          </details>
-        </div>
+          </summary>
+          <ul id="tokenList"></ul>
+        </details>
+      </div>
 
-        <!-- Находки -->
-        <div class="section">
-          <details open>
-            <summary>Находки</summary>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <!-- Находки -->
+      <div class="section">
+        <details open>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Находки</span>
               <button class="icon-button" onclick="openFindModal()" title="Создать находку">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               </button>
             </div>
-            <ul id="findList"></ul>
-          </details>
-        </div>
+          </summary>
+          <ul id="findList"></ul>
+        </details>
+      </div>
     </aside>
     <section id="canvas-container">
       <div id="toolButtons">
@@ -142,15 +159,17 @@
       </div>
       <div class="section">
         <details open>
-          <summary>Портреты персонажей</summary>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <button class="icon-button" onclick="openCharacterModal()" title="Добавить портрет">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-          </div>
+          <summary>
+            <div class="summary-content">
+              <span class="summary-title">Портреты персонажей</span>
+              <button class="icon-button" onclick="openCharacterModal()" title="Добавить портрет">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
+          </summary>
           <ul id="characterList"></ul>
         </details>
       </div>
