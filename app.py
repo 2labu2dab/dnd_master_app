@@ -288,6 +288,7 @@ def new_map():
         if os.path.exists(image_path):
             try:
                 from PIL import Image
+
                 img = Image.open(image_path)
                 center_x = img.width / 2
                 center_y = img.height / 2
@@ -328,7 +329,9 @@ def new_map():
 
         # Сохраняем обновленные данные
         save_map_data(new_map_data, map_id)
-        print(f"Added {len(all_heroes)} hero tokens to new map with original IDs")
+        print(
+            f"Added {len(all_heroes)} hero tokens to new map with original IDs"
+        )
 
     session["current_map_id"] = map_id
 
@@ -454,6 +457,93 @@ def get_token_avatar(token_id):
     response.headers["Expires"] = "0"
 
     return response
+
+
+@app.route("/api/token/<token_id>/sync", methods=["POST"])
+def sync_token_across_maps(token_id):
+    """Синхронизировать изменения токена на всех картах"""
+    try:
+        data = request.get_json()
+        print(f"\n=== Syncing token {token_id} across all maps ===")
+
+        # Получаем список всех карт, где есть этот токен
+        from utils.storage import get_all_maps_with_token
+
+        maps_with_token = get_all_maps_with_token(token_id)
+
+        print(f"Token found on {len(maps_with_token)} maps")
+
+        # Обновляем токен на каждой карте
+        for map_info in maps_with_token:
+            map_id = map_info["map_id"]
+            map_data = load_map_data(map_id)
+
+            if not map_data:
+                continue
+
+            # Находим и обновляем токен
+            tokens = map_data.get("tokens", [])
+            for i, token in enumerate(tokens):
+                if token.get("id") == token_id:
+                    # Обновляем поля (кроме позиции)
+                    token["name"] = data.get("name", token["name"])
+                    token["armor_class"] = data.get(
+                        "armor_class", token["armor_class"]
+                    )
+                    token["health_points"] = data.get(
+                        "health_points", token["health_points"]
+                    )
+                    token["max_health_points"] = data.get(
+                        "max_health_points", token["max_health_points"]
+                    )
+                    token["is_player"] = data.get(
+                        "is_player", token["is_player"]
+                    )
+                    token["is_npc"] = data.get("is_npc", token["is_npc"])
+                    token["is_dead"] = data.get("is_dead", token["is_dead"])
+                    token["has_avatar"] = data.get(
+                        "has_avatar", token["has_avatar"]
+                    )
+
+                    print(f"✓ Updated token on map {map_id}")
+                    break
+
+            # Сохраняем карту
+            save_map_data(map_data, map_id)
+
+            # Отправляем обновление игрокам на этой карте
+            player_data = {
+                "map_id": map_id,
+                "tokens": map_data.get("tokens", []),
+                "zones": map_data.get("zones", []),
+                "finds": map_data.get("finds", []),
+                "grid_settings": map_data.get("grid_settings", {}),
+                "player_map_enabled": map_data.get("player_map_enabled", True),
+                "has_image": map_data.get("has_image", False),
+            }
+
+            if map_data.get("has_image"):
+                player_data["image_url"] = (
+                    f"/api/map/image/{map_id}?t={int(time.time())}"
+                )
+
+            socketio.emit("map_updated", player_data, room=f"map_{map_id}")
+
+        # Уведомляем всех мастеров о синхронизации
+        socketio.emit(
+            "token_synced_across_maps",
+            {"token_id": token_id, "updated_data": data},
+            broadcast=True,
+        )
+
+        return jsonify({"status": "ok", "updated_maps": len(maps_with_token)})
+
+    except Exception as e:
+        print(f"Error syncing token: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/token/avatar/<source_token_id>/copy", methods=["POST"])
@@ -1128,19 +1218,17 @@ def update_token(token_id):
 
     for i, t in enumerate(tokens):
         if t.get("id") == token_id:
-            # Сохраняем старые значения для сравнения
+            # Сохраняем старые значения
             old_has_avatar = t.get("has_avatar", False)
             old_avatar_url = t.get("avatar_url")
 
             # Сохраняем существующий аватар, если не передан новый
             if old_has_avatar and not avatar_data:
-                # Сохраняем флаг наличия аватара
                 token["has_avatar"] = True
                 token["avatar_url"] = old_avatar_url
                 print(f"Keeping existing avatar for token {token_id}")
 
             # Обновляем остальные поля токена
-            # Важно: сохраняем id, position и другие поля, которые могли не прийти
             token["id"] = token_id
             if "position" not in token and "position" in t:
                 token["position"] = t["position"]
@@ -1155,7 +1243,6 @@ def update_token(token_id):
                 success = save_token_avatar(avatar_data, token_id)
                 if success:
                     token["has_avatar"] = True
-                    # Обновляем URL с timestamp для сброса кэша
                     timestamp = int(time.time())
                     token["avatar_url"] = (
                         f"/api/token/avatar/{token_id}?t={timestamp}"
@@ -1173,15 +1260,102 @@ def update_token(token_id):
     if not token_found:
         return jsonify({"error": "Token not found"}), 404
 
-    # Сохраняем обновленные данные
+    # Сохраняем обновленные данные для ТЕКУЩЕЙ карты
     save_map_data(data, map_id)
 
-    # Подготавливаем данные для игроков
+    # ===== СИНХРОНИЗАЦИЯ НА ДРУГИХ КАРТАХ =====
+    try:
+        # Подготавливаем данные для синхронизации (без позиции)
+        sync_data = {
+            "name": token["name"],
+            "armor_class": token["armor_class"],
+            "health_points": token["health_points"],
+            "max_health_points": token["max_health_points"],
+            "is_player": token["is_player"],
+            "is_npc": token["is_npc"],
+            "is_dead": token["is_dead"],
+            "has_avatar": token["has_avatar"],
+        }
+
+        # Если аватар изменился, добавляем URL
+        if avatar_changed:
+            sync_data["avatar_url"] = token["avatar_url"]
+
+        # Получаем список всех карт, где есть этот токен
+        from utils.storage import (
+            get_all_maps_with_token,
+            sync_token_across_maps,
+        )
+
+        # Используем функцию синхронизации
+        updated_maps = sync_token_across_maps(token_id, sync_data)
+
+        print(
+            f"Token {token_id} synced on {len(updated_maps)} maps: {updated_maps}"
+        )
+
+        # Отправляем обновления игрокам на всех картах (кроме текущей)
+        for other_map_id in updated_maps:
+            if other_map_id != map_id:
+                other_map_data = load_map_data(other_map_id)
+                if other_map_data:
+                    # Подготавливаем данные для игроков
+                    tokens_for_players = []
+                    for t in other_map_data.get("tokens", []):
+                        token_copy = t.copy()
+                        if token_copy.get("has_avatar"):
+                            token_copy["avatar_url"] = (
+                                f"/api/token/avatar/{token_copy['id']}?t={int(time.time())}"
+                            )
+                        token_copy.pop("avatar_data", None)
+                        tokens_for_players.append(token_copy)
+
+                    player_data = {
+                        "map_id": other_map_id,
+                        "tokens": tokens_for_players,
+                        "zones": other_map_data.get("zones", []),
+                        "finds": other_map_data.get("finds", []),
+                        "grid_settings": other_map_data.get(
+                            "grid_settings", {}
+                        ),
+                        "player_map_enabled": other_map_data.get(
+                            "player_map_enabled", True
+                        ),
+                        "has_image": other_map_data.get("has_image", False),
+                    }
+
+                    if other_map_data.get("has_image"):
+                        player_data["image_url"] = (
+                            f"/api/map/image/{other_map_id}?t={int(time.time())}"
+                        )
+
+                    # Отправляем обновление на конкретную карту
+                    socketio.emit("map_updated", player_data)
+
+        # Уведомляем всех мастеров о синхронизации
+        if len(updated_maps) > 0:
+            socketio.emit(
+                "token_synced_across_maps",
+                {
+                    "token_id": token_id,
+                    "updated_data": sync_data,
+                    "updated_maps": updated_maps,
+                },
+                broadcast=True,
+            )
+
+    except Exception as e:
+        print(f"Error during cross-map sync: {e}")
+        import traceback
+
+        traceback.print_exc()
+    # ===== КОНЕЦ СИНХРОНИЗАЦИИ =====
+
+    # Подготавливаем данные для игроков на ТЕКУЩЕЙ карте
     tokens_for_players = []
     for t in data.get("tokens", []):
         token_copy = t.copy()
         if token_copy.get("has_avatar"):
-            # Добавляем timestamp для сброса кэша
             timestamp = int(time.time())
             token_copy["avatar_url"] = (
                 f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
@@ -1189,7 +1363,7 @@ def update_token(token_id):
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
 
-    # Отправляем обновление всем игрокам
+    # Отправляем обновление игрокам на текущей карте
     player_data = {
         "map_id": map_id,
         "tokens": tokens_for_players,
@@ -1208,10 +1382,9 @@ def update_token(token_id):
             f"/api/map/image/{map_id}?t={int(time.time())}"
         )
 
-    # Отправляем обновление всем
     socketio.emit("map_updated", player_data)
 
-    # Если аватар изменился, отправляем специальное событие для очистки кэша
+    # Если аватар изменился, отправляем специальное событие
     if avatar_changed:
         timestamp = int(time.time())
         socketio.emit(
@@ -1310,62 +1483,71 @@ def delete_token(token_id):
         return jsonify({"error": "Token not found on current map"}), 404
 
     # Удаляем токен из данных текущей карты
-    data["tokens"] = [t for t in data.get("tokens", []) if t.get("id") != token_id]
+    data["tokens"] = [
+        t for t in data.get("tokens", []) if t.get("id") != token_id
+    ]
     save_map_data(data, map_id)
 
     # Проверяем, используется ли этот токен на ДРУГИХ картах
     from utils.storage import get_all_maps_with_token
 
     maps_with_token = get_all_maps_with_token(token_id)
-    
+
     # Фильтруем текущую карту из списка
     other_maps = [m for m in maps_with_token if m["map_id"] != map_id]
 
-    print(f"Token {token_id} is used on {len(other_maps)} other maps: {other_maps}")
+    print(
+        f"Token {token_id} is used on {len(other_maps)} other maps: {other_maps}"
+    )
 
     # Удаляем аватар ТОЛЬКО если токен НЕ используется на других картах
     if not other_maps:
         from utils.storage import delete_token_avatar
+
         avatar_deleted = delete_token_avatar(token_id)
         if avatar_deleted:
             print(f"✓ Token {token_id} not used elsewhere, avatar deleted")
         else:
-            print(f"✗ Token {token_id} avatar file not found or could not be deleted")
+            print(
+                f"✗ Token {token_id} avatar file not found or could not be deleted"
+            )
     else:
         print(f"→ Token {token_id} used on other maps, keeping avatar")
 
     # Отправляем обновление игрокам
     socketio.emit(
-        "map_updated", {
-            "map_id": map_id, 
+        "map_updated",
+        {
+            "map_id": map_id,
             "tokens": data.get("tokens", []),
             "zones": data.get("zones", []),
             "finds": data.get("finds", []),
             "grid_settings": data.get("grid_settings", {}),
             "player_map_enabled": data.get("player_map_enabled", True),
             "has_image": data.get("has_image", False),
-        }
+        },
     )
 
     return jsonify({"status": "token deleted"})
+
 
 @app.route("/api/token/cleanup-avatars", methods=["POST"])
 def cleanup_token_avatars():
     """Очистить аватары токенов, которые нигде не используются"""
     from utils.storage import TOKENS_AVATARS_DIR, get_all_maps_with_token
-    
+
     deleted_count = 0
     kept_count = 0
-    
+
     # Получаем все файлы аватаров
     if os.path.exists(TOKENS_AVATARS_DIR):
         for filename in os.listdir(TOKENS_AVATARS_DIR):
             if filename.endswith(".png"):
                 token_id = filename[:-4]  # убираем .png
-                
+
                 # Проверяем, используется ли токен на каких-либо картах
                 maps_with_token = get_all_maps_with_token(token_id)
-                
+
                 if not maps_with_token:
                     # Токен нигде не используется - удаляем аватар
                     filepath = os.path.join(TOKENS_AVATARS_DIR, filename)
@@ -1377,12 +1559,11 @@ def cleanup_token_avatars():
                         print(f"Error deleting {filename}: {e}")
                 else:
                     kept_count += 1
-    
-    return jsonify({
-        "status": "ok", 
-        "deleted": deleted_count,
-        "kept": kept_count
-    })
+
+    return jsonify(
+        {"status": "ok", "deleted": deleted_count, "kept": kept_count}
+    )
+
 
 @app.route("/api/portrait/<portrait_id>")
 def get_portrait(portrait_id):
@@ -1518,8 +1699,12 @@ def get_bank_characters():
     for char in characters:
         if char.get("has_avatar"):
             # ИСПРАВЛЕНО: используем URL для банка, а не для токенов
-            char["avatar_url"] = f"/api/bank/avatar/{char['id']}?t={int(time.time())}"
-            print(f"Bank character {char['name']} avatar URL: {char['avatar_url']}")
+            char["avatar_url"] = (
+                f"/api/bank/avatar/{char['id']}?t={int(time.time())}"
+            )
+            print(
+                f"Bank character {char['name']} avatar URL: {char['avatar_url']}"
+            )
 
     return jsonify(characters)
 
@@ -1539,6 +1724,7 @@ def add_bank_character():
         # Если есть аватар, сохраняем его в банк
         if avatar_data:
             from utils.character_bank import save_bank_character_avatar
+
             save_bank_character_avatar(avatar_data, char_id)
             print(f"✓ Bank avatar saved for character {char_id}")
 

@@ -315,6 +315,8 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
         .then(() => {
             console.log("Token updated successfully");
 
+            syncTokenAcrossMaps(token);
+
             // Обновляем в банке если нужно
             if (addToBank) {
                 console.log("Adding/updating character in bank, has_avatar:", token.has_avatar);
@@ -4020,27 +4022,30 @@ function showTokenContextMenu(token, x, y) {
     });
 
     typeButtons.forEach(btn => {
-        btn.onclick = function (e) {
-            e.stopPropagation();
+    btn.onclick = function (e) {
+        e.stopPropagation();
 
-            if (!currentContextToken) return;
+        if (!currentContextToken) return;
 
-            const type = this.dataset.type;
+        const type = this.dataset.type;
 
-            typeButtons.forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
+        typeButtons.forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
 
-            currentContextToken.is_player = (type === 'player');
-            currentContextToken.is_npc = (type === 'npc');
+        currentContextToken.is_player = (type === 'player');
+        currentContextToken.is_npc = (type === 'npc');
 
-            let typeText = type === 'player' ? 'Игрок' : (type === 'npc' ? 'НПС' : 'Враг');
-            document.getElementById("contextTokenType").textContent = typeText;
+        let typeText = type === 'player' ? 'Игрок' : (type === 'npc' ? 'НПС' : 'Враг');
+        document.getElementById("contextTokenType").textContent = typeText;
 
-            saveMapData();
-            updateSidebar();
-            render();
-        };
-    });
+        saveMapData();
+        updateSidebar();
+        render();
+        
+        // Добавляем синхронизацию
+        syncTokenAcrossMaps(currentContextToken);
+    };
+});
 
     // Позиционирование меню...
     menu.style.display = "block";
@@ -4154,6 +4159,9 @@ document.getElementById("contextTokenVisible").addEventListener("change", functi
         saveMapData();
         render();
         updateSidebar();
+        
+        // Добавляем синхронизацию
+        syncTokenAcrossMaps(currentContextToken);
     }
 });
 
@@ -4168,7 +4176,7 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
             currentContextToken.health_points = 1;
         }
 
-        // ===== НОВЫЙ КОД: Обновляем отображение HP =====
+        // Обновляем отображение HP
         document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
 
         // Обновляем цвет индикатора
@@ -4185,14 +4193,15 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
                 hpDisplay.classList.add('warning');
             }
         }
-        // ===== КОНЕЦ НОВОГО КОДА =====
 
         saveMapData();
         render();
         updateSidebar();
+        
+        // Добавляем синхронизацию
+        syncTokenAcrossMaps(currentContextToken);
     }
 });
-
 document.getElementById("contextApplyDamage").addEventListener("click", function () {
     if (currentContextToken) {
         const damage = parseInt(document.getElementById("contextDamageInput").value) || 0;
@@ -4203,7 +4212,7 @@ document.getElementById("contextApplyDamage").addEventListener("click", function
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
 
-            // ===== НОВОЕ: Обновляем отображение HP =====
+            // Обновляем отображение HP
             document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
 
             // Обновляем цвет
@@ -4220,15 +4229,16 @@ document.getElementById("contextApplyDamage").addEventListener("click", function
                     hpDisplay.classList.add('warning');
                 }
             }
-            // ===== КОНЕЦ НОВОГО КОДА =====
 
             saveMapData();
             render();
             updateSidebar();
+            
+            // Добавляем синхронизацию
+            syncTokenAcrossMaps(currentContextToken);
         }
     }
 });
-
 document.getElementById("contextApplyHeal").addEventListener("click", function () {
     if (currentContextToken) {
         const heal = parseInt(document.getElementById("contextHealInput").value) || 0;
@@ -4240,7 +4250,7 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
 
-            // ===== НОВОЕ: Обновляем отображение HP =====
+            // Обновляем отображение HP
             document.getElementById("contextHpValue").textContent = currentContextToken.health_points;
 
             // Обновляем цвет
@@ -4257,11 +4267,13 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
                     hpDisplay.classList.add('warning');
                 }
             }
-            // ===== КОНЕЦ НОВОГО КОДА =====
 
             saveMapData();
             render();
             updateSidebar();
+            
+            // Добавляем синхронизацию
+            syncTokenAcrossMaps(currentContextToken);
         }
     }
 });
@@ -4274,6 +4286,9 @@ document.getElementById("contextApplyAc").addEventListener("click", function () 
             saveMapData();
             render();
             updateSidebar();
+            
+            // Добавляем синхронизацию
+            syncTokenAcrossMaps(currentContextToken);
         }
     }
 });
@@ -6470,3 +6485,54 @@ function closeAllModals() {
 
     console.log('All modals closed with Escape');
 }
+
+function syncTokenAcrossMaps(token) {
+    if (!token || !token.id) return;
+    
+    console.log(`Syncing token ${token.id} across maps`);
+    
+    // Подготавливаем данные для синхронизации (без позиции)
+    const syncData = {
+        name: token.name,
+        armor_class: token.armor_class,
+        health_points: token.health_points,
+        max_health_points: token.max_health_points,
+        is_player: token.is_player,
+        is_npc: token.is_npc,
+        is_dead: token.is_dead,
+        has_avatar: token.has_avatar,
+        avatar_url: token.avatar_url,
+        is_visible: token.is_visible
+    };
+    
+    // Отправляем на сервер для синхронизации
+    fetch(`/api/token/${token.id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(syncData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            console.log(`Token synced on ${data.updated_maps} maps`);
+        }
+    })
+    .catch(err => console.error("Error syncing token:", err));
+}
+
+socket.on("token_synced_across_maps", (data) => {
+    const { token_id, updated_data } = data;
+    
+    console.log(`Token ${token_id} was synced across maps`);
+    
+    // Если текущий токен был синхронизирован, обновляем его данные
+    const token = mapData.tokens.find(t => t.id === token_id);
+    if (token) {
+        // Обновляем поля (кроме позиции)
+        Object.assign(token, updated_data);
+        
+        // Перерисовываем
+        render();
+        updateSidebar();
+    }
+});

@@ -213,7 +213,7 @@ def get_bank_character(char_id):
             char["has_avatar"] = True
             # ИСПРАВЛЕНО: используем URL для банка
             char["avatar_url"] = get_bank_avatar_url(char["id"])
-            
+
         return char
     return None
 

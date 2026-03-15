@@ -91,6 +91,65 @@ def get_bank_avatar_url(character_id):
     return f"/api/bank/avatar/{character_id}"
 
 
+def sync_token_across_maps(token_id, updates):
+    """
+    Синхронизировать токен на всех картах
+
+    Args:
+        token_id: ID токена
+        updates: словарь с обновленными полями (кроме позиции)
+
+    Returns:
+        list: список ID карт, где был обновлен токен
+    """
+    ensure_dirs()
+    updated_maps = []
+
+    print(f"\n=== Syncing token {token_id} across all maps ===")
+
+    for filename in os.listdir(MAPS_DIR):
+        if filename.endswith(".json"):
+            map_id = filename[:-5]
+            filepath = os.path.join(MAPS_DIR, filename)
+
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                # Проверяем, есть ли токен на этой карте
+                token_updated = False
+                if "tokens" in data:
+                    for token in data["tokens"]:
+                        if token.get("id") == token_id:
+                            # Обновляем поля (кроме позиции)
+                            for key, value in updates.items():
+                                if key != "position" and key != "avatar_data":
+                                    token[key] = value
+
+                            # Если обновляется аватар, добавляем timestamp к URL
+                            if key == "avatar_url" and value:
+                                token["avatar_url"] = (
+                                    f"{value.split('?')[0]}?t={int(time.time())}"
+                                )
+
+                            token_updated = True
+                            print(f"  ✓ Updated token on map {map_id}")
+                            break
+
+                if token_updated:
+                    # Сохраняем карту
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    updated_maps.append(map_id)
+
+            except Exception as e:
+                print(f"  ✗ Error updating map {filename}: {e}")
+                continue
+
+    print(f"Token {token_id} updated on {len(updated_maps)} maps")
+    return updated_maps
+
+
 def ensure_dirs():
     """Создать необходимые директории"""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -125,7 +184,9 @@ def get_all_maps_with_token(token_id):
                                     "map_name": data.get("name", "Unknown"),
                                 }
                             )
-                            print(f"  Found token {token_id} on map {map_id} ({data.get('name', 'Unknown')})")
+                            print(
+                                f"  Found token {token_id} on map {map_id} ({data.get('name', 'Unknown')})"
+                            )
                             break
             except Exception as e:
                 print(f"Error checking map {filename}: {e}")
@@ -256,7 +317,7 @@ def get_all_tokens_from_maps():
     all_tokens.sort(
         key=lambda t: (t.get("is_dead", False), t.get("name", "").lower())
     )
-    
+
     # Убираем дубликаты ID, оставляя первый встретившийся
     unique_tokens = []
     seen_ids = set()
@@ -264,8 +325,9 @@ def get_all_tokens_from_maps():
         if token["id"] not in seen_ids:
             seen_ids.add(token["id"])
             unique_tokens.append(token)
-    
+
     return unique_tokens
+
 
 def delete_token_avatar(token_id):
     """Удалить аватар токена"""
@@ -279,7 +341,9 @@ def delete_token_avatar(token_id):
             print(f"✗ Error deleting avatar for token {token_id}: {e}")
             return False
     else:
-        print(f"→ Avatar file for token {token_id} does not exist at {img_path}")
+        print(
+            f"→ Avatar file for token {token_id} does not exist at {img_path}"
+        )
         return False
 
 
