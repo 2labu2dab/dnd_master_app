@@ -32,17 +32,17 @@ function getCharactersHash(characters) {
 }
 
 function applyTokenUpdates() {
-  if (pendingTokenUpdates.size > 0 && mapData && mapData.tokens) {
-    for (const [tokenId, update] of pendingTokenUpdates) {
-      const token = mapData.tokens.find(t => t.id === tokenId);
-      if (token) {
-        token.position = update.position;
-      }
+    if (pendingTokenUpdates.size > 0 && mapData && mapData.tokens) {
+        for (const [tokenId, update] of pendingTokenUpdates) {
+            const token = mapData.tokens.find(t => t.id === tokenId);
+            if (token) {
+                token.position = update.position;
+            }
+        }
+        pendingTokenUpdates.clear();
+        requestRender();
     }
-    pendingTokenUpdates.clear();
-    requestRender();
-  }
-  tokenUpdateTimeout = null;
+    tokenUpdateTimeout = null;
 }
 
 // Функция для определения конфигурации сетки
@@ -77,7 +77,7 @@ function updatePortraits() {
     if (updateTimeout) {
         clearTimeout(updateTimeout);
     }
-    
+
     // Планируем обновление в следующем кадре анимации
     updateTimeout = setTimeout(() => {
         performUpdatePortraits();
@@ -110,7 +110,21 @@ if (portraitSidebar) {
 
 // Вызываем updatePortraits при загрузке
 document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(updatePortraits, 200);
+    // Убеждаемся, что контейнер для портретов существует
+    portraitsContainer = document.getElementById('portrait-list');
+    portraitSidebar = document.getElementById('portrait-sidebar');
+
+    if (!portraitsContainer || !portraitSidebar) {
+        console.warn("Portrait elements not found, will retry...");
+        // Пробуем снова через небольшую задержку
+        setTimeout(() => {
+            portraitsContainer = document.getElementById('portrait-list');
+            portraitSidebar = document.getElementById('portrait-sidebar');
+            if (portraitsContainer && portraitSidebar) {
+                updatePortraits();
+            }
+        }, 500);
+    }
 });
 
 const socket = io({
@@ -128,25 +142,25 @@ function performUpdatePortraits() {
 
     // Проверяем, включена ли карта для игроков
     const isMapEnabled = mapData.player_map_enabled !== false;
-    
+
     // Фильтруем персонажей, видимых игрокам
     const visibleCharacters = (mapData.characters || []).filter(char => char.visible_to_players !== false);
     const count = visibleCharacters.length;
-    
+
     const newHash = getCharactersHash(visibleCharacters);
-    
+
     // Сайдбар видим только если карта включена И есть видимые персонажи
     const shouldBeVisible = isMapEnabled && count > 0;
-    
+
     if (newHash === lastCharactersHash && portraitSidebar.classList.contains('visible') === shouldBeVisible) {
         return;
     }
-    
+
     lastCharactersHash = newHash;
-    
+
     if (shouldBeVisible) {
         portraitSidebar.classList.add('visible');
-        
+
         // Добавляем небольшую задержку перед рендерингом портретов,
         // чтобы дать время на анимацию изменения ширины сайдбара
         setTimeout(() => {
@@ -157,7 +171,7 @@ function performUpdatePortraits() {
     } else {
         portraitSidebar.classList.remove('visible');
         portraitsContainer.innerHTML = '';
-        
+
         // После скрытия сайдбара тоже перерендериваем карту
         setTimeout(() => {
             requestRender();
@@ -167,53 +181,53 @@ function performUpdatePortraits() {
 
 function renderPortraits(characters) {
     if (!portraitsContainer || !portraitSidebar) return;
-    
+
     const count = characters.length;
     const sidebarHeight = portraitSidebar.clientHeight;
     const sidebarWidth = portraitSidebar.clientWidth;
-    
+
     if (sidebarHeight === 0 || sidebarWidth === 0) {
         setTimeout(() => renderPortraits(characters), 50);
         return;
     }
-    
+
     console.log(`Rendering ${count} portraits, sidebar: ${sidebarWidth}x${sidebarHeight}, isMiniMap: ${isMiniMap}`);
-    
+
     // Определяем конфигурацию сетки
     const gridConfig = getGridConfig(count);
     const cols = gridConfig.cols;
     const rows = gridConfig.rows;
-    
+
     console.log(`Grid: ${cols} columns, ${rows} rows`);
-    
+
     // Зарезервированная высота для заголовка (минимум)
     const headerHeight = isMiniMap ? 20 : 40;
-    
+
     // Доступная высота для контента (максимум)
     const availableHeight = sidebarHeight - headerHeight;
-    
+
     // Минимальные зазоры для максимального размера
     let gapSize = isMiniMap ? 2 : 4;
-    
+
     // Общая высота зазоров
     const totalGapHeight = (rows - 1) * gapSize;
-    
+
     // Минимальная высота имени (только для полноэкранного режима)
     let nameHeight = isMiniMap ? 0 : 20; // В мини-карте подписей нет
     if (!isMiniMap) {
         if (count > 6) nameHeight = 18;
         if (count > 8) nameHeight = 16;
     }
-    
+
     // Доступная высота для всех портретов (максимум)
     const availableForPortraits = availableHeight - totalGapHeight - (rows * nameHeight);
-    
+
     // Высота каждого портрета (максимально возможная)
     let portraitHeight = Math.floor(availableForPortraits / rows);
-    
+
     // Динамические максимальные размеры
     let maxPortraitSize;
-    
+
     if (isMiniMap) {
         // Для мини-карты - без подписей, можно сделать чуть больше
         if (count === 1) maxPortraitSize = 100;
@@ -231,27 +245,27 @@ function renderPortraits(characters) {
         else if (count <= 8) maxPortraitSize = 160;
         else maxPortraitSize = 130;
     }
-    
+
     // Применяем максимальный размер
     portraitHeight = Math.min(maxPortraitSize, portraitHeight);
-    
+
     // Минимальный размер
     portraitHeight = Math.max(isMiniMap ? 35 : 60, portraitHeight);
-    
+
     // Рассчитываем доступную ширину колонки
     const padding = isMiniMap ? 10 : 30;
     const availableWidth = sidebarWidth - padding;
-    
+
     // Рассчитываем ширину колонки с учетом зазоров
     const totalGapWidth = (cols - 1) * gapSize;
     const columnWidth = (availableWidth - totalGapWidth) / cols;
-    
+
     // Итоговый размер портрета
     let finalPortraitSize = Math.min(portraitHeight, columnWidth);
-    
+
     // Убеждаемся, что портрет не слишком маленький
     finalPortraitSize = Math.max(isMiniMap ? 30 : 60, finalPortraitSize);
-    
+
     // Для мини-карты дополнительно проверяем, не слишком ли большой
     if (isMiniMap) {
         const maxAllowedWidth = (sidebarWidth - padding) / cols;
@@ -259,12 +273,12 @@ function renderPortraits(characters) {
             finalPortraitSize = maxAllowedWidth - 2;
         }
     }
-    
+
     console.log(`Portrait size: ${finalPortraitSize}px, Column width: ${columnWidth}px, Available width: ${availableWidth}px`);
-    
+
     // Очищаем контейнер
     portraitsContainer.innerHTML = '';
-    
+
     // Создаем сетку с точными размерами
     const gridContainer = document.createElement('div');
     gridContainer.className = 'portrait-grid';
@@ -277,7 +291,7 @@ function renderPortraits(characters) {
     gridContainer.style.padding = '0';
     gridContainer.style.margin = '0';
     gridContainer.style.boxSizing = 'border-box';
-    
+
     characters.forEach((character, index) => {
         const portraitItem = document.createElement('div');
         portraitItem.className = 'portrait-item';
@@ -288,7 +302,7 @@ function renderPortraits(characters) {
         portraitItem.style.padding = '0';
         portraitItem.style.margin = '0';
         portraitItem.style.boxSizing = 'border-box';
-        
+
         // Контейнер для аватара
         const avatarContainer = document.createElement('div');
         avatarContainer.style.width = `${finalPortraitSize}px`;
@@ -299,7 +313,7 @@ function renderPortraits(characters) {
         avatarContainer.style.overflow = 'hidden';
         avatarContainer.style.borderRadius = isMiniMap ? '4px' : '8px';
         avatarContainer.style.backgroundColor = '#2a2a3b';
-        
+
         // Аватар
         const avatar = document.createElement('img');
         avatar.className = 'portrait-avatar';
@@ -307,28 +321,28 @@ function renderPortraits(characters) {
         avatar.style.height = '100%';
         avatar.style.objectFit = 'cover';
         avatar.style.display = 'block';
-        
+
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
         avatar.src = `${portraitUrl}?t=${Date.now()}`;
-        
+
         avatar.onload = () => {
             avatar.style.opacity = '1';
         };
-        
+
         avatar.style.opacity = '0';
         avatar.style.transition = 'opacity 0.3s ease';
-        
+
         avatar.onerror = () => {
             avatar.style.display = 'none';
             avatarContainer.style.display = 'flex';
             avatarContainer.style.alignItems = 'center';
             avatarContainer.style.justifyContent = 'center';
-            avatarContainer.innerHTML = `<span style="color: #666; font-size: ${finalPortraitSize/2}px;">?</span>`;
+            avatarContainer.innerHTML = `<span style="color: #666; font-size: ${finalPortraitSize / 2}px;">?</span>`;
         };
-        
+
         avatarContainer.appendChild(avatar);
         portraitItem.appendChild(avatarContainer);
-        
+
         // Добавляем имя ТОЛЬКО для полноэкранного режима
         if (!isMiniMap) {
             const nameSpan = document.createElement('span');
@@ -339,14 +353,14 @@ function renderPortraits(characters) {
             nameSpan.style.overflow = 'hidden';
             nameSpan.style.textOverflow = 'ellipsis';
             nameSpan.style.whiteSpace = 'nowrap';
-            
+
             // Размер шрифта для имени
             let fontSize = 14;
             if (finalPortraitSize < 80) fontSize = 11;
             else if (finalPortraitSize < 120) fontSize = 12;
             else if (finalPortraitSize < 180) fontSize = 13;
             else fontSize = 14;
-            
+
             nameSpan.style.fontSize = `${fontSize}px`;
             nameSpan.style.padding = '2px 6px';
             nameSpan.style.marginTop = '4px';
@@ -355,15 +369,15 @@ function renderPortraits(characters) {
             nameSpan.style.borderRadius = '8px';
             nameSpan.style.color = '#fff';
             nameSpan.style.fontWeight = '500';
-            
+
             portraitItem.appendChild(nameSpan);
         }
-        
+
         gridContainer.appendChild(portraitItem);
     });
-    
+
     portraitsContainer.appendChild(gridContainer);
-    
+
     // После рендеринга портретов перерендериваем карту
     requestRender();
 }
@@ -407,38 +421,38 @@ window.playerMapId = mapId;
 if (mapId) {
     mapImage = new Image();
     fetchMap();
-    
-if (socket) {
-    socket.on('connect', () => {
-        console.log('Player socket connected');
-        
-        // Если есть mapId, запрашиваем синхронизацию
-        if (mapId) {
-            console.log('Requesting map sync for:', mapId);
-            socket.emit("request_map_sync", { map_id: mapId });
-            
-            setTimeout(() => {
-                if (mapData && mapData.has_image && (!mapImage.src || !mapImage.complete)) {
-                    socket.emit("request_map_image", { map_id: mapId });
+
+    if (socket) {
+        socket.on('connect', () => {
+            console.log('Player socket connected');
+
+            // Если есть mapId, запрашиваем синхронизацию
+            if (mapId) {
+                console.log('Requesting map sync for:', mapId);
+                socket.emit("request_map_sync", { map_id: mapId });
+
+                setTimeout(() => {
+                    if (mapData && mapData.has_image && (!mapImage.src || !mapImage.complete)) {
+                        socket.emit("request_map_image", { map_id: mapId });
+                    }
+                }, 500);
+            } else {
+                // Если нет mapId, пробуем получить из parent
+                if (window.parent && window.parent.currentMapId) {
+                    mapId = window.parent.currentMapId;
+                    window.playerMapId = mapId;
+                    fetchMap();
                 }
-            }, 500);
-        } else {
-            // Если нет mapId, пробуем получить из parent
-            if (window.parent && window.parent.currentMapId) {
-                mapId = window.parent.currentMapId;
-                window.playerMapId = mapId;
-                fetchMap();
             }
-        }
-    });
-}
+        });
+    }
 } else {
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.font = "24px Inter";
     ctx.fillStyle = "#666";
     ctx.textAlign = "center";
-    ctx.fillText("Карта не выбрана", canvas.width/2, canvas.height/2);
+    ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
 }
 
 function resizeCanvasToDisplaySize() {
@@ -458,106 +472,19 @@ window.addEventListener("resize", () => {
     resizeCanvasToDisplaySize();
 });
 
-function fetchMap() {
-
-    
-    if (!mapId) {
-        console.error("No map ID provided");
-        requestRender();
-        return;
-    }
-    
-    fetch(`/api/map/${mapId}?ts=${Date.now()}`)
-        .then(res => {
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-        })
-        .then(data => {
-            if (data.error) {
-                console.error(data.error);
-                return;
-            }
-            
-            mapData = data;
-            
-            // Сохраняем размеры канваса мастера
-            if (data.master_canvas_width) {
-                masterCanvasWidth = data.master_canvas_width;
-            }
-            if (data.master_canvas_height) {
-                masterCanvasHeight = data.master_canvas_height;
-            }
-            
-            zoomLevel = data.zoom_level || 1;
-            panX = data.pan_x || 0;
-            panY = data.pan_y || 0;
-            
-
-
-
-
-            if (mapData.ruler_visible_to_players === undefined) {
-                mapData.ruler_visible_to_players = false;
-            }
-            
-            const disabledImg = document.getElementById("mapDisabledImage");
-            if (disabledImg) {
-                disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
-            }
-            
-            if (!mapData.player_map_enabled) {
-                canvas.style.display = "none";
-                return;
-            } else {
-                canvas.style.display = "block";
-            }
-            
-            if (mapData.has_image) {
-                const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
-                
-                const newImage = new Image();
-                newImage.onload = () => {
-
-                    mapImage = newImage;
-                    requestRender();
-                    updatePortraits();
-                };
-                newImage.onerror = (err) => {
-                    console.error("Error loading map image:", err);
-                };
-                newImage.src = imageUrl;
-            } else {
-                mapImage = new Image();
-                requestRender();
-                updatePortraits();
-            }
-        })
-        .catch(err => {
-            console.error("Error fetching map:", err);
-            resizeCanvasToDisplaySize();
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.font = "24px Inter";
-            ctx.fillStyle = "#666";
-            ctx.textAlign = "center";
-            ctx.fillText("Ошибка загрузки карты", canvas.width/2, canvas.height/2);
-        });
-}
-
 socket.on("map_updated", (data) => {
+    if (!data || !mapData) return;
 
-    
     if (data.map_id === mapId) {
         const wasEnabled = mapData?.player_map_enabled;
-        
+
         if (!mapData) {
             mapData = {};
         }
-        
+
         const oldHasImage = mapData.has_image;
         const oldCharacters = mapData.characters || [];
-        
+
         Object.assign(mapData, {
             tokens: data.tokens || [],
             zones: data.zones || [],
@@ -572,28 +499,28 @@ socket.on("map_updated", (data) => {
             master_canvas_width: data.master_canvas_width,
             master_canvas_height: data.master_canvas_height
         });
-        
+
         if (data.master_canvas_width) {
             masterCanvasWidth = data.master_canvas_width;
         }
         if (data.master_canvas_height) {
             masterCanvasHeight = data.master_canvas_height;
         }
-        
 
 
-        
+
+
         const disabledImg = document.getElementById("mapDisabledImage");
         if (disabledImg) {
             disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
         }
-        
+
         if (!mapData.player_map_enabled) {
             canvas.style.display = "none";
         } else {
             canvas.style.display = "block";
         }
-        
+
         if (mapData.has_image && (!oldHasImage || !mapImage.src)) {
 
             const imageUrl = data.image_url || `/api/map/image/${mapId}?t=${Date.now()}`;
@@ -612,7 +539,7 @@ socket.on("map_updated", (data) => {
             mapImage = new Image();
             requestRender();
         }
-        
+
         requestRender();
         updatePortraits(); // Обновляем портреты при любых изменениях
     }
@@ -620,17 +547,17 @@ socket.on("map_updated", (data) => {
 
 socket.on("ruler_update", (data) => {
 
-    
+
     if (data.map_id === mapId && mapData) {
         if (!window.rulerUpdateThrottle) {
             window.rulerUpdateThrottle = setTimeout(() => {
                 mapData.ruler_start = data.ruler_start;
                 mapData.ruler_end = data.ruler_end;
-                
+
                 if (mapData.ruler_visible_to_players) {
                     requestRender();
                 }
-                
+
                 window.rulerUpdateThrottle = null;
             }, 16);
         }
@@ -639,7 +566,7 @@ socket.on("ruler_update", (data) => {
 
 socket.on("ruler_visibility_change", (data) => {
 
-    
+
     if (data.map_id === mapId && mapData) {
         mapData.ruler_visible_to_players = data.ruler_visible_to_players;
 
@@ -655,15 +582,15 @@ socket.on("ruler_visibility_change", (data) => {
 
 socket.on("zoom_update", (data) => {
 
-    
+
     if (data.map_id === mapId) {
 
 
-        
+
         zoomLevel = data.zoom_level || 1;
         panX = data.pan_x ?? 0;
         panY = data.pan_y ?? 0;
-        
+
         if (mapData) {
             if (data.canvas_width) {
                 masterCanvasWidth = data.canvas_width;
@@ -674,10 +601,10 @@ socket.on("zoom_update", (data) => {
             mapData.master_canvas_width = data.canvas_width;
             mapData.master_canvas_height = data.canvas_height;
         }
-        
 
 
-        
+
+
         requestRender();
     }
 });
@@ -693,11 +620,11 @@ socket.on("master_switched_map", (data) => {
     if (data.map_id && mapId !== data.map_id) {
         mapId = data.map_id;
         window.playerMapId = data.map_id;
-        
+
         const url = new URL(window.location);
         url.searchParams.set('map_id', data.map_id);
         window.history.replaceState({}, '', url);
-        
+
         fetchMap();
     } else if (!data.map_id) {
         mapId = null;
@@ -711,7 +638,7 @@ socket.on("master_switched_map", (data) => {
 function render() {
 
 
-    
+
     // 1. Базовые проверки
     if (!mapId || !mapData) {
 
@@ -719,10 +646,10 @@ function render() {
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Карта не выбрана", canvas.width/2, canvas.height/2);
+        ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
         return;
     }
-    
+
     // 2. Проверка видимости карты
     if (mapData.player_map_enabled === false) {
 
@@ -735,7 +662,7 @@ function render() {
         if (disabledImg) disabledImg.style.display = "none";
         canvas.style.display = "block";
     }
-    
+
     // 3. Принудительно устанавливаем стили canvas
     canvas.style.position = 'absolute';
     canvas.style.top = '0';
@@ -743,23 +670,23 @@ function render() {
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.style.backgroundColor = '#020617';
-    
+
     // 4. Проверка изображения
     resizeCanvasToDisplaySize();
-    
+
     // Сбрасываем трансформацию и очищаем с темным фоном
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     if (!mapData.has_image) {
 
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Нет изображения карты", canvas.width/2, canvas.height/2);
+        ctx.fillText("Нет изображения карты", canvas.width / 2, canvas.height / 2);
         return;
     }
-    
+
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
 
         if (!mapImage.src || !mapImage.src.includes(mapId)) {
@@ -771,78 +698,78 @@ function render() {
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Загрузка карты...", canvas.width/2, canvas.height/2);
+        ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
         return;
     }
-    
+
     // 5. Получаем размеры
     const mapW = mapImage.width;
     const mapH = mapImage.height;
-    
 
 
 
 
 
 
-    
+
+
     // 6. Вычисления
 
-    
+
     const masterBaseScale = Math.min(masterCanvasWidth / mapW, masterCanvasHeight / mapH);
 
-    
+
     const masterScale = masterBaseScale * zoomLevel;
 
-    
+
     const masterCenterX = masterCanvasWidth / 2;
     const masterCenterY = masterCanvasHeight / 2;
 
-    
+
     const worldCenterX = (masterCenterX - panX) / masterScale;
     const worldCenterY = (masterCenterY - panY) / masterScale;
 
 
-    
+
     // 7. Вычисления для игрока
 
-    
+
     const playerBaseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
 
-    
+
     const playerScale = playerBaseScale * zoomLevel;
 
-    
+
     const playerCenterX = canvas.width / 2;
     const playerCenterY = canvas.height / 2;
 
-    
+
     const offsetX = playerCenterX - worldCenterX * playerScale;
     const offsetY = playerCenterY - worldCenterY * playerScale;
 
 
-    
+
     // 8. Проверка
 
     const testX = offsetX + worldCenterX * playerScale;
     const testY = offsetY + worldCenterY * playerScale;
 
 
-    
+
     // 9. Границы изображения
 
 
 
-    
+
     // 10. Рисуем изображение
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(mapImage, offsetX, offsetY, mapW * playerScale, mapH * playerScale);
-    
+
 
 
     // Рисуем остальные слои
     drawLayers(offsetX, offsetY, playerScale);
-    
+
     // Рисуем линейку если нужно
     if (mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
         drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, playerScale);
@@ -851,7 +778,7 @@ function render() {
 
 socket.on("map_sync", (data) => {
 
-    
+
     if (!data || data.map_id !== mapId) {
         return;
     }
@@ -865,10 +792,10 @@ socket.on("map_sync", (data) => {
 
 function drawLayers(offsetX, offsetY, scale) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
-    
+
     // ИЗМЕНЕНО: Рисуем сетку если она разрешена для игроков, независимо от видимости у мастера
-    if (imageLoaded && 
-        mapData.grid_settings && 
+    if (imageLoaded &&
+        mapData.grid_settings &&
         mapData.grid_settings.visible_to_players === true) { // Только проверяем разрешение для игроков
         drawGrid(offsetX, offsetY, scale);
     }
@@ -885,11 +812,11 @@ function drawLayers(offsetX, offsetY, scale) {
     if (mapData.tokens && mapData.tokens.length) {
         for (let i = 0; i < mapData.tokens.length; i++) {
             const token = mapData.tokens[i];
-            
+
             if (token.is_visible !== false) {
                 const tokenPosition = token.position;
                 const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
-                
+
                 if (!isInHiddenZone) {
                     drawToken(token, offsetX, offsetY, scale);
                 }
@@ -901,41 +828,41 @@ function drawGrid(offsetX, offsetY, scale) {
     const cell = mapData.grid_settings.cell_size;
     ctx.strokeStyle = mapData.grid_settings.color || "#888";
     ctx.lineWidth = 1;
-    
+
     const mapScreenWidth = mapImage.width * scale;
     const mapScreenHeight = mapImage.height * scale;
-    
+
     const mapLeft = offsetX;
     const mapRight = offsetX + mapScreenWidth;
     const mapTop = offsetY;
     const mapBottom = offsetY + mapScreenHeight;
-    
+
     ctx.save();
-    
+
     ctx.beginPath();
     ctx.rect(mapLeft, mapTop, mapScreenWidth, mapScreenHeight);
     ctx.clip();
-    
+
     ctx.beginPath();
-    
+
     for (let x = 0; x <= mapImage.width; x += cell) {
         const sx = offsetX + x * scale;
         if (sx < 0 || sx > canvas.width) continue;
-        
+
         ctx.moveTo(sx, Math.max(mapTop, 0));
         ctx.lineTo(sx, Math.min(mapBottom, canvas.height));
     }
-    
+
     for (let y = 0; y <= mapImage.height; y += cell) {
         const sy = offsetY + y * scale;
         if (sy < 0 || sy > canvas.height) continue;
-        
+
         ctx.moveTo(Math.max(mapLeft, 0), sy);
         ctx.lineTo(Math.min(mapRight, canvas.width), sy);
     }
-    
+
     ctx.stroke();
-    
+
     ctx.restore();
 }
 
@@ -948,13 +875,13 @@ function drawToken(token, offsetX, offsetY, scale) {
 
     ctx.beginPath();
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
-    
+
     const avatarSrc = token.avatar_url || token.avatar_data;
-    
+
     if (avatarSrc) {
         // Проверяем, есть ли изображение в кэше
         let cachedImg = avatarCache.get(token.id);
-        
+
         // Если изображение помечено как загружающееся, рисуем заглушку
         if (cachedImg === 'loading') {
             // Рисуем заглушку
@@ -966,12 +893,12 @@ function drawToken(token, offsetX, offsetY, scale) {
                         ? "#FFC107"
                         : "#F44336";
             ctx.fill();
-        } 
+        }
         // Если изображение загружено и валидно
         else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
             ctx.save();
             ctx.clip();
-            
+
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
@@ -981,15 +908,15 @@ function drawToken(token, offsetX, offsetY, scale) {
             } else {
                 ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
             }
-            
+
             ctx.restore();
-        } 
+        }
         // Если изображения нет в кэше или оно невалидно
         else {
             // Помечаем как загружающееся, только если ещё не начали загрузку
             if (!avatarCache.has(token.id) || avatarCache.get(token.id) === null) {
                 avatarCache.set(token.id, 'loading');
-                
+
                 const img = new Image();
                 img.onload = () => {
                     console.log(`Avatar loaded for token ${token.id}`);
@@ -1005,7 +932,7 @@ function drawToken(token, offsetX, offsetY, scale) {
                 // Добавляем timestamp для сброса кэша браузера
                 img.src = avatarSrc.includes('?') ? avatarSrc : `${avatarSrc}?t=${Date.now()}`;
             }
-            
+
             // Рисуем заглушку
             ctx.fillStyle = token.is_dead
                 ? "#616161"
@@ -1026,7 +953,7 @@ function drawToken(token, offsetX, offsetY, scale) {
                     : "#F44336";
         ctx.fill();
     }
-    
+
     ctx.strokeStyle = token.is_dead
         ? "#999"
         : token.is_player
@@ -1040,7 +967,7 @@ function drawToken(token, offsetX, offsetY, scale) {
 
 function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     if (!start || !end) return;
-    
+
     const [x1, y1] = start;
     const [x2, y2] = end;
 
@@ -1053,7 +980,7 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     const maxX = Math.max(sx1, sx2);
     const minY = Math.min(sy1, sy2);
     const maxY = Math.max(sy1, sy2);
-    
+
     if (maxX < 0 || minX > canvas.width || maxY < 0 || minY > canvas.height) {
         return;
     }
@@ -1127,21 +1054,21 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
     const mapScreenWidth = mapImage.width * scale;
     const mapScreenHeight = mapImage.height * scale;
     const blurSize = Math.max(40, mapScreenWidth * 0.08);
-    
+
     // Создаем расширенную карту с отражением
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = mapScreenWidth * 3;
     tempCanvas.height = mapScreenHeight * 3;
     const tempCtx = tempCanvas.getContext('2d');
-    
+
     // Рисуем карту 3x3 с отражениями
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col < 3; col++) {
             const x = col * mapScreenWidth;
             const y = row * mapScreenHeight;
-            
+
             tempCtx.save();
-            
+
             // Определяем нужно ли отражать
             if (col !== 1) {
                 tempCtx.translate(x + mapScreenWidth, 0);
@@ -1153,61 +1080,61 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
                 tempCtx.scale(1, -1);
                 tempCtx.translate(0, -y);
             }
-            
+
             tempCtx.drawImage(mapImage, x, y, mapScreenWidth, mapScreenHeight);
             tempCtx.restore();
         }
     }
-    
+
     // Применяем размытие
     tempCtx.filter = `blur(${blurSize}px)`;
     tempCtx.drawImage(tempCanvas, 0, 0);
     tempCtx.filter = 'none';
-    
+
     // Рисуем центральную часть (оригинальную карту)
     ctx.drawImage(
         tempCanvas,
         mapScreenWidth, mapScreenHeight, mapScreenWidth, mapScreenHeight,
         offsetX, offsetY, mapScreenWidth, mapScreenHeight
     );
-    
+
     ctx.restore();
-    
+
 }
 
 socket.on("map_visibility_change", (data) => {
-    
+
     if (data.map_id === mapId) {
         const wasEnabled = mapData?.player_map_enabled;
-        
+
         if (!mapData) {
             mapData = {};
         }
-        
+
         const oldHasImage = mapData.has_image;
-        
+
         mapData.player_map_enabled = data.player_map_enabled;
-        
+
         if (data.has_image !== undefined) {
             mapData.has_image = data.has_image;
         }
-        
+
         const disabledImg = document.getElementById("mapDisabledImage");
         if (disabledImg) {
             disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
         }
-        
+
         if (mapData.player_map_enabled) {
             canvas.style.display = "block";
-            
+
             const hasMapData = mapData && Object.keys(mapData).length > 0;
             const hasImageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
-            
+
             if (hasMapData && hasImageLoaded) {
                 requestRender();
                 return;
             }
-            
+
             if (hasMapData && mapData.has_image && !hasImageLoaded) {
                 const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
                 const newImage = new Image();
@@ -1221,8 +1148,8 @@ socket.on("map_visibility_change", (data) => {
                 newImage.src = imageUrl;
                 return;
             }
-            
-            
+
+
             fetch(`/api/map/${mapId}?ts=${Date.now()}`)
                 .then(res => {
                     if (!res.ok) {
@@ -1231,16 +1158,16 @@ socket.on("map_visibility_change", (data) => {
                     return res.json();
                 })
                 .then(fullData => {
-                    
+
                     Object.assign(mapData, fullData);
-                    
+
                     if (fullData.player_map_enabled !== undefined) {
                         mapData.player_map_enabled = fullData.player_map_enabled;
                     }
-                    
+
                     if (mapData.has_image) {
                         const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
-                        
+
                         if (mapImage && mapImage.src === imageUrl && mapImage.complete) {
                             requestRender();
                         } else {
@@ -1257,13 +1184,13 @@ socket.on("map_visibility_change", (data) => {
                     } else {
                         requestRender();
                     }
-                    
+
                     updatePortraits(); // Обновляем портреты после загрузки полных данных
                 })
                 .catch(err => {
                     requestRender();
                 });
-            
+
             // if (data.image_url) {
             //     console.log("Loading map image from URL:", data.image_url);
             //     if (mapImage && mapImage.src === data.image_url && mapImage.complete) {
@@ -1285,17 +1212,17 @@ socket.on("map_visibility_change", (data) => {
             // console.log("Map became invisible");
             canvas.style.display = "none";
         }
-        
+
         requestRender();
         updatePortraits(); // Обновляем портреты при изменении видимости
     }
 });
 
 socket.on("force_map_update", (data) => {
-    
+
     if (data.map_id === mapId) {
         Object.assign(mapData, data);
-        
+
         if (data.has_image && data.image_url) {
             const newImage = new Image();
             newImage.onload = () => {
@@ -1306,7 +1233,7 @@ socket.on("force_map_update", (data) => {
         } else {
             requestRender();
         }
-        
+
         updatePortraits(); // Обновляем портреты при форсированном обновлении
     }
 });
@@ -1339,16 +1266,16 @@ socket.on("map_image_updated_to_player", (data) => {
 
 socket.on("force_image_reload", (data) => {
 
-    
+
     if (data.map_id === mapId) {
         const newImage = new Image();
         newImage.onload = () => {
             mapImage = newImage;
-            
+
             if (mapData) {
                 mapData.has_image = true;
             }
-            
+
             requestRender();
         };
         newImage.src = data.image_url;
@@ -1356,7 +1283,7 @@ socket.on("force_image_reload", (data) => {
 });
 window.addEventListener('load', () => {
     console.log('Player page loaded, mapId:', mapId);
-    
+
     if (mapId) {
         setTimeout(() => {
             if (socket && socket.connected) {
@@ -1374,16 +1301,16 @@ window.addEventListener('load', () => {
             console.error('No mapId available');
         }
     }
-    
+
     // Инициализируем портреты после загрузки
     setTimeout(updatePortraits, 500);
 });
 
 playerChannel.addEventListener('message', (event) => {
-    
-    
+
+
     if (event.data.type === 'reload_player' && event.data.map_id === mapId) {
-        
+
         setTimeout(() => {
             window.location.reload();
         }, 100);
@@ -1392,7 +1319,7 @@ playerChannel.addEventListener('message', (event) => {
 
 function isPointInAnyZone(point, zones) {
     if (!zones || !zones.length) return false;
-    
+
     for (let i = 0; i < zones.length; i++) {
         const zone = zones[i];
         if (zone.is_visible === false && zone.vertices && zone.vertices.length >= 3) {
@@ -1407,42 +1334,42 @@ function isPointInAnyZone(point, zones) {
 function pointInPolygon(point, vertices) {
     const [x, y] = point;
     let inside = false;
-    
+
     for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
         const xi = vertices[i][0], yi = vertices[i][1];
         const xj = vertices[j][0], yj = vertices[j][1];
-        
+
         const intersect = ((yi > y) !== (yj > y)) &&
             (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
         if (intersect) inside = !inside;
     }
-    
+
     return inside;
 }
 
 socket.on("token_move", (data) => {
-  if (data.map_id === mapId && mapData && mapData.tokens) {
-    // Сохраняем обновление
-    pendingTokenUpdates.set(data.token_id, {
-      position: data.position
-    });
-    
-    // Планируем применение обновлений
-    if (!tokenUpdateTimeout) {
-      tokenUpdateTimeout = setTimeout(applyTokenUpdates, 16); // ~60fps
+    if (data.map_id === mapId && mapData && mapData.tokens) {
+        // Сохраняем обновление
+        pendingTokenUpdates.set(data.token_id, {
+            position: data.position
+        });
+
+        // Планируем применение обновлений
+        if (!tokenUpdateTimeout) {
+            tokenUpdateTimeout = setTimeout(applyTokenUpdates, 16); // ~60fps
+        }
     }
-  }
 });
 
 socket.on("token_avatar_updated", (data) => {
 
-    
+
     if (data.map_id === mapId) {
         if (avatarCache.has(data.token_id)) {
             avatarCache.delete(data.token_id);
 
         }
-        
+
         if (mapData && mapData.tokens) {
             const token = mapData.tokens.find(t => t.id === data.token_id);
             if (token) {
@@ -1450,14 +1377,14 @@ socket.on("token_avatar_updated", (data) => {
 
             }
         }
-        
+
         requestRender();
     }
 });
 
 socket.on("force_avatar_reload", (data) => {
 
-    
+
     if (data.map_id === mapId) {
         avatarCache.clear();
 
@@ -1466,16 +1393,16 @@ socket.on("force_avatar_reload", (data) => {
 });
 
 // Функция для отладки портретов
-window.debugPortraits = function() {
+window.debugPortraits = function () {
     if (!mapData || !portraitSidebar) {
         console.log('No map data or sidebar');
         return;
     }
-    
+
     const visibleChars = mapData.characters.filter(c => c.visible_to_players !== false);
     console.log('=== DEBUG PORTRAITS ===');
     console.log('Count:', visibleChars.length);
-    
+
     // Получаем все стили сайдбара
     const sidebarStyles = window.getComputedStyle(portraitSidebar);
     console.log('Sidebar dimensions:', {
@@ -1486,11 +1413,11 @@ window.debugPortraits = function() {
         paddingTop: sidebarStyles.paddingTop,
         paddingBottom: sidebarStyles.paddingBottom
     });
-    
+
     // Принудительно перерендерим с логами
     console.log('Forcing re-render...');
     renderPortraits(visibleChars);
-    
+
     // Покажем информацию о сетке после рендера
     setTimeout(() => {
         const grid = document.querySelector('.portrait-grid');
@@ -1502,7 +1429,7 @@ window.debugPortraits = function() {
                 rowGap: gridStyle.rowGap,
                 gridTemplateColumns: gridStyle.gridTemplateColumns
             });
-            
+
             // Проверяем первый портрет
             const firstItem = grid.querySelector('.portrait-item');
             if (firstItem) {
@@ -1511,14 +1438,14 @@ window.debugPortraits = function() {
                     margin: itemStyle.margin,
                     padding: itemStyle.padding
                 });
-                
+
                 const avatarContainer = firstItem.querySelector('div');
                 if (avatarContainer) {
                     console.log('Avatar container size:', avatarContainer.style.width);
                     console.log('Avatar container margin:', window.getComputedStyle(avatarContainer).margin);
                 }
             }
-            
+
             // Считаем реальную ширину колонок
             const gridWidth = grid.clientWidth;
             const computedGap = parseInt(gridStyle.columnGap) || 0;
@@ -1526,7 +1453,7 @@ window.debugPortraits = function() {
             console.log('Grid actual width:', gridWidth);
             console.log('Computed gap:', computedGap);
             console.log('Number of columns:', columns);
-            
+
             // Теоретическая ширина колонки
             const theoreticalColumnWidth = (gridWidth - (computedGap * (columns - 1))) / columns;
             console.log('Theoretical column width:', theoreticalColumnWidth);
@@ -1536,13 +1463,13 @@ window.debugPortraits = function() {
 
 function getAvailableWidth() {
     if (!portraitSidebar) return 0;
-    
+
     const styles = window.getComputedStyle(portraitSidebar);
     const paddingLeft = parseFloat(styles.paddingLeft) || 0;
     const paddingRight = parseFloat(styles.paddingRight) || 0;
     const borderLeft = parseFloat(styles.borderLeftWidth) || 0;
     const borderRight = parseFloat(styles.borderRightWidth) || 0;
-    
+
     const totalPadding = paddingLeft + paddingRight + borderLeft + borderRight;
     return portraitSidebar.clientWidth - totalPadding;
 }
@@ -1552,50 +1479,66 @@ function getAvailableWidth() {
 const availableWidth = getAvailableWidth();
 
 socket.on("characters_updated", (data) => {
+    if (!data || !mapData) return;
     if (data.map_id === mapId && mapData) {
-        mapData.characters = data.characters;
+        mapData.characters = data.characters || [];
         updatePortraits();
         requestRender();
     }
 });
 
-function fetchMap(retryCount = 0) {
+function fetchMap(retryCount = 0, maxRetries = 3) {
     console.log("fetchMap called with mapId:", mapId);
-    
+
+    // Показываем индикатор загрузки на canvas
+    resizeCanvasToDisplaySize();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "24px Inter";
+    ctx.fillStyle = "#666";
+    ctx.textAlign = "center";
+    ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
+
     if (!mapId) {
         console.error("No map ID provided");
-        
+
         // Пытаемся получить map_id из parent если это iframe
-        if (window.parent && window.parent.currentMapId) {
-            console.log("Getting mapId from parent:", window.parent.currentMapId);
-            mapId = window.parent.currentMapId;
-            window.playerMapId = mapId;
-        } else {
-            // Пробуем получить из URL
-            const urlParams = new URLSearchParams(window.location.search);
-            mapId = urlParams.get('map_id');
-            console.log("Getting mapId from URL:", mapId);
+        try {
+            if (window.parent && window.parent.currentMapId) {
+                console.log("Getting mapId from parent:", window.parent.currentMapId);
+                mapId = window.parent.currentMapId;
+                window.playerMapId = mapId;
+            } else {
+                // Пробуем получить из URL
+                const urlParams = new URLSearchParams(window.location.search);
+                mapId = urlParams.get('map_id');
+                console.log("Getting mapId from URL:", mapId);
+            }
+        } catch (err) {
+            console.error("Error accessing parent window:", err);
         }
-        
+
         if (!mapId) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.font = "24px Inter";
             ctx.fillStyle = "#666";
             ctx.textAlign = "center";
-            ctx.fillText("Карта не выбрана", canvas.width/2, canvas.height/2);
+            ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
             return Promise.reject("No map ID");
         }
     }
-    
+
     const fetchUrl = `/api/map/${mapId}?ts=${Date.now()}`;
     console.log("Fetching map from:", fetchUrl);
-    
-    return fetch(fetchUrl)
+
+    return fetch(fetchUrl, {
+        // Добавляем timeout для fetch
+        signal: AbortSignal.timeout(10000) // 10 секунд timeout
+    })
         .then(res => {
             if (!res.ok) {
                 if (res.status === 404) {
                     console.error(`Map ${mapId} not found (404)`);
-                    
+
                     // Если карта не найдена, пробуем получить список карт и взять первую
                     return fetch("/api/maps")
                         .then(mapsRes => mapsRes.json())
@@ -1604,12 +1547,16 @@ function fetchMap(retryCount = 0) {
                                 console.log("Map not found, switching to first map:", maps[0].id);
                                 mapId = maps[0].id;
                                 window.playerMapId = mapId;
-                                
+
                                 // Обновляем URL
-                                const url = new URL(window.location);
-                                url.searchParams.set('map_id', mapId);
-                                window.history.replaceState({}, '', url);
-                                
+                                try {
+                                    const url = new URL(window.location);
+                                    url.searchParams.set('map_id', mapId);
+                                    window.history.replaceState({}, '', url);
+                                } catch (err) {
+                                    console.error("Error updating URL:", err);
+                                }
+
                                 // Пробуем снова с новым ID
                                 return fetchMap(0);
                             }
@@ -1625,10 +1572,10 @@ function fetchMap(retryCount = 0) {
                 console.error(data.error);
                 return;
             }
-            
+
             console.log("Map data loaded successfully");
             mapData = data;
-            
+
             // Сохраняем размеры канваса мастера
             if (data.master_canvas_width) {
                 masterCanvasWidth = data.master_canvas_width;
@@ -1636,7 +1583,7 @@ function fetchMap(retryCount = 0) {
             if (data.master_canvas_height) {
                 masterCanvasHeight = data.master_canvas_height;
             }
-            
+
             zoomLevel = data.zoom_level || 1;
             panX = data.pan_x || 0;
             panY = data.pan_y || 0;
@@ -1644,23 +1591,28 @@ function fetchMap(retryCount = 0) {
             if (mapData.ruler_visible_to_players === undefined) {
                 mapData.ruler_visible_to_players = false;
             }
-            
+
+            // Инициализируем characters если их нет
+            if (!mapData.characters) {
+                mapData.characters = [];
+            }
+
             const disabledImg = document.getElementById("mapDisabledImage");
             if (disabledImg) {
                 disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
             }
-            
+
             if (!mapData.player_map_enabled) {
                 canvas.style.display = "none";
                 return;
             } else {
                 canvas.style.display = "block";
             }
-            
+
             if (mapData.has_image) {
                 const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
                 console.log("Loading map image from:", imageUrl);
-                
+
                 const newImage = new Image();
                 newImage.onload = () => {
                     console.log("Map image loaded successfully");
@@ -1670,6 +1622,14 @@ function fetchMap(retryCount = 0) {
                 };
                 newImage.onerror = (err) => {
                     console.error("Error loading map image:", err);
+
+                    // Показываем сообщение об ошибке на canvas
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.font = "24px Inter";
+                    ctx.fillStyle = "#f44336";
+                    ctx.textAlign = "center";
+                    ctx.fillText("Ошибка загрузки изображения", canvas.width / 2, canvas.height / 2);
+
                     // Если не удалось загрузить изображение, пробуем запросить его через сокет
                     if (socket && socket.connected) {
                         socket.emit("request_map_image", { map_id: mapId });
@@ -1685,25 +1645,53 @@ function fetchMap(retryCount = 0) {
         })
         .catch(err => {
             console.error("Error fetching map:", err);
-            
-            // Пробуем повторно через секунду если это не 404
-            if (retryCount < 3 && !err.message.includes("404")) {
-                console.log(`Retrying fetchMap (${retryCount + 1}/3)...`);
+
+            // Пробуем повторно если это не 404 и не превышен лимит попыток
+            if (retryCount < maxRetries && !err.message?.includes("404") && err.name !== 'AbortError') {
+                console.log(`Retrying fetchMap (${retryCount + 1}/${maxRetries})...`);
+
+                // Показываем сообщение о повторной попытке
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = "20px Inter";
+                ctx.fillStyle = "#666";
+                ctx.textAlign = "center";
+                ctx.fillText(`Повторная попытка загрузки... (${retryCount + 1}/${maxRetries})`,
+                    canvas.width / 2, canvas.height / 2);
+
                 return new Promise(resolve => {
                     setTimeout(() => {
-                        resolve(fetchMap(retryCount + 1));
-                    }, 1000);
+                        resolve(fetchMap(retryCount + 1, maxRetries));
+                    }, 2000);
                 });
             }
-            
+
             // Показываем сообщение об ошибке на canvas
-            resizeCanvasToDisplaySize();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.font = "24px Inter";
-            ctx.fillStyle = "#666";
+            ctx.fillStyle = "#f44336";
             ctx.textAlign = "center";
-            ctx.fillText("Ошибка загрузки карты", canvas.width/2, canvas.height/2);
-            
+
+            let errorMessage = "Ошибка загрузки карты";
+            if (err.name === 'AbortError') {
+                errorMessage = "Таймаут загрузки карты";
+            } else if (err.message?.includes("404")) {
+                errorMessage = "Карта не найдена";
+            }
+
+            ctx.fillText(errorMessage, canvas.width / 2, canvas.height / 2 - 20);
+
+            // Добавляем кнопку для ручного обновления
+            ctx.font = "16px Inter";
+            ctx.fillStyle = "#4C5BEF";
+            ctx.fillText("Нажмите для повторной попытки", canvas.width / 2, canvas.height / 2 + 20);
+
+            // Добавляем обработчик клика для повторной попытки
+            const clickHandler = () => {
+                canvas.removeEventListener('click', clickHandler);
+                fetchMap(0);
+            };
+            canvas.addEventListener('click', clickHandler);
+
             throw err;
         });
 }

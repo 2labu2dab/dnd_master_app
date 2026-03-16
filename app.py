@@ -1585,7 +1585,7 @@ def get_portrait(portrait_id):
 def delete_portrait(portrait_id):
     """Удалить портрет персонажа"""
     from utils.storage import delete_portrait_image
-
+    
     if delete_portrait_image(portrait_id):
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404

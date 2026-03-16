@@ -711,10 +711,10 @@ def get_portrait_url(portrait_id):
 def delete_portrait_image(portrait_id):
     """
     Удалить файл портрета
-
+    
     Args:
         portrait_id: ID портрета
-
+        
     Returns:
         bool: True если успешно, False если ошибка
     """
@@ -724,7 +724,9 @@ def delete_portrait_image(portrait_id):
             os.remove(filepath)
             print(f"✓ Portrait deleted: {filepath}")
             return True
-        return False
+        else:
+            print(f"→ Portrait file not found: {filepath}")
+            return False
     except Exception as e:
         print(f"✗ Error deleting portrait: {e}")
         return False
