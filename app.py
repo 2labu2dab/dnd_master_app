@@ -5,15 +5,6 @@ import math
 import os
 import time
 import uuid
-from utils.character_bank import (
-    init_db,
-    get_all_bank_characters,
-    add_character_to_bank,
-    update_character_in_bank,
-    delete_character_from_bank,
-    get_bank_character,
-    save_bank_character_avatar,
-)
 
 from flask import (
     Flask,
@@ -27,13 +18,22 @@ from flask import (
 from flask_socketio import SocketIO, emit
 from PIL import Image
 
+from utils.character_bank import (
+    add_character_to_bank,
+    delete_character_from_bank,
+    get_all_bank_characters,
+    get_bank_character,
+    init_db,
+    save_bank_character_avatar,
+    update_character_in_bank,
+)
 from utils.storage import (
     TOKENS_AVATARS_DIR,
     create_new_map,
     delete_map,
+    get_all_maps_with_token,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
     get_image_filepath,
     get_token_avatar_url,
-    get_all_maps_with_token,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
     list_maps,
     load_map_data,
     load_map_image,
