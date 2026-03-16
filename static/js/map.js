@@ -3376,7 +3376,9 @@ document.addEventListener("keydown", (e) => {
             'mapModal',
             'importTokenModal',
             'bankModal',
-            'newMapModal'
+            'newMapModal',
+            'bankModal',
+            'bankCharacterModal'
         ].some(modalId => {
             const modal = document.getElementById(modalId);
             return modal && modal.style.display === 'flex';
@@ -5429,8 +5431,10 @@ function openBankModal() {
             (lastMouseX - offsetX) / scale,
             (lastMouseY - offsetY) / scale
         ];
-    } else {
+    } else if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
         spawnPosition = [mapImage.width / 2, mapImage.height / 2];
+    } else {
+        spawnPosition = [500, 500];
     }
 
     loadBankCharacters();
@@ -5438,6 +5442,9 @@ function openBankModal() {
 
 function closeBankModal() {
     document.getElementById("bankModal").style.display = "none";
+    // Очищаем поле поиска
+    const searchInput = document.getElementById("bankSearchInput");
+    if (searchInput) searchInput.value = "";
 }
 
 function loadBankCharacters() {
@@ -6403,7 +6410,8 @@ function closeAllModals() {
         'mapModal',
         'importTokenModal',
         'bankModal',
-        'newMapModal'
+        'newMapModal',
+        'bankCharacterModal'  // ДОБАВЛЕНО
     ];
 
     modals.forEach(modalId => {
@@ -6483,6 +6491,9 @@ function closeAllModals() {
     window.editingCharacterId = null;
     pendingZoneVertices = null;
 
+    // Если было открыто окно создания персонажа в банке, сбрасываем форму
+    resetBankAvatarPreview();
+
     console.log('All modals closed with Escape');
 }
 
@@ -6536,3 +6547,170 @@ socket.on("token_synced_across_maps", (data) => {
         updateSidebar();
     }
 });
+
+function openBankCharacterModal() {
+    console.log("Opening bank character modal");
+    
+    // Закрываем банк и открываем окно создания персонажа
+    document.getElementById("bankModal").style.display = "none";
+    document.getElementById("bankCharacterModal").style.display = "flex";
+    
+    // Сбрасываем форму
+    document.getElementById("bankCharacterName").value = "";
+    document.getElementById("bankCharacterAC").value = 10;
+    document.getElementById("bankCharacterHP").value = 10;
+    
+    // Сбрасываем тип на "Игрок"
+    document.querySelectorAll("#bankCharacterModal .type-btn").forEach(b => b.classList.remove("active"));
+    document.querySelector('#bankCharacterModal .type-btn[data-type="player"]').classList.add("active");
+    
+    // Сбрасываем аватар
+    resetBankAvatarPreview();
+}
+
+function closeBankCharacterModal() {
+    document.getElementById("bankCharacterModal").style.display = "none";
+    // Возвращаемся к банку и обновляем список
+    openBankModal(); // Это переоткроет банк и загрузит список
+}
+
+function resetBankAvatarPreview() {
+    const preview = document.getElementById("bankAvatarPreview");
+    if (preview) {
+        preview.src = "";
+        preview.style.display = "none";
+        preview.removeAttribute("data-base64");
+    }
+    
+    const overlay = document.getElementById("bankAvatarOverlay");
+    const editIcon = document.getElementById("bankEditIcon");
+    
+    if (overlay) overlay.style.display = "block";
+    if (editIcon) editIcon.style.display = "none";
+}
+
+function handleBankAvatarUpload(file) {
+    if (!file) return;
+
+    // Проверяем размер файла
+    if (file.size > 10 * 1024 * 1024) {
+        alert("Файл слишком большой. Максимальный размер 10MB.");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const img = new Image();
+        img.onload = function () {
+            // Создаем canvas для оптимизации
+            const canvas = document.createElement("canvas");
+            const maxSize = 256;
+            
+            let width = img.width;
+            let height = img.height;
+            
+            // Изменяем размер если слишком большое
+            if (width > maxSize || height > maxSize) {
+                if (width > height) {
+                    height = Math.round(height * (maxSize / width));
+                    width = maxSize;
+                } else {
+                    width = Math.round(width * (maxSize / height));
+                    height = maxSize;
+                }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Сохраняем как PNG с оптимизацией
+            const base64 = canvas.toDataURL("image/png", 0.9);
+
+            const preview = document.getElementById("bankAvatarPreview");
+            if (preview) {
+                preview.src = base64;
+                preview.style.display = "block";
+                preview.dataset.base64 = base64;
+            }
+
+            const overlay = document.getElementById("bankAvatarOverlay");
+            const editIcon = document.getElementById("bankEditIcon");
+            
+            if (overlay) overlay.style.display = "none";
+            if (editIcon) editIcon.style.display = "block";
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function submitBankCharacter() {
+    console.log("Submitting bank character");
+    
+    const name = document.getElementById("bankCharacterName").value.trim();
+    const ac = parseInt(document.getElementById("bankCharacterAC").value) || 10;
+    const hp = parseInt(document.getElementById("bankCharacterHP").value) || 10;
+    const type = document.querySelector("#bankCharacterModal .type-btn.active")?.dataset.type;
+    
+    if (!name) {
+        alert("Введите имя персонажа");
+        return;
+    }
+    
+    if (!type) {
+        alert("Выберите тип персонажа");
+        return;
+    }
+    
+    // Получаем аватар, если есть
+    const avatarPreview = document.getElementById("bankAvatarPreview");
+    const avatarData = avatarPreview?.dataset.base64 || null;
+    
+    console.log("Character data:", { name, ac, hp, type, hasAvatar: !!avatarData });
+    
+    // Создаем объект персонажа
+    const characterData = {
+        name: name,
+        type: type,
+        armor_class: ac,
+        max_health: hp,
+        has_avatar: !!avatarData
+    };
+    
+    // Добавляем аватар, если есть
+    const requestBody = {
+        ...characterData,
+        avatar_data: avatarData
+    };
+    
+    // Отправляем на сервер
+    fetch("/api/bank/character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log("Bank character created:", data);
+        
+        // Закрываем модальное окно
+        closeBankCharacterModal();
+        
+        // Показываем уведомление
+        showNotification(`Персонаж "${name}" добавлен в банк`, 'success');
+    })
+    .catch(error => {
+        console.error("Error creating bank character:", error);
+        showNotification("Ошибка при создании персонажа", 'error');
+    });
+}

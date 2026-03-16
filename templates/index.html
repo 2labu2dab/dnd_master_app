@@ -256,25 +256,33 @@
   </div>
   <div id="bankModal" class="modal" style="display:none;">
     <div class="modal-content large-modal">
-      <span class="close" onclick="closeBankModal()">&times;</span>
-      <h3>Банк персонажей</h3>
+        <span class="close" onclick="closeBankModal()">&times;</span>
+        <h3 style="margin-top: 0; margin-bottom: 15px;">Банк персонажей</h3>
+        
+        <!-- Поиск и кнопка в одной строке -->
+        <div style="display: flex; gap: 8px; margin-bottom: 15px; align-items: center;">
+            <button class="icon-button" onclick="openBankCharacterModal()" title="Добавить персонажа в банк">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+            </button>
+            <input type="text" id="bankSearchInput" placeholder="Поиск по имени..." 
+                   style="flex: 1; padding: 8px 12px; border-radius: 9999px; border: 1px solid #3a3a4a; 
+                          background: #2a2a3b; color: white; font-family: 'Inter', sans-serif; 
+                          box-sizing: border-box; outline: none;" 
+                   oninput="filterBankCharacters()">
+        </div>
 
-      <!-- Поле поиска -->
-      <div style="margin-bottom: 15px;">
-        <input type="text" id="bankSearchInput" placeholder="Поиск по имени..." style="width: 100%; padding: 8px 12px; border-radius: 9999px; border: 1px solid #3a3a4a; 
-                    background: #2a2a3b; color: white; font-family: 'Inter', sans-serif; 
-                    box-sizing: border-box; outline: none;" oninput="filterBankCharacters()">
-      </div>
+        <div id="bankCharacterList" class="bank-character-list">
+            <!-- Список будет загружаться динамически -->
+        </div>
 
-      <div id="bankCharacterList" class="bank-character-list">
-        <!-- Список будет загружаться динамически -->
-      </div>
-
-      <div class="token-buttons" style="margin-top: 15px;">
-        <button class="cancel-btn" onclick="closeBankModal()">Закрыть</button>
-      </div>
+        <div class="token-buttons" style="margin-top: 15px;">
+            <button class="cancel-btn" onclick="closeBankModal()">Закрыть</button>
+        </div>
     </div>
-  </div>
+</div>
   <div id="tokenModal" class="modal" style="display:none;">
     <div class="modal-content large-modal">
       <span class="close" onclick="closeTokenModal()">&times;</span>
@@ -399,6 +407,51 @@
       <div class="token-buttons">
         <button class="save-btn" onclick="submitMap()">Сохранить</button>
         <button class="cancel-btn" onclick="closeMapModal()">Отменить</button>
+      </div>
+    </div>
+  </div>
+  <div id="bankCharacterModal" class="modal" style="display:none;">
+    <div class="modal-content large-modal">
+      <span class="close" onclick="closeBankCharacterModal()">&times;</span>
+      <h3>Создание персонажа в банке</h3>
+
+      <!-- Тип персонажа -->
+      <div class="token-type-buttons">
+        <button data-type="player" class="type-btn active">Игрок</button>
+        <button data-type="npc" class="type-btn">НПС</button>
+        <button data-type="enemy" class="type-btn">Враг</button>
+      </div>
+
+      <div class="token-form">
+        <!-- Аватар -->
+        <div class="avatar-upload" id="bankAvatarUpload">
+          <div id="bankAvatarDropzone" class="avatar-dropzone"
+            onclick="document.getElementById('bankAvatarFile').click()">
+            <img id="bankAvatarPreview" src="" alt="Avatar" style="display: none;" />
+            <div id="bankAvatarOverlay" class="avatar-overlay">
+              <strong>Нажмите для выбора</strong>
+              <small>PNG, JPG до 10MB</small>
+            </div>
+            <div id="bankEditIcon" class="edit-icon-overlay" style="display: none;">✎ Изменить</div>
+            <input type="file" id="bankAvatarFile" accept="image/*" style="display: none;"
+              onchange="handleBankAvatarUpload(this.files[0])">
+          </div>
+        </div>
+
+        <!-- Параметры -->
+        <div class="token-fields">
+          <label>Имя<br><input type="text" id="bankCharacterName"></label>
+          <div class="flex-row">
+            <label>КД<br><input type="number" id="bankCharacterAC" value="10" min="1" max="30"></label>
+            <label>Макс. ОЗ<br><input type="number" id="bankCharacterHP" value="10" min="1" max="999"></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Кнопки -->
+      <div class="token-buttons">
+        <button class="save-btn" onclick="submitBankCharacter()">Сохранить в банк</button>
+        <button class="cancel-btn" onclick="closeBankCharacterModal()">Отменить</button>
       </div>
     </div>
   </div>
