@@ -119,11 +119,16 @@ def get_map(map_id):
     # Конвертируем старые данные сетки в новый формат
     if "grid_settings" in data:
         # Если есть cell_size, но нет cell_count, конвертируем
-        if "cell_size" in data["grid_settings"] and "cell_count" not in data["grid_settings"]:
+        if (
+            "cell_size" in data["grid_settings"]
+            and "cell_count" not in data["grid_settings"]
+        ):
             # Временное значение, будет пересчитано на клиенте при загрузке изображения
             data["grid_settings"]["cell_count"] = 20
-            print(f"Converted old grid data for map {map_id}: cell_size={data['grid_settings']['cell_size']}, cell_count set to 20")
-        
+            print(
+                f"Converted old grid data for map {map_id}: cell_size={data['grid_settings']['cell_size']}, cell_count set to 20"
+            )
+
         # Убеждаемся, что cell_count существует и в допустимых пределах
         if "cell_count" not in data["grid_settings"]:
             data["grid_settings"]["cell_count"] = 20
@@ -856,31 +861,31 @@ def handle_notify_image_loaded(data):
         )
 
 
-@socketio.on('connect')
+@socketio.on("connect")
 def handle_connect():
     print(f"Client connected: {request.sid}")
-    
+
     # Проверяем, является ли подключившийся мастером
-    session_id = session.get('session_id')
-    if session_id and request.path == '/socket.io/':  # Это мастер
+    session_id = session.get("session_id")
+    if session_id and request.path == "/socket.io/":  # Это мастер
         success, lock = acquire_master_lock(session_id, request.sid)
         if success:
             print(f"Master lock acquired for session {session_id}")
             # Запускаем пинг для поддержания блокировки
-            emit('master_status', {'active': True, 'is_current': True})
+            emit("master_status", {"active": True, "is_current": True})
         else:
             print(f"Failed to acquire master lock for session {session_id}")
             # Отключаем сокет
-            emit('master_status', {'active': False, 'is_current': False})
+            emit("master_status", {"active": False, "is_current": False})
             disconnect()
 
 
-@socketio.on('disconnect')
+@socketio.on("disconnect")
 def handle_disconnect():
     print(f"Client disconnected: {request.sid}")
-    
+
     # Освобождаем блокировку если это был мастер
-    session_id = session.get('session_id')
+    session_id = session.get("session_id")
     if session_id:
         release_master_lock(session_id)
 
@@ -1778,39 +1783,38 @@ def delete_bank_character(char_id):
         print(f"Error deleting from bank: {e}")
         return jsonify({"error": str(e)}), 500
 
-@socketio.on('check_master_status')
+
+@socketio.on("check_master_status")
 def handle_check_master_status():
     """
     Проверка статуса мастера
     """
-    session_id = session.get('session_id')
+    session_id = session.get("session_id")
     current_master = get_current_master()
-    
-    if current_master:
-        is_current = session_id and session_id == current_master.get('session_id')
-        emit('master_status', {
-            'active': True,
-            'is_current': is_current
-        })
-    else:
-        emit('master_status', {
-            'active': False,
-            'is_current': False
-        })
 
-@socketio.on('master_ping')
+    if current_master:
+        is_current = session_id and session_id == current_master.get(
+            "session_id"
+        )
+        emit("master_status", {"active": True, "is_current": is_current})
+    else:
+        emit("master_status", {"active": False, "is_current": False})
+
+
+@socketio.on("master_ping")
 def handle_master_ping():
     """
     Пинг от мастера для поддержания блокировки
     """
-    session_id = session.get('session_id')
+    session_id = session.get("session_id")
     if session_id:
         if update_master_ping(session_id, request.sid):
-            emit('pong')
+            emit("pong")
         else:
             # Блокировка потеряна
-            emit('master_status', {'active': False, 'is_current': False})
+            emit("master_status", {"active": False, "is_current": False})
             disconnect()
+
 
 @app.route("/api/bank/character/<char_id>/spawn", methods=["POST"])
 def spawn_bank_character(char_id):

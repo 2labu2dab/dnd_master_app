@@ -499,7 +499,7 @@ def create_new_map(name="Новая карта"):
             "visible": True,
             "visible_to_players": True,  # По умолчанию сетка видна игрокам
             "cell_count": 20,  # НОВОЕ: количество клеток по ширине (5-150)
-            "cell_size": 20,   # Оставляем для обратной совместимости
+            "cell_size": 20,  # Оставляем для обратной совместимости
             "color": "#888888",
             "opacity": 100,
         },
@@ -514,6 +514,7 @@ def create_new_map(name="Новая карта"):
 
     save_map_data(default_data, map_id)
     return map_id
+
 
 def delete_map(map_id):
     """Удалить карту и её изображение"""
