@@ -266,14 +266,53 @@ socket.on("master_switched_map", (data) => {
 });
 
 function syncGridInputs(value) {
-    const num = parseInt(value);
-    if (isNaN(num) || num < 10 || num > 200) return;
+    // Разрешаем дробные значения до десятых
+    const num = parseFloat(value);
+    
+    // Проверка границ: от 5 до 150 клеток по ширине карты
+    if (isNaN(num) || num < 5 || num > 150) {
+        // Если значение выходит за пределы, корректируем его
+        if (num < 5) {
+            document.getElementById("gridSlider").value = 5;
+            document.getElementById("gridInput").value = 5;
+            updateWithValue(5);
+        } else if (num > 150) {
+            document.getElementById("gridSlider").value = 150;
+            document.getElementById("gridInput").value = 150;
+            updateWithValue(150);
+        }
+        return;
+    }
 
+    updateWithValue(num);
+}
+
+function updateWithValue(num) {
+    // Обновляем поля ввода
     document.getElementById("gridSlider").value = num;
     document.getElementById("gridInput").value = num;
-    mapData.grid_settings.cell_size = num;
-    render();
 
+    // Проверяем, загружена ли карта
+    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
+        // Рассчитываем размер клетки в пикселях
+        // cell_size = ширина карты / количество клеток
+        const newCellSize = mapImage.naturalWidth / num;
+        
+        // Округляем до целого числа пикселей для практичности
+        mapData.grid_settings.cell_size = Math.round(newCellSize);
+        mapData.grid_settings.cell_count = num; // Сохраняем количество клеток
+        
+        console.log(`Карта шириной ${mapImage.naturalWidth}px, ${num} клеток = ${mapData.grid_settings.cell_size}px на клетку`);
+    } else {
+        // Если карта не загружена, используем примерное значение
+        // Базовое предположение: ширина карты 2000px
+        const estimatedWidth = 2000;
+        mapData.grid_settings.cell_size = Math.round(estimatedWidth / num);
+        mapData.grid_settings.cell_count = num;
+        console.log(`Карта не загружена, используем примерное значение: ${mapData.grid_settings.cell_size}px на клетку`);
+    }
+
+    render();
     updateSliderVisual();
 
     fetch("/api/map", {
@@ -282,6 +321,7 @@ function syncGridInputs(value) {
         body: JSON.stringify(mapData),
     });
 }
+
 let editingTokenId = null;
 let avatarChanged = false;
 function submitToken() {
@@ -1222,7 +1262,13 @@ function switchMap(mapId) {
             finds: [],
             zones: [],
             characters: [],
-            grid_settings: { cell_size: 20, color: "#888888", visible: false, visible_to_players: true }
+            grid_settings: { 
+                cell_count: 20, 
+                cell_size: 20, 
+                color: "#888888", 
+                visible: false, 
+                visible_to_players: true 
+            }
         };
         render();
         updateSidebar();
@@ -1252,6 +1298,12 @@ function switchMap(mapId) {
             if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
                 mapData.grid_settings.visible_to_players = true;
             }
+            
+            // Проверяем границы cell_count
+            if (mapData.grid_settings && mapData.grid_settings.cell_count) {
+                if (mapData.grid_settings.cell_count < 5) mapData.grid_settings.cell_count = 5;
+                if (mapData.grid_settings.cell_count > 150) mapData.grid_settings.cell_count = 150;
+            }
 
             // ВАЖНО: сначала устанавливаем сохранённые значения
             zoomLevel = mapData.zoom_level || 1;
@@ -1262,9 +1314,10 @@ function switchMap(mapId) {
 
             updateSidebar();
 
-            const gridSize = mapData.grid_settings.cell_size || 20;
-            document.getElementById("gridSlider").value = gridSize;
-            document.getElementById("gridInput").value = gridSize;
+            // Синхронизируем поля ввода с cell_count
+            const gridCount = mapData.grid_settings.cell_count || 20;
+            document.getElementById("gridSlider").value = gridCount;
+            document.getElementById("gridInput").value = gridCount;
 
             // !!! ВАЖНО: Обновляем визуальное отображение ползунка !!!
             updateSliderVisual();
@@ -1290,17 +1343,9 @@ function switchMap(mapId) {
 
                 mapImage = new Image();
                 mapImage.onload = () => {
-                    console.log("Map image loaded, rendering with restored position");
+                    console.log("Map image loaded, updating grid...");
+                    updateGridFromImage(); // Обновляем сетку после загрузки изображения
                     render();
-
-                    // Дополнительная проверка: если после загрузки позиция сбросилась
-                    if (panX !== mapData.pan_x || panY !== mapData.pan_y) {
-                        console.log("Position was reset, restoring...");
-                        panX = mapData.pan_x || 0;
-                        panY = mapData.pan_y || 0;
-                        zoomLevel = mapData.zoom_level || 1;
-                        render();
-                    }
                 };
                 mapImage.onerror = () => {
                     console.error("Failed to load map image");
@@ -6849,4 +6894,52 @@ function applyCrop() {
     }
 
     closeCropModal();
+}
+
+function updateGridFromImage() {
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return;
+    
+    const gridSettings = mapData.grid_settings;
+    
+    // Если есть cell_count, пересчитываем cell_size
+    if (gridSettings.cell_count) {
+        // Проверяем, что cell_count в допустимых пределах
+        let cellCount = gridSettings.cell_count;
+        if (cellCount < 5) cellCount = 5;
+        if (cellCount > 150) cellCount = 150;
+        
+        const newCellSize = Math.round(mapImage.naturalWidth / cellCount);
+        gridSettings.cell_size = newCellSize;
+        gridSettings.cell_count = cellCount;
+        
+        console.log(`Grid updated: ${cellCount} cells = ${newCellSize}px per cell`);
+        
+        // Синхронизируем поля ввода
+        document.getElementById("gridSlider").value = cellCount;
+        document.getElementById("gridInput").value = cellCount;
+        updateSliderVisual();
+        
+        render();
+    }
+    // Если есть только cell_size (старые данные), конвертируем в cell_count
+    else if (gridSettings.cell_size) {
+        let newCellCount = Math.round(mapImage.naturalWidth / gridSettings.cell_size);
+        
+        // Проверяем, что newCellCount в допустимых пределах
+        if (newCellCount < 5) newCellCount = 5;
+        if (newCellCount > 150) newCellCount = 150;
+        
+        gridSettings.cell_count = newCellCount;
+        // Пересчитываем cell_size для точности
+        gridSettings.cell_size = Math.round(mapImage.naturalWidth / newCellCount);
+        
+        console.log(`Converted old grid: ${gridSettings.cell_size}px per cell = ${newCellCount} cells`);
+        
+        // Синхронизируем поля ввода
+        document.getElementById("gridSlider").value = newCellCount;
+        document.getElementById("gridInput").value = newCellCount;
+        updateSliderVisual();
+        
+        render();
+    }
 }

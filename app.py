@@ -116,6 +116,24 @@ def get_map(map_id):
     if data is None:
         return jsonify({"error": "Map not found"}), 404
 
+    # Конвертируем старые данные сетки в новый формат
+    if "grid_settings" in data:
+        # Если есть cell_size, но нет cell_count, конвертируем
+        if "cell_size" in data["grid_settings"] and "cell_count" not in data["grid_settings"]:
+            # Временное значение, будет пересчитано на клиенте при загрузке изображения
+            data["grid_settings"]["cell_count"] = 20
+            print(f"Converted old grid data for map {map_id}: cell_size={data['grid_settings']['cell_size']}, cell_count set to 20")
+        
+        # Убеждаемся, что cell_count существует и в допустимых пределах
+        if "cell_count" not in data["grid_settings"]:
+            data["grid_settings"]["cell_count"] = 20
+        else:
+            # Проверяем границы
+            if data["grid_settings"]["cell_count"] < 5:
+                data["grid_settings"]["cell_count"] = 5
+            elif data["grid_settings"]["cell_count"] > 150:
+                data["grid_settings"]["cell_count"] = 150
+
     # Добавляем изображение отдельно, если оно есть
     image_base64 = load_map_image(map_id)
     if image_base64:

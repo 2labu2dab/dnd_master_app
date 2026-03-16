@@ -484,7 +484,6 @@ def list_maps():
 
 
 def create_new_map(name="Новая карта"):
-    create_new_map
     """Создать новую карту"""
     ensure_dirs()
     map_id = str(uuid.uuid4())[:8]  # короткий ID
@@ -499,7 +498,8 @@ def create_new_map(name="Новая карта"):
         "grid_settings": {
             "visible": True,
             "visible_to_players": True,  # По умолчанию сетка видна игрокам
-            "cell_size": 20,
+            "cell_count": 20,  # НОВОЕ: количество клеток по ширине (5-150)
+            "cell_size": 20,   # Оставляем для обратной совместимости
             "color": "#888888",
             "opacity": 100,
         },
@@ -514,7 +514,6 @@ def create_new_map(name="Новая карта"):
 
     save_map_data(default_data, map_id)
     return map_id
-
 
 def delete_map(map_id):
     """Удалить карту и её изображение"""

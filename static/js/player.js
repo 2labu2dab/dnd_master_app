@@ -825,7 +825,16 @@ function drawLayers(offsetX, offsetY, scale) {
     }
 }
 function drawGrid(offsetX, offsetY, scale) {
-    const cell = mapData.grid_settings.cell_size;
+    // Получаем количество клеток из настроек
+    let cellsCount = mapData.grid_settings.cell_count || 20; // По умолчанию 20 клеток
+    
+    // Проверяем границы
+    if (cellsCount < 5) cellsCount = 5;
+    if (cellsCount > 150) cellsCount = 150;
+    
+    // Рассчитываем размер клетки в пикселях на карте
+    const cellSizeInPixels = mapImage.naturalWidth / cellsCount;
+    
     ctx.strokeStyle = mapData.grid_settings.color || "#888";
     ctx.lineWidth = 1;
 
@@ -838,14 +847,15 @@ function drawGrid(offsetX, offsetY, scale) {
     const mapBottom = offsetY + mapScreenHeight;
 
     ctx.save();
-
     ctx.beginPath();
     ctx.rect(mapLeft, mapTop, mapScreenWidth, mapScreenHeight);
     ctx.clip();
 
     ctx.beginPath();
 
-    for (let x = 0; x <= mapImage.width; x += cell) {
+    // Рисуем вертикальные линии - их количество = cellsCount
+    for (let i = 0; i <= cellsCount; i++) {
+        const x = i * cellSizeInPixels; // Позиция в пикселях на карте
         const sx = offsetX + x * scale;
         if (sx < 0 || sx > canvas.width) continue;
 
@@ -853,7 +863,12 @@ function drawGrid(offsetX, offsetY, scale) {
         ctx.lineTo(sx, Math.min(mapBottom, canvas.height));
     }
 
-    for (let y = 0; y <= mapImage.height; y += cell) {
+    // Рисуем горизонтальные линии - их количество = cellsCount * (высота/ширина)
+    const aspectRatio = mapImage.naturalHeight / mapImage.naturalWidth;
+    const horizontalCells = Math.round(cellsCount * aspectRatio);
+    
+    for (let i = 0; i <= horizontalCells; i++) {
+        const y = i * cellSizeInPixels; // Позиция в пикселях на карте
         const sy = offsetY + y * scale;
         if (sy < 0 || sy > canvas.height) continue;
 
@@ -862,7 +877,6 @@ function drawGrid(offsetX, offsetY, scale) {
     }
 
     ctx.stroke();
-
     ctx.restore();
 }
 
