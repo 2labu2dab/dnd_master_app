@@ -9,6 +9,7 @@ canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidt
 canvas.height = window.innerHeight;
 let mapsList = [];
 let editingMapId = null;
+let masterPingInterval = null;
 let currentMapImageFile = null;
 let allTokensFromMaps = [];
 let selectedImportToken = null;
@@ -31,11 +32,12 @@ const socket = io({
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000
 });
-socket.on('connect', () => {
-    console.log('Socket connected with ID:', socket.id);
-});
 socket.on('disconnect', () => {
     console.log('Socket disconnected');
+    if (masterPingInterval) {
+        clearInterval(masterPingInterval);
+        masterPingInterval = null;
+    }
 });
 socket.on('connect_error', (error) => {
     console.log('Socket connection error:', error);
@@ -215,8 +217,39 @@ function loadCurrentMapFromStorage() {
 
 
 socket.on('connect', () => {
-    socketId = socket.id;
-    console.log('Connected with ID:', socketId);
+    console.log('Socket connected with ID:', socket.id);
+    
+    // Запускаем пинг для поддержания блокировки мастера
+    if (masterPingInterval) {
+        clearInterval(masterPingInterval);
+    }
+    
+    masterPingInterval = setInterval(() => {
+        socket.emit('master_ping');
+    }, 10000); // Пинг каждые 10 секунд
+    
+    // Проверяем статус мастера
+    socket.emit('check_master_status');
+});
+
+socket.on('master_status', (data) => {
+    console.log('Master status:', data);
+    
+    if (!data.is_current) {
+        // Мы потеряли статус мастера
+        clearInterval(masterPingInterval);
+        
+        if (!data.active) {
+            // Мастер не активен - можем попробовать перезахватить
+            if (confirm('Соединение с мастером потеряно. Перезагрузить страницу?')) {
+                window.location.reload();
+            }
+        } else {
+            // Другой мастер активен
+            alert('Другой мастер управляет картой. Вы будете перенаправлены.');
+            window.location.href = '/master-locked';
+        }
+    }
 });
 
 // В обработчике master_switched_map добавьте проверку
@@ -3551,6 +3584,11 @@ window.onload = () => {
 
     // ===== ИСПРАВЛЕННЫЙ КОД: загружаем сохраненную карту =====
     const savedMapId = loadCurrentMapFromStorage();
+
+    window.addEventListener('beforeunload', () => {
+        // Освобождаем блокировку при закрытии
+        fetch('/api/master/release', { method: 'POST' });
+    });
 
     // Сначала загружаем список карт, потом проверяем сохраненную
     fetch("/api/maps")

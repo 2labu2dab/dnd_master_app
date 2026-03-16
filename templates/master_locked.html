@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мастер уже активен</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at top, #2c3e50 0, #111827 45%, #050816 100%);
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .lock-container {
+            text-align: center;
+            max-width: 500px;
+            padding: 40px;
+            background: rgba(11, 17, 32, 0.9);
+            border-radius: 16px;
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(148, 163, 184, 0.25);
+            backdrop-filter: blur(8px);
+        }
+        
+        .lock-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            color: #f44336;
+        }
+        
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #f9fafb;
+        }
+        
+        p {
+            color: #9ca3af;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .timer {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4C5BEF;
+            margin-bottom: 20px;
+        }
+        
+        .refresh-btn {
+            background: #4C5BEF;
+            color: white;
+            border: none;
+            border-radius: 9999px;
+            padding: 12px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 6px 16px rgba(76, 91, 239, 0.4);
+        }
+        
+        .refresh-btn:hover {
+            background: #3e4cd4;
+            transform: scale(1.05);
+            box-shadow: 0 10px 26px rgba(76, 91, 239, 0.55);
+        }
+        
+        .refresh-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .info-text {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="lock-container">
+        <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            <circle cx="12" cy="16" r="1"></circle>
+            <line x1="8" y1="11" x2="16" y2="11" stroke-dasharray="2 2"></line>
+        </svg>
+        
+        <h1>Мастер уже активен</h1>
+        <p>В данный момент другой мастер управляет картой.<br>Пожалуйста, подождите или попробуйте позже.</p>
+        
+        <div class="timer" id="timer">30</div>
+        
+        <button class="refresh-btn" onclick="checkMasterStatus()">
+            Проверить статус
+        </button>
+        
+        <div class="info-text" id="statusMessage">
+            Проверка статуса каждые 5 секунд...
+        </div>
+    </div>
+    
+    <script>
+        let countdown = 30;
+        const timerElement = document.getElementById('timer');
+        const statusMessage = document.getElementById('statusMessage');
+        
+        function updateTimer() {
+            timerElement.textContent = countdown;
+            if (countdown <= 0) {
+                checkMasterStatus();
+            }
+        }
+        
+        function checkMasterStatus() {
+            fetch('/api/master/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.active) {
+                        // Мастер освободился, перезагружаем страницу
+                        window.location.href = '/';
+                    } else {
+                        countdown = 30;
+                        statusMessage.textContent = 'Мастер всё ещё активен. Ожидайте...';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking master status:', error);
+                    statusMessage.textContent = 'Ошибка проверки статуса';
+                });
+            
+            // Сбрасываем таймер
+            countdown = 30;
+        }
+        
+        // Обновляем таймер каждую секунду
+        setInterval(() => {
+            countdown--;
+            updateTimer();
+        }, 1000);
+        
+        // Проверяем статус каждые 5 секунд
+        setInterval(checkMasterStatus, 5000);
+        
+        // Первоначальная проверка
+        checkMasterStatus();
+    </script>
+</body>
+</html>

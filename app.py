@@ -15,7 +15,7 @@ from flask import (
     send_file,
     session,
 )
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, disconnect, emit
 from PIL import Image
 
 from utils.character_bank import (
@@ -26,6 +26,13 @@ from utils.character_bank import (
     init_db,
     save_bank_character_avatar,
     update_character_in_bank,
+)
+from utils.master_lock import (
+    acquire_master_lock,
+    get_current_master,
+    is_master_active,
+    release_master_lock,
+    update_master_ping,
 )
 from utils.storage import (
     TOKENS_AVATARS_DIR,
@@ -420,7 +427,10 @@ def sync_token_across_maps(token_id):
         print(f"Sync data: {data}")
 
         # Получаем список всех карт, где есть этот токен
-        from utils.storage import get_all_maps_with_token, sync_token_across_maps as sync_storage
+        from utils.storage import (
+            get_all_maps_with_token,
+            sync_token_across_maps as sync_storage,
+        )
 
         maps_with_token = get_all_maps_with_token(token_id)
         print(f"Token found on {len(maps_with_token)} maps")
@@ -438,7 +448,11 @@ def sync_token_across_maps(token_id):
                     token_copy = t.copy()
                     if token_copy.get("has_avatar"):
                         from utils.storage import get_token_avatar_url
-                        token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"]) + f"?t={int(time.time())}"
+
+                        token_copy["avatar_url"] = (
+                            get_token_avatar_url(token_copy["id"])
+                            + f"?t={int(time.time())}"
+                        )
                     token_copy.pop("avatar_data", None)
                     tokens_for_players.append(token_copy)
 
@@ -448,12 +462,16 @@ def sync_token_across_maps(token_id):
                     "zones": map_data.get("zones", []),
                     "finds": map_data.get("finds", []),
                     "grid_settings": map_data.get("grid_settings", {}),
-                    "player_map_enabled": map_data.get("player_map_enabled", True),
+                    "player_map_enabled": map_data.get(
+                        "player_map_enabled", True
+                    ),
                     "has_image": map_data.get("has_image", False),
                 }
 
                 if map_data.get("has_image"):
-                    player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+                    player_data["image_url"] = (
+                        f"/api/map/image/{map_id}?t={int(time.time())}"
+                    )
 
                 socketio.emit("map_updated", player_data)
 
@@ -464,7 +482,7 @@ def sync_token_across_maps(token_id):
                 {
                     "token_id": token_id,
                     "updated_data": data,
-                    "updated_maps": updated_maps
+                    "updated_maps": updated_maps,
                 },
                 broadcast=True,
             )
@@ -475,8 +493,10 @@ def sync_token_across_maps(token_id):
     except Exception as e:
         print(f"Error syncing token: {e}")
         import traceback
+
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/token/avatar/<source_token_id>/copy", methods=["POST"])
 def copy_token_avatar(source_token_id):
@@ -818,14 +838,33 @@ def handle_notify_image_loaded(data):
         )
 
 
-@socketio.on("connect")
+@socketio.on('connect')
 def handle_connect():
     print(f"Client connected: {request.sid}")
+    
+    # Проверяем, является ли подключившийся мастером
+    session_id = session.get('session_id')
+    if session_id and request.path == '/socket.io/':  # Это мастер
+        success, lock = acquire_master_lock(session_id, request.sid)
+        if success:
+            print(f"Master lock acquired for session {session_id}")
+            # Запускаем пинг для поддержания блокировки
+            emit('master_status', {'active': True, 'is_current': True})
+        else:
+            print(f"Failed to acquire master lock for session {session_id}")
+            # Отключаем сокет
+            emit('master_status', {'active': False, 'is_current': False})
+            disconnect()
 
 
-@socketio.on("disconnect")
+@socketio.on('disconnect')
 def handle_disconnect():
     print(f"Client disconnected: {request.sid}")
+    
+    # Освобождаем блокировку если это был мастер
+    session_id = session.get('session_id')
+    if session_id:
+        release_master_lock(session_id)
 
 
 @socketio.on("ruler_update")
@@ -1721,6 +1760,39 @@ def delete_bank_character(char_id):
         print(f"Error deleting from bank: {e}")
         return jsonify({"error": str(e)}), 500
 
+@socketio.on('check_master_status')
+def handle_check_master_status():
+    """
+    Проверка статуса мастера
+    """
+    session_id = session.get('session_id')
+    current_master = get_current_master()
+    
+    if current_master:
+        is_current = session_id and session_id == current_master.get('session_id')
+        emit('master_status', {
+            'active': True,
+            'is_current': is_current
+        })
+    else:
+        emit('master_status', {
+            'active': False,
+            'is_current': False
+        })
+
+@socketio.on('master_ping')
+def handle_master_ping():
+    """
+    Пинг от мастера для поддержания блокировки
+    """
+    session_id = session.get('session_id')
+    if session_id:
+        if update_master_ping(session_id, request.sid):
+            emit('pong')
+        else:
+            # Блокировка потеряна
+            emit('master_status', {'active': False, 'is_current': False})
+            disconnect()
 
 @app.route("/api/bank/character/<char_id>/spawn", methods=["POST"])
 def spawn_bank_character(char_id):
@@ -1911,6 +1983,96 @@ def update_bank_character(char_id):
     except Exception as e:
         print(f"Error updating bank character: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.before_request
+def check_master_access():
+    """
+    Проверка доступа к мастер-страницам
+    """
+    # Пропускаем статические файлы и API запросы
+    if request.path.startswith("/static/") or request.path.startswith("/api/"):
+        return None
+
+    # Пропускаем страницу блокировки
+    if request.path == "/master-locked":
+        return None
+
+    # Пропускаем страницу игрока
+    if request.path == "/player":
+        return None
+
+    # Проверяем, является ли запрос к мастер-интерфейсу
+    if (
+        request.path == "/"
+        and not request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    ):
+        # Получаем текущего мастера
+        current_master = get_current_master()
+
+        # Если мастер уже есть
+        if current_master:
+            session_id = session.get("session_id")
+            # Если это не текущий мастер, перенаправляем на страницу блокировки
+            if not session_id or session_id != current_master.get(
+                "session_id"
+            ):
+                return redirect("/master-locked")
+
+        # Если мастера нет, генерируем ID сессии
+        if "session_id" not in session:
+            import uuid
+
+            session["session_id"] = str(uuid.uuid4())
+
+    return None
+
+
+@app.route("/master-locked")
+def master_locked():
+    """
+    Страница, показываемая при попытке зайти вторым мастером
+    """
+    return render_template("master_locked.html")
+
+
+@app.route("/api/master/status", methods=["GET"])
+def master_status():
+    """
+    API для проверки статуса мастера
+    """
+    current_master = get_current_master()
+    session_id = session.get("session_id")
+
+    if current_master:
+        is_current = session_id and session_id == current_master.get(
+            "session_id"
+        )
+        return jsonify(
+            {
+                "active": True,
+                "is_current": is_current,
+                "master_info": {
+                    "acquired_at": current_master.get("acquired_at"),
+                    "last_seen": current_master.get("last_seen"),
+                }
+                if is_current
+                else None,
+            }
+        )
+    else:
+        return jsonify({"active": False, "is_current": False})
+
+
+@app.route("/api/master/release", methods=["POST"])
+def release_master():
+    """
+    Принудительно освободить блокировку
+    """
+    session_id = session.get("session_id")
+    if session_id and release_master_lock(session_id):
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "error"}), 400
 
 
 if __name__ == "__main__":

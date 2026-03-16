@@ -123,13 +123,23 @@ def sync_token_across_maps(token_id, updates):
                         if token.get("id") == token_id:
                             # Обновляем поля (кроме позиции)
                             for key, value in updates.items():
-                                if key != "position" and key != "avatar_data" and key != "avatar_url":
+                                if (
+                                    key != "position"
+                                    and key != "avatar_data"
+                                    and key != "avatar_url"
+                                ):
                                     token[key] = value
-                            
+
                             # Отдельно обрабатываем avatar_url
-                            if "avatar_url" in updates and updates["avatar_url"]:
-                                token["avatar_url"] = updates["avatar_url"].split('?')[0] + f"?t={int(time.time())}"
-                            
+                            if (
+                                "avatar_url" in updates
+                                and updates["avatar_url"]
+                            ):
+                                token["avatar_url"] = (
+                                    updates["avatar_url"].split("?")[0]
+                                    + f"?t={int(time.time())}"
+                                )
+
                             # Обновляем has_avatar если есть
                             if "has_avatar" in updates:
                                 token["has_avatar"] = updates["has_avatar"]
@@ -147,11 +157,13 @@ def sync_token_across_maps(token_id, updates):
             except Exception as e:
                 print(f"  ✗ Error updating map {filename}: {e}")
                 import traceback
+
                 traceback.print_exc()
                 continue
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
+
 
 def ensure_dirs():
     """Создать необходимые директории"""
@@ -184,14 +196,19 @@ def get_all_maps_with_token(token_id):
                 # Проверяем, есть ли токен на этой карте
                 for token in map_data["tokens"]:
                     if token.get("id") == token_id:
-                        maps_with_token.append({
-                            "map_id": map_id,
-                            "map_name": map_data.get("name", "Без названия"),
-                        })
+                        maps_with_token.append(
+                            {
+                                "map_id": map_id,
+                                "map_name": map_data.get(
+                                    "name", "Без названия"
+                                ),
+                            }
+                        )
                         break  # Нашли токен на этой карте, переходим к следующей
 
     print(f"Found token {token_id} on {len(maps_with_token)} maps")
     return maps_with_token
+
 
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
@@ -525,7 +542,7 @@ def load_map_data(map_id):
             # Добавляем флаг наличия изображения если его нет
             if "has_image" not in data:
                 data["has_image"] = os.path.exists(get_image_filepath(map_id))
-            
+
             # Убеждаемся, что все необходимые поля есть
             if "tokens" not in data:
                 data["tokens"] = []
