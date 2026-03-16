@@ -218,27 +218,27 @@ function loadCurrentMapFromStorage() {
 
 socket.on('connect', () => {
     console.log('Socket connected with ID:', socket.id);
-    
+
     // Запускаем пинг для поддержания блокировки мастера
     if (masterPingInterval) {
         clearInterval(masterPingInterval);
     }
-    
+
     masterPingInterval = setInterval(() => {
         socket.emit('master_ping');
     }, 10000); // Пинг каждые 10 секунд
-    
+
     // Проверяем статус мастера
     socket.emit('check_master_status');
 });
 
 socket.on('master_status', (data) => {
     console.log('Master status:', data);
-    
+
     if (!data.is_current) {
         // Мы потеряли статус мастера
         clearInterval(masterPingInterval);
-        
+
         if (!data.active) {
             // Мастер не активен - можем попробовать перезахватить
             if (confirm('Соединение с мастером потеряно. Перезагрузить страницу?')) {
@@ -3313,9 +3313,53 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Delete") {
         let changed = false;
 
-        // Существующий код для токенов
-        if (selectedTokenId) {
-            // Отправляем запрос на удаление токена (сервер сам решит, удалять ли аватар)
+        // Удаление нескольких выделенных токенов
+        if (selectedTokens.size > 0) {
+            // Подтверждение удаления
+            if (selectedTokens.size === 1) {
+                const token = mapData.tokens.find(t => t.id === Array.from(selectedTokens)[0]);
+                if (!confirm(`Удалить токен "${token?.name}"?`)) {
+                    return;
+                }
+            } else {
+                if (!confirm(`Удалить ${selectedTokens.size} выделенных токенов?`)) {
+                    return;
+                }
+            }
+
+            // Удаляем все выделенные токены
+            const tokensToDelete = Array.from(selectedTokens);
+
+            // Для каждого токена отправляем запрос на удаление на сервер
+            tokensToDelete.forEach(tokenId => {
+                // Отправляем запрос на удаление токена
+                fetch(`/api/token/${tokenId}`, {
+                    method: 'DELETE'
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'token deleted') {
+                            console.log(`Token ${tokenId} deleted successfully`);
+                        }
+                    })
+                    .catch(err => console.error(`Error deleting token ${tokenId}:`, err));
+            });
+
+            // Удаляем токены из локальных данных
+            mapData.tokens = mapData.tokens.filter(t => !selectedTokens.has(t.id));
+
+            // Очищаем выделение
+            selectedTokens.clear();
+            selectedTokenId = null;
+            changed = true;
+        }
+        // Существующий код для одиночного токена
+        else if (selectedTokenId) {
+            if (!confirm(`Удалить токен?`)) {
+                return;
+            }
+
+            // Отправляем запрос на удаление токена
             fetch(`/api/token/${selectedTokenId}`, {
                 method: 'DELETE'
             })
@@ -3335,6 +3379,7 @@ document.addEventListener("keydown", (e) => {
 
         // Существующий код для зон
         if (selectedZoneId) {
+            if (!confirm(`Удалить зону?`)) return;
             mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
             selectedZoneId = null;
             changed = true;
@@ -3342,6 +3387,7 @@ document.addEventListener("keydown", (e) => {
 
         // Существующий код для находок
         if (selectedFindId) {
+            if (!confirm(`Удалить находку?`)) return;
             mapData.finds = mapData.finds.filter(f => f.id !== selectedFindId);
             selectedFindId = null;
             changed = true;
@@ -3349,8 +3395,9 @@ document.addEventListener("keydown", (e) => {
 
         // Код для портретов
         if (selectedCharacterId) {
-            const character = mapData.characters?.find(c => c.id === selectedCharacterId);
+            if (!confirm(`Удалить портрет?`)) return;
 
+            const character = mapData.characters?.find(c => c.id === selectedCharacterId);
             if (character) {
                 fetch(`/api/portrait/${selectedCharacterId}`, {
                     method: 'DELETE'
@@ -3359,7 +3406,6 @@ document.addEventListener("keydown", (e) => {
                 mapData.characters = mapData.characters.filter(c => c.id !== selectedCharacterId);
                 changed = true;
             }
-
             selectedCharacterId = null;
         }
 
@@ -4297,7 +4343,7 @@ function clearAvatarCacheForToken(tokenId) {
         avatarCache.delete(tokenId);
         console.log(`Avatar cache cleared for token ${tokenId}`);
     }
-    
+
     // Также очищаем кэш браузера для этого URL
     const img = new Image();
     img.src = `/api/token/avatar/${tokenId}?t=${Date.now()}&cache=false`;
@@ -6686,25 +6732,25 @@ let cropFile = null;
 function openCropModal(file, target) {
     const modal = document.getElementById("cropModal");
     const cropImage = document.getElementById("cropImage");
-    
+
     // Сохраняем цель и файл
     currentCropTarget = target;
     cropFile = file;
-    
+
     // Загружаем изображение
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = function (e) {
         cropImage.src = e.target.result;
-        
+
         // Показываем модальное окно
         modal.style.display = "flex";
-        
+
         // Инициализируем кроппер после загрузки изображения
         setTimeout(() => {
             if (cropper) {
                 cropper.destroy();
             }
-            
+
             cropper = new Cropper(cropImage, {
                 aspectRatio: 1, // Квадратное соотношение
                 viewMode: 1,
@@ -6719,15 +6765,15 @@ function openCropModal(file, target) {
                 toggleDragModeOnDblclick: false,
                 minContainerWidth: 650,
                 minContainerHeight: 400,
-                ready: function() {
+                ready: function () {
                     // Центрируем crop box
                     const cropBox = cropper.getCropBoxData();
                     const container = cropper.getContainerData();
                     const image = cropper.getImageData();
-                    
+
                     // Устанавливаем размер как минимум из ширины/высоты
                     const size = Math.min(image.width, image.height);
-                    
+
                     cropper.setCropBoxData({
                         left: (container.width - size) / 2,
                         top: (container.height - size) / 2,
@@ -6755,7 +6801,7 @@ function closeCropModal() {
 // Функция для применения обрезки
 function applyCrop() {
     if (!cropper || !currentCropTarget || !cropFile) return;
-    
+
     // Получаем обрезанное изображение в максимальном качестве
     const canvas = cropper.getCroppedCanvas({
         width: 256,
@@ -6763,44 +6809,44 @@ function applyCrop() {
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high'
     });
-    
+
     // Конвертируем в base64
     const croppedBase64 = canvas.toDataURL('image/png');
-    
+
     // В зависимости от цели, обновляем соответствующий превью
-    switch(currentCropTarget) {
+    switch (currentCropTarget) {
         case 'token':
             const tokenPreview = document.getElementById("avatarPreview");
             tokenPreview.src = croppedBase64;
             tokenPreview.style.display = "block";
             tokenPreview.dataset.base64 = croppedBase64;
-            
+
             document.getElementById("avatarOverlay").style.display = "none";
             document.getElementById("avatarMask").style.display = "block";
             document.getElementById("editIcon").style.display = "block";
             break;
-            
+
         case 'character':
             const charPreview = document.getElementById("characterAvatarPreview");
             charPreview.src = croppedBase64;
             charPreview.style.display = "block";
             charPreview.dataset.base64 = croppedBase64;
-            
+
             document.getElementById("characterAvatarOverlay").style.display = "none";
             document.getElementById("characterAvatarMask").style.display = "none";
             document.getElementById("characterEditIcon").style.display = "block";
             break;
-            
+
         case 'bank':
             const bankPreview = document.getElementById("bankAvatarPreview");
             bankPreview.src = croppedBase64;
             bankPreview.style.display = "block";
             bankPreview.dataset.base64 = croppedBase64;
-            
+
             document.getElementById("bankAvatarOverlay").style.display = "none";
             document.getElementById("bankEditIcon").style.display = "block";
             break;
     }
-    
+
     closeCropModal();
 }
