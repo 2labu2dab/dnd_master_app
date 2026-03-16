@@ -1548,6 +1548,13 @@ canvas.map-panning {
 .bank-character-list {
     max-height: 300px;
     overflow-y: auto;
+    scrollbar-width: thin; /* Для Firefox */
+  scrollbar-color: #4a4a6a #1e1e2e;
+}
+
+.import-token-list{
+  scrollbar-width: thin; /* Для Firefox */
+  scrollbar-color: #4a4a6a #1e1e2e;
 }
 
 .bank-character-item {
