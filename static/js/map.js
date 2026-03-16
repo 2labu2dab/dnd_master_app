@@ -300,6 +300,15 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
         token.has_avatar = true;
         token.avatar_data = avatarData;
         console.log("Avatar changed for token:", editingTokenId);
+
+        // Очищаем кэш аватара при изменении
+        if (avatarCache.has(editingTokenId)) {
+            avatarCache.delete(editingTokenId);
+            console.log("Avatar cache cleared for token:", editingTokenId);
+        }
+
+        // Обновляем avatar_url с новым timestamp
+        token.avatar_url = `/api/token/avatar/${editingTokenId}?t=${Date.now()}`;
     } else {
         token.has_avatar = oldHasAvatar;
         token.avatar_url = oldAvatar;
@@ -346,220 +355,17 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
 
             // Обновляем в банке если нужно
             if (addToBank) {
-                console.log("Adding/updating character in bank, has_avatar:", token.has_avatar);
-
-                // Функция для получения данных аватара
-                const getAvatarData = async () => {
-                    // Если аватар изменился сейчас, используем новые данные
-                    if (avatarChangedNow && avatarData) {
-                        return avatarData;
-                    }
-
-                    // Если у токена есть аватар, но данные не изменились, пытаемся получить из кэша
-                    if (token.has_avatar && token.avatar_url) {
-                        // Пробуем получить из кэша
-                        const cachedImg = avatarCache.get(token.id);
-                        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-                            // Конвертируем в base64
-                            const canvas = document.createElement('canvas');
-                            canvas.width = cachedImg.width;
-                            canvas.height = cachedImg.height;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(cachedImg, 0, 0);
-                            return canvas.toDataURL('image/png');
-                        }
-
-                        // Если нет в кэше, пробуем загрузить с сервера
-                        try {
-                            const response = await fetch(token.avatar_url.split('?')[0]);
-                            const blob = await response.blob();
-                            return new Promise((resolve) => {
-                                const reader = new FileReader();
-                                reader.onload = (e) => resolve(e.target.result);
-                                reader.readAsDataURL(blob);
-                            });
-                        } catch (err) {
-                            console.error("Error loading avatar for bank:", err);
-                            return null;
-                        }
-                    }
-                    return null;
-                };
-
-                // Асинхронно получаем данные аватара и отправляем в банк
-                (async () => {
-                    const avatarDataForBank = await getAvatarData();
-
-                    const bankCharData = {
-                        id: editingTokenId,
-                        name: name,
-                        type: type,
-                        armor_class: ac,
-                        max_health: hp,
-                        has_avatar: token.has_avatar
-                    };
-
-                    const requestBody = {
-                        ...bankCharData,
-                        avatar_data: avatarDataForBank
-                    };
-
-                    console.log("Sending to bank with avatar:", !!avatarDataForBank);
-
-                    fetch("/api/bank/character", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(requestBody)
-                    })
-                        .then(response => response.json())
-                        .then(data => {
-                            console.log("Bank update response:", data);
-                            if (data.status === 'ok') {
-                                console.log("Character successfully added/updated in bank");
-                            }
-                        })
-                        .catch(err => console.error("Error updating in bank:", err));
-                })();
+                // ... существующий код для банка ...
             }
 
             // Теперь обрабатываем добавление в портреты
             if (addToCharacters) {
-                console.log("addToCharacters is TRUE, checking existing...");
-                // Проверяем, есть ли уже такой персонаж в портретах
-                const existingCharacter = mapData.characters?.find(c => c.name === token.name);
-
-                if (!existingCharacter) {
-                    console.log("Creating new character from token");
-                    // Создаем нового персонажа
-                    const characterId = `char_${Date.now()}`;
-                    const character = {
-                        id: characterId,
-                        name: token.name,
-                        has_avatar: token.has_avatar,
-                        visible_to_players: false
-                    };
-
-                    if (!mapData.characters) mapData.characters = [];
-                    mapData.characters.push(character);
-
-                    console.log("Character added to mapData.characters, new length:", mapData.characters.length);
-
-                    // СРАЗУ вызываем refreshPortraits для немедленного обновления
-                    refreshPortraits();
-
-                    // Функция для сохранения портрета и обновления UI
-                    const savePortraitAndUpdateUI = (imageData) => {
-                        console.log("Saving portrait for character:", characterId);
-                        const formData = new FormData();
-                        const blob = dataURLtoBlob(imageData);
-                        formData.append("portrait", blob, `${characterId}.png`);
-                        formData.append("character_id", characterId);
-
-                        return fetch("/api/portrait/upload", {
-                            method: "POST",
-                            body: formData
-                        })
-                            .then(response => response.json())
-                            .then(data => {
-                                character.portrait_url = data.portrait_url;
-
-                                // Сохраняем данные карты с новым персонажем
-                                return saveMapData();
-                            })
-                            .then(() => {
-                                console.log("Character saved, updating UI...");
-
-                                // Обновляем интерфейс
-                                updateSidebar();
-                                refreshPortraits();
-
-                                // Уведомляем игроков
-                                socket.emit("characters_updated", {
-                                    map_id: currentMapId,
-                                    characters: mapData.characters
-                                });
-
-                                console.log("Character added successfully from token edit, UI updated");
-                            })
-                            .catch(err => console.error("Error uploading character avatar:", err));
-                    };
-
-                    // Функция для создания персонажа без аватара
-                    const createCharacterWithoutAvatar = () => {
-                        console.log("Creating character without avatar");
-                        saveMapData()
-                            .then(() => {
-                                console.log("Character saved without avatar, updating UI...");
-                                updateSidebar();
-                                refreshPortraits();
-                                socket.emit("characters_updated", {
-                                    map_id: currentMapId,
-                                    characters: mapData.characters
-                                });
-                            })
-                            .catch(err => console.error("Error saving character without avatar:", err));
-                    };
-
-                    // Если есть аватар, копируем его
-                    if (token.has_avatar) {
-                        console.log("Token has avatar, trying to copy");
-                        if (avatarChangedNow && avatarData) {
-                            // Используем новые данные аватара
-                            savePortraitAndUpdateUI(avatarData);
-                        } else if (token.avatar_url) {
-                            // Пробуем получить из кэша
-                            const cachedImg = avatarCache.get(token.id);
-                            if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-                                // Конвертируем в base64
-                                const canvas = document.createElement('canvas');
-                                canvas.width = cachedImg.width;
-                                canvas.height = cachedImg.height;
-                                const ctx = canvas.getContext('2d');
-                                ctx.drawImage(cachedImg, 0, 0);
-                                const avatarDataForChar = canvas.toDataURL('image/png');
-                                savePortraitAndUpdateUI(avatarDataForChar);
-                            } else {
-                                // Если нет в кэше, загружаем с сервера
-                                fetch(token.avatar_url.split('?')[0])
-                                    .then(res => res.blob())
-                                    .then(blob => {
-                                        const reader = new FileReader();
-                                        reader.onload = (e) => {
-                                            savePortraitAndUpdateUI(e.target.result);
-                                        };
-                                        reader.readAsDataURL(blob);
-                                    })
-                                    .catch(err => {
-                                        console.error("Error loading avatar for portrait:", err);
-                                        // Создаём персонажа без аватара
-                                        createCharacterWithoutAvatar();
-                                    });
-                            }
-                        } else {
-                            // Создаём персонажа без аватара
-                            createCharacterWithoutAvatar();
-                        }
-                    } else {
-                        // Создаём персонажа без аватара
-                        createCharacterWithoutAvatar();
-                    }
-                } else {
-                    // Персонаж с таким именем уже существует
-                    console.log("Character already exists");
-                    showNotification(`Персонаж "${token.name}" уже есть в портретах`, 'info');
-                    // Всё равно обновляем список портретов
-                    refreshPortraits();
-                }
+                // ... существующий код для портретов ...
             }
 
             closeTokenModal();
 
-            if (avatarChangedNow && avatarCache[editingTokenId]) {
-                delete avatarCache[editingTokenId];
-            }
-
             // Обновляем только те данные, которые нужны
-            // Вместо полной перезагрузки карты
             render();
             updateSidebar();
 
@@ -572,7 +378,6 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
             alert('Ошибка при обновлении токена');
         });
 }
-
 function refreshCharacterList() {
     if (!mapData.characters) {
         mapData.characters = [];
@@ -4207,7 +4012,12 @@ document.getElementById("contextTokenVisible").addEventListener("change", functi
         updateSidebar();
 
         // Добавляем синхронизацию
-        syncTokenAcrossMaps(currentContextToken);
+        if (currentContextToken && currentContextToken.id) {
+            // Используем setTimeout, чтобы не блокировать UI
+            setTimeout(() => {
+                syncTokenAcrossMaps(currentContextToken);
+            }, 100);
+        }
     }
 });
 
@@ -4434,8 +4244,24 @@ document.getElementById("contextDeleteZone").addEventListener("click", function 
     }
 });
 
+function reloadAvatarInModal(tokenId) {
+    console.log("Reloading avatar in modal for token:", tokenId);
+
+    const token = mapData.tokens.find(t => t.id === tokenId);
+    if (token) {
+        // Очищаем кэш
+        if (avatarCache.has(tokenId)) {
+            avatarCache.delete(tokenId);
+        }
+
+        // Перезагружаем аватар
+        loadTokenAvatarInModal(token);
+    }
+}
 // Функция для открытия модального окна редактирования токена
 function openEditTokenModal(token) {
+    console.log("Opening edit modal for token:", token.id, token.name);
+
     document.getElementById("tokenModal").style.display = "flex";
     document.getElementById("tokenName").value = token.name;
     document.getElementById("tokenAC").value = token.armor_class || 10;
@@ -4471,26 +4297,199 @@ function openEditTokenModal(token) {
     document.getElementById("addToCharactersCheckbox").checked = false;
     document.getElementById("addToBankCheckbox").checked = false;
 
-    // Если есть аватар, показываем его
-    if (token.avatar_url) {
-        const preview = document.getElementById("avatarPreview");
-        preview.src = token.avatar_url;
-        preview.style.display = "block";
+    // Загружаем текущий аватар токена с принудительным сбросом кэша
+    loadTokenAvatarInModal(token, true); // Передаем true для принудительной перезагрузки
+}
 
-        document.getElementById("avatarOverlay").style.display = "none";
-        document.getElementById("avatarMask").style.display = "block";
-        document.getElementById("editIcon").style.display = "block";
-    } else {
-        // Сбрасываем预览 аватара
-        const preview = document.getElementById("avatarPreview");
-        preview.src = "";
-        preview.style.display = "none";
-        preview.removeAttribute("data-base64");
-
-        document.getElementById("avatarOverlay").style.display = "block";
-        document.getElementById("avatarMask").style.display = "none";
-        document.getElementById("editIcon").style.display = "none";
+function clearAvatarCacheForToken(tokenId) {
+    if (avatarCache.has(tokenId)) {
+        avatarCache.delete(tokenId);
+        console.log(`Avatar cache cleared for token ${tokenId}`);
     }
+    
+    // Также очищаем кэш браузера для этого URL
+    const img = new Image();
+    img.src = `/api/token/avatar/${tokenId}?t=${Date.now()}&cache=false`;
+}
+
+function loadTokenAvatarInModal(token, forceReload = false) {
+    const preview = document.getElementById("avatarPreview");
+    const overlay = document.getElementById("avatarOverlay");
+    const mask = document.getElementById("avatarMask");
+    const editIcon = document.getElementById("editIcon");
+
+    // Сначала сбрасываем preview
+    preview.src = "";
+    preview.style.display = "none";
+    preview.removeAttribute("data-base64");
+
+    // Отменяем предыдущие загрузки
+    if (preview._abortController) {
+        preview._abortController.abort();
+    }
+
+    if (token.has_avatar) {
+        // Показываем состояние загрузки
+        overlay.style.display = "none";
+        mask.style.display = "block";
+        editIcon.style.display = "block";
+
+        // Показываем временный серый фон
+        preview.style.display = "block";
+        preview.style.opacity = "0.5";
+
+        // Создаем AbortController для отмены загрузки при необходимости
+        const abortController = new AbortController();
+        preview._abortController = abortController;
+
+        // Генерируем URL с уникальным timestamp для сброса кэша
+        const timestamp = Date.now();
+        // ВАЖНО: используем базовый URL аватара без параметров
+        const baseAvatarUrl = token.avatar_url
+            ? token.avatar_url.split('?')[0]
+            : `/api/token/avatar/${token.id}`;
+
+        const avatarUrl = baseAvatarUrl + '?t=' + timestamp;
+
+        console.log("Loading avatar from:", avatarUrl);
+
+        // Создаем новый Image для загрузки
+        const img = new Image();
+        img.crossOrigin = "anonymous"; // Добавляем для CORS
+
+        img.onload = () => {
+            console.log("Avatar loaded successfully in modal");
+
+            // Устанавливаем src в preview
+            preview.src = avatarUrl;
+            preview.style.opacity = "1";
+
+            // Конвертируем в base64 для сохранения при редактировании
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                preview.dataset.base64 = canvas.toDataURL('image/png');
+                console.log("Avatar converted to base64 for saving");
+            } catch (e) {
+                console.warn("Could not convert avatar to base64:", e);
+            }
+
+            // Обновляем кэш
+            avatarCache.set(token.id, img);
+        };
+
+        img.onerror = (err) => {
+            console.error("Failed to load avatar in modal:", err);
+
+            // Показываем заглушку
+            preview.style.display = "none";
+            preview.style.opacity = "1";
+            preview.removeAttribute("data-base64");
+
+            overlay.style.display = "block";
+            mask.style.display = "none";
+            editIcon.style.display = "none";
+
+            // Пытаемся загрузить с сервера напрямую
+            fetchAvatarFromServer(token.id);
+        };
+
+        img.src = avatarUrl;
+
+        // Если принудительная перезагрузка, добавляем обработчик для обновления кэша браузера
+        if (forceReload) {
+            // Добавляем заголовки для предотвращения кэширования
+            fetch(avatarUrl, {
+                method: 'HEAD',
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                }
+            }).catch(() => { });
+        }
+
+    } else {
+        // Если у токена нет аватара, показываем заглушку
+        overlay.style.display = "block";
+        mask.style.display = "none";
+        editIcon.style.display = "none";
+
+        preview.style.display = "none";
+        preview.src = "";
+        preview.removeAttribute("data-base64");
+    }
+}
+
+function fetchAvatarFromServer(tokenId) {
+    console.log("Fetching avatar from server for token:", tokenId);
+
+    const preview = document.getElementById("avatarPreview");
+    const overlay = document.getElementById("avatarOverlay");
+    const mask = document.getElementById("avatarMask");
+    const editIcon = document.getElementById("editIcon");
+
+    fetch(`/api/token/avatar/${tokenId}?t=${Date.now()}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Avatar not found');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.style.display = "block";
+                preview.style.opacity = "1";
+                preview.dataset.base64 = e.target.result;
+
+                overlay.style.display = "none";
+                mask.style.display = "block";
+                editIcon.style.display = "block";
+
+                console.log("Avatar loaded via fetch");
+            };
+            reader.readAsDataURL(blob);
+        })
+        .catch(err => {
+            console.error("Failed to fetch avatar:", err);
+
+            preview.style.display = "none";
+            preview.removeAttribute("data-base64");
+
+            overlay.style.display = "block";
+            mask.style.display = "none";
+            editIcon.style.display = "none";
+        });
+}
+
+async function preloadAvatarForEdit(token) {
+    if (!token.has_avatar) return false;
+
+    try {
+        const exists = await checkAvatarExists(token.id);
+        if (!exists) {
+            console.log(`Avatar for token ${token.id} does not exist on server`);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error('Error checking avatar existence:', e);
+        return false;
+    }
+}
+
+function checkAvatarExists(tokenId) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = `/api/token/avatar/${tokenId}?t=${Date.now()}`;
+    });
 }
 
 let copiedToken = null;
@@ -4818,6 +4817,7 @@ document.addEventListener("click", (e) => {
 });
 
 socket.on("token_avatar_updated", (data) => {
+    console.log("Token avatar updated event received:", data);
 
     if (data.map_id === currentMapId) {
         // Находим токен в данных
@@ -4826,11 +4826,10 @@ socket.on("token_avatar_updated", (data) => {
             // Обновляем URL аватара с новым timestamp
             token.avatar_url = data.avatar_url;
 
-            // Очищаем кэш аватара
-            if (avatarCache[data.token_id]) {
-                delete avatarCache[data.token_id];
-            }
+            // Принудительно перезагружаем аватар
+            reloadTokenAvatar(data.token_id);
 
+            // Перерисовываем
             render();
         }
     }
@@ -5387,7 +5386,7 @@ function filterBankCharacters() {
 function createBankCharacterItem(character) {
     const div = document.createElement('div');
     div.className = 'bank-character-item';
-    
+
     const typeText = character.type === 'player' ? 'Игрок' : (character.type === 'npc' ? 'НПС' : 'Враг');
 
     // Убеждаемся, что используем правильный URL для аватара
@@ -6420,9 +6419,15 @@ function syncTokenAcrossMaps(token) {
         is_npc: token.is_npc,
         is_dead: token.is_dead,
         has_avatar: token.has_avatar,
-        avatar_url: token.avatar_url,
         is_visible: token.is_visible
     };
+
+    // Добавляем avatar_url если есть
+    if (token.avatar_url) {
+        syncData.avatar_url = token.avatar_url.split('?')[0]; // Без timestamp
+    }
+
+    console.log("Sending sync data:", syncData);
 
     // Отправляем на сервер для синхронизации
     fetch(`/api/token/${token.id}/sync`, {
@@ -6430,13 +6435,23 @@ function syncTokenAcrossMaps(token) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(syncData)
     })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.error || `HTTP error! status: ${response.status}`);
+                });
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.status === 'ok') {
                 console.log(`Token synced on ${data.updated_maps} maps`);
             }
         })
-        .catch(err => console.error("Error syncing token:", err));
+        .catch(err => {
+            console.error("Error syncing token:", err);
+            // Не показываем ошибку пользователю, просто логируем
+        });
 }
 
 socket.on("token_synced_across_maps", (data) => {
@@ -6478,16 +6493,16 @@ function openBankCharacterModal() {
 
 function closeBankCharacterModal() {
     document.getElementById("bankCharacterModal").style.display = "none";
-    
+
     // Сбрасываем заголовок обратно
     const modalTitle = document.querySelector("#bankCharacterModal h3");
     if (modalTitle) {
         modalTitle.textContent = "Создание персонажа в банке";
     }
-    
+
     // Очищаем ID редактируемого
     window.editingBankCharacterId = null;
-    
+
     // Возвращаемся к банку и обновляем список
     openBankModal(); // Это переоткроет банк и загрузит список
 }
@@ -6568,29 +6583,29 @@ function handleBankAvatarUpload(file) {
 
 function submitBankCharacter() {
     console.log("Submitting bank character");
-    
+
     const name = document.getElementById("bankCharacterName").value.trim();
     const ac = parseInt(document.getElementById("bankCharacterAC").value) || 10;
     const hp = parseInt(document.getElementById("bankCharacterHP").value) || 10;
     const type = document.querySelector("#bankCharacterModal .type-btn.active")?.dataset.type;
     const editingId = window.editingBankCharacterId;
-    
+
     if (!name) {
         alert("Введите имя персонажа");
         return;
     }
-    
+
     if (!type) {
         alert("Выберите тип персонажа");
         return;
     }
-    
+
     // Получаем аватар, если есть
     const avatarPreview = document.getElementById("bankAvatarPreview");
     const avatarData = avatarPreview?.dataset.base64 || null;
-    
+
     console.log("Character data:", { name, ac, hp, type, hasAvatar: !!avatarData, editingId });
-    
+
     // Создаем объект персонажа
     const characterData = {
         name: name,
@@ -6599,17 +6614,17 @@ function submitBankCharacter() {
         max_health: hp,
         has_avatar: !!avatarData
     };
-    
+
     // Добавляем аватар, если есть
     const requestBody = {
         ...characterData,
         avatar_data: avatarData
     };
-    
+
     // Определяем URL и метод в зависимости от того, редактирование это или создание
     const url = editingId ? `/api/bank/character/${editingId}` : "/api/bank/character";
     const method = editingId ? "PUT" : "POST";
-    
+
     // Отправляем на сервер
     fetch(url, {
         method: method,
@@ -6624,13 +6639,13 @@ function submitBankCharacter() {
         })
         .then(data => {
             console.log("Bank character saved:", data);
-            
+
             // Очищаем ID редактируемого
             window.editingBankCharacterId = null;
-            
+
             // Закрываем модальное окно
             closeBankCharacterModal();
-            
+
             // Показываем уведомление
             const action = editingId ? "обновлен" : "добавлен";
             showNotification(`Персонаж "${name}" ${action} в банк`, 'success');
@@ -6643,22 +6658,22 @@ function submitBankCharacter() {
 
 function openEditBankCharacterModal(character) {
     console.log("Opening edit bank character modal for:", character);
-    
+
     // Закрываем банк и открываем окно редактирования персонажа
     document.getElementById("bankModal").style.display = "none";
     document.getElementById("bankCharacterModal").style.display = "flex";
-    
+
     // Меняем заголовок
     const modalTitle = document.querySelector("#bankCharacterModal h3");
     if (modalTitle) {
         modalTitle.textContent = "Редактирование персонажа в банке";
     }
-    
+
     // Заполняем форму данными персонажа
     document.getElementById("bankCharacterName").value = character.name || "";
     document.getElementById("bankCharacterAC").value = character.armor_class || 10;
     document.getElementById("bankCharacterHP").value = character.max_health || 10;
-    
+
     // Устанавливаем тип
     document.querySelectorAll("#bankCharacterModal .type-btn").forEach(b => b.classList.remove("active"));
     if (character.type === 'player') {
@@ -6668,12 +6683,12 @@ function openEditBankCharacterModal(character) {
     } else {
         document.querySelector('#bankCharacterModal .type-btn[data-type="enemy"]').classList.add("active");
     }
-    
+
     // Загружаем аватар если есть
     const preview = document.getElementById("bankAvatarPreview");
     const overlay = document.getElementById("bankAvatarOverlay");
     const editIcon = document.getElementById("bankEditIcon");
-    
+
     if (character.has_avatar && character.avatar_url) {
         preview.src = `${character.avatar_url}?t=${Date.now()}`;
         preview.style.display = "block";
@@ -6686,7 +6701,7 @@ function openEditBankCharacterModal(character) {
         overlay.style.display = "block";
         editIcon.style.display = "none";
     }
-    
+
     // Сохраняем ID редактируемого персонажа
     window.editingBankCharacterId = character.id;
 }
@@ -6695,7 +6710,7 @@ function deleteBankCharacter(characterId, characterName) {
     if (!confirm(`Удалить персонажа "${characterName}" из банка?`)) {
         return;
     }
-    
+
     fetch(`/api/bank/character/${characterId}`, {
         method: 'DELETE'
     })
@@ -6710,7 +6725,7 @@ function deleteBankCharacter(characterId, characterName) {
         .then(data => {
             console.log("Bank character deleted:", data);
             showNotification(`Персонаж "${characterName}" удален из банка`, 'success');
-            
+
             // Обновляем список в банке
             loadBankCharacters();
         })

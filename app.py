@@ -407,57 +407,8 @@ def get_token_avatar(token_id):
         print(f"File size: {os.path.getsize(image_path)} bytes")
         return send_file(image_path, mimetype="image/png")
 
-    # Создаем заглушку с прозрачным фоном
-    from PIL import Image, ImageDraw
-
-    img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))  # Прозрачный фон
-
-    # Рисуем серый круг с вопросительным знаком
-    draw = ImageDraw.Draw(img)
-
-    # Рисуем круг
-    draw.ellipse(
-        [20, 20, 236, 236],
-        fill=(100, 100, 100, 255),
-        outline=(150, 150, 150, 255),
-        width=2,
-    )
-
-    # Добавляем вопросительный знак
-    import textwrap
-
-    try:
-        # Пытаемся использовать шрифт побольше
-        from PIL import ImageFont
-
-        try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 120
-            )
-        except:
-            font = ImageFont.load_default()
-
-        # Рисуем "?" в центре
-        draw.text(
-            (128, 128), "?", fill=(150, 150, 150, 255), font=font, anchor="mm"
-        )
-    except:
-        # Если не получается со шрифтом, рисуем простой крестик
-        draw.line((78, 78, 178, 178), fill=(150, 150, 150, 255), width=10)
-        draw.line((178, 78, 78, 178), fill=(150, 150, 150, 255), width=10)
-
-    # Сохраняем в BytesIO
-    img_io = io.BytesIO()
-    img.save(img_io, "PNG")
-    img_io.seek(0)
-
-    # Добавляем заголовки для отключения кэширования
-    response = send_file(img_io, mimetype="image/png")
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-
-    return response
+    # Если файл не найден, создаем заглушку на лету
+    return create_default_avatar()
 
 
 @app.route("/api/token/<token_id>/sync", methods=["POST"])
@@ -466,86 +417,66 @@ def sync_token_across_maps(token_id):
     try:
         data = request.get_json()
         print(f"\n=== Syncing token {token_id} across all maps ===")
+        print(f"Sync data: {data}")
 
         # Получаем список всех карт, где есть этот токен
-        from utils.storage import get_all_maps_with_token
+        from utils.storage import get_all_maps_with_token, sync_token_across_maps as sync_storage
 
         maps_with_token = get_all_maps_with_token(token_id)
-
         print(f"Token found on {len(maps_with_token)} maps")
 
-        # Обновляем токен на каждой карте
-        for map_info in maps_with_token:
-            map_id = map_info["map_id"]
+        # Используем функцию из storage для синхронизации
+        updated_maps = sync_storage(token_id, data)
+
+        # Отправляем обновления игрокам на всех картах
+        for map_id in updated_maps:
             map_data = load_map_data(map_id)
+            if map_data:
+                # Подготавливаем данные для игроков
+                tokens_for_players = []
+                for t in map_data.get("tokens", []):
+                    token_copy = t.copy()
+                    if token_copy.get("has_avatar"):
+                        from utils.storage import get_token_avatar_url
+                        token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"]) + f"?t={int(time.time())}"
+                    token_copy.pop("avatar_data", None)
+                    tokens_for_players.append(token_copy)
 
-            if not map_data:
-                continue
+                player_data = {
+                    "map_id": map_id,
+                    "tokens": tokens_for_players,
+                    "zones": map_data.get("zones", []),
+                    "finds": map_data.get("finds", []),
+                    "grid_settings": map_data.get("grid_settings", {}),
+                    "player_map_enabled": map_data.get("player_map_enabled", True),
+                    "has_image": map_data.get("has_image", False),
+                }
 
-            # Находим и обновляем токен
-            tokens = map_data.get("tokens", [])
-            for i, token in enumerate(tokens):
-                if token.get("id") == token_id:
-                    # Обновляем поля (кроме позиции)
-                    token["name"] = data.get("name", token["name"])
-                    token["armor_class"] = data.get(
-                        "armor_class", token["armor_class"]
-                    )
-                    token["health_points"] = data.get(
-                        "health_points", token["health_points"]
-                    )
-                    token["max_health_points"] = data.get(
-                        "max_health_points", token["max_health_points"]
-                    )
-                    token["is_player"] = data.get(
-                        "is_player", token["is_player"]
-                    )
-                    token["is_npc"] = data.get("is_npc", token["is_npc"])
-                    token["is_dead"] = data.get("is_dead", token["is_dead"])
-                    token["has_avatar"] = data.get(
-                        "has_avatar", token["has_avatar"]
-                    )
+                if map_data.get("has_image"):
+                    player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
 
-                    print(f"✓ Updated token on map {map_id}")
-                    break
-
-            # Сохраняем карту
-            save_map_data(map_data, map_id)
-
-            # Отправляем обновление игрокам на этой карте
-            player_data = {
-                "map_id": map_id,
-                "tokens": map_data.get("tokens", []),
-                "zones": map_data.get("zones", []),
-                "finds": map_data.get("finds", []),
-                "grid_settings": map_data.get("grid_settings", {}),
-                "player_map_enabled": map_data.get("player_map_enabled", True),
-                "has_image": map_data.get("has_image", False),
-            }
-
-            if map_data.get("has_image"):
-                player_data["image_url"] = (
-                    f"/api/map/image/{map_id}?t={int(time.time())}"
-                )
-
-            socketio.emit("map_updated", player_data, room=f"map_{map_id}")
+                socketio.emit("map_updated", player_data)
 
         # Уведомляем всех мастеров о синхронизации
-        socketio.emit(
-            "token_synced_across_maps",
-            {"token_id": token_id, "updated_data": data},
-            broadcast=True,
-        )
+        if updated_maps:
+            socketio.emit(
+                "token_synced_across_maps",
+                {
+                    "token_id": token_id,
+                    "updated_data": data,
+                    "updated_maps": updated_maps
+                },
+                broadcast=True,
+            )
 
-        return jsonify({"status": "ok", "updated_maps": len(maps_with_token)})
+        print(f"Token {token_id} updated on {len(updated_maps)} maps")
+        return jsonify({"status": "ok", "updated_maps": updated_maps})
 
     except Exception as e:
         print(f"Error syncing token: {e}")
         import traceback
-
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route("/api/token/avatar/<source_token_id>/copy", methods=["POST"])
 def copy_token_avatar(source_token_id):

@@ -123,14 +123,16 @@ def sync_token_across_maps(token_id, updates):
                         if token.get("id") == token_id:
                             # Обновляем поля (кроме позиции)
                             for key, value in updates.items():
-                                if key != "position" and key != "avatar_data":
+                                if key != "position" and key != "avatar_data" and key != "avatar_url":
                                     token[key] = value
-
-                            # Если обновляется аватар, добавляем timestamp к URL
-                            if key == "avatar_url" and value:
-                                token["avatar_url"] = (
-                                    f"{value.split('?')[0]}?t={int(time.time())}"
-                                )
+                            
+                            # Отдельно обрабатываем avatar_url
+                            if "avatar_url" in updates and updates["avatar_url"]:
+                                token["avatar_url"] = updates["avatar_url"].split('?')[0] + f"?t={int(time.time())}"
+                            
+                            # Обновляем has_avatar если есть
+                            if "has_avatar" in updates:
+                                token["has_avatar"] = updates["has_avatar"]
 
                             token_updated = True
                             print(f"  ✓ Updated token on map {map_id}")
@@ -144,11 +146,12 @@ def sync_token_across_maps(token_id, updates):
 
             except Exception as e:
                 print(f"  ✗ Error updating map {filename}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
-
 
 def ensure_dirs():
     """Создать необходимые директории"""
@@ -170,6 +173,8 @@ def get_all_maps_with_token(token_id):
     if not os.path.exists(maps_dir):
         return maps_with_token
 
+    print(f"Searching for token {token_id} in maps...")
+
     for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
             map_id = filename[:-5]  # убираем .json
@@ -177,20 +182,16 @@ def get_all_maps_with_token(token_id):
 
             if map_data and "tokens" in map_data:
                 # Проверяем, есть ли токен на этой карте
-                token_exists = any(
-                    token.get("id") == token_id for token in map_data["tokens"]
-                )
-
-                if token_exists:
-                    maps_with_token.append(
-                        {
+                for token in map_data["tokens"]:
+                    if token.get("id") == token_id:
+                        maps_with_token.append({
                             "map_id": map_id,
                             "map_name": map_data.get("name", "Без названия"),
-                        }
-                    )
+                        })
+                        break  # Нашли токен на этой карте, переходим к следующей
 
+    print(f"Found token {token_id} on {len(maps_with_token)} maps")
     return maps_with_token
-
 
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
@@ -524,10 +525,23 @@ def load_map_data(map_id):
             # Добавляем флаг наличия изображения если его нет
             if "has_image" not in data:
                 data["has_image"] = os.path.exists(get_image_filepath(map_id))
+            
+            # Убеждаемся, что все необходимые поля есть
+            if "tokens" not in data:
+                data["tokens"] = []
+            if "zones" not in data:
+                data["zones"] = []
+            if "finds" not in data:
+                data["finds"] = []
+            if "characters" not in data:
+                data["characters"] = []
 
             return data
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON for map {map_id}: {e}")
+            return None
         except Exception as e:
-            print(f"Error loading map data: {e}")
+            print(f"Error loading map data for {map_id}: {e}")
             return None
     return None
 
