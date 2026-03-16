@@ -160,39 +160,35 @@ def ensure_dirs():
 
 
 def get_all_maps_with_token(token_id):
-    """Проверить, на каких картах используется токен"""
-    ensure_dirs()
+    """
+    Найти все карты, на которых присутствует указанный токен
+    Возвращает список словарей с информацией о картах
+    """
     maps_with_token = []
+    maps_dir = "data/maps"
 
-    print(f"Checking all maps for token {token_id}")
+    if not os.path.exists(maps_dir):
+        return maps_with_token
 
-    for filename in os.listdir(MAPS_DIR):
+    for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
-            map_id = filename[:-5]
-            filepath = os.path.join(MAPS_DIR, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+            map_id = filename[:-5]  # убираем .json
+            map_data = load_map_data(map_id)
 
+            if map_data and "tokens" in map_data:
                 # Проверяем, есть ли токен на этой карте
-                if "tokens" in data:
-                    for token in data["tokens"]:
-                        if token.get("id") == token_id:
-                            maps_with_token.append(
-                                {
-                                    "map_id": map_id,
-                                    "map_name": data.get("name", "Unknown"),
-                                }
-                            )
-                            print(
-                                f"  Found token {token_id} on map {map_id} ({data.get('name', 'Unknown')})"
-                            )
-                            break
-            except Exception as e:
-                print(f"Error checking map {filename}: {e}")
-                continue
+                token_exists = any(
+                    token.get("id") == token_id for token in map_data["tokens"]
+                )
 
-    print(f"Token {token_id} found on {len(maps_with_token)} maps total")
+                if token_exists:
+                    maps_with_token.append(
+                        {
+                            "map_id": map_id,
+                            "map_name": map_data.get("name", "Без названия"),
+                        }
+                    )
+
     return maps_with_token
 
 
@@ -711,10 +707,10 @@ def get_portrait_url(portrait_id):
 def delete_portrait_image(portrait_id):
     """
     Удалить файл портрета
-    
+
     Args:
         portrait_id: ID портрета
-        
+
     Returns:
         bool: True если успешно, False если ошибка
     """

@@ -28,11 +28,12 @@ from flask_socketio import SocketIO, emit
 from PIL import Image
 
 from utils.storage import (
-    TOKENS_AVATARS_DIR,  # Добавьте эти импорты
+    TOKENS_AVATARS_DIR,
     create_new_map,
     delete_map,
     get_image_filepath,
     get_token_avatar_url,
+    get_all_maps_with_token,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
     list_maps,
     load_map_data,
     load_map_image,
@@ -1585,7 +1586,7 @@ def get_portrait(portrait_id):
 def delete_portrait(portrait_id):
     """Удалить портрет персонажа"""
     from utils.storage import delete_portrait_image
-    
+
     if delete_portrait_image(portrait_id):
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404
