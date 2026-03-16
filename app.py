@@ -1955,6 +1955,33 @@ def get_map_thumbnail(map_id):
         return "", 500
 
 
+@app.route("/api/bank/character/<char_id>", methods=["PUT"])
+def update_bank_character(char_id):
+    """Обновить данные персонажа в банке"""
+    try:
+        data = request.get_json()
+
+        # Извлекаем avatar_data если есть
+        avatar_data = data.pop("avatar_data", None)
+
+        # Обновляем в базе данных
+        from utils.character_bank import update_character_in_bank
+
+        update_character_in_bank(char_id, data)
+
+        # Если есть новый аватар, сохраняем его
+        if avatar_data:
+            from utils.character_bank import save_bank_character_avatar
+
+            save_bank_character_avatar(avatar_data, char_id)
+            print(f"✓ Bank avatar updated for character {char_id}")
+
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Error updating bank character: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # Создаем необходимые директории
     os.makedirs("data", exist_ok=True)

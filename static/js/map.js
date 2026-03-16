@@ -5387,8 +5387,7 @@ function filterBankCharacters() {
 function createBankCharacterItem(character) {
     const div = document.createElement('div');
     div.className = 'bank-character-item';
-    div.onclick = () => spawnBankCharacter(character);
-
+    
     const typeText = character.type === 'player' ? 'Игрок' : (character.type === 'npc' ? 'НПС' : 'Враг');
 
     // Убеждаемся, что используем правильный URL для аватара
@@ -5398,12 +5397,27 @@ function createBankCharacterItem(character) {
     div.innerHTML = `
         <img class="bank-character-avatar" src="${avatarUrl}" 
              onerror="this.src='/static/default-avatar.png'; console.error('Failed to load avatar for ${character.name}')">
-        <div class="bank-character-info">
+        <div class="bank-character-info" onclick="spawnBankCharacter(${JSON.stringify(character).replace(/"/g, '&quot;')})">
             <div class="bank-character-name">${character.name}</div>
             <div class="bank-character-type">${typeText}</div>
         </div>
-        <div class="bank-character-stats">
+        <div class="bank-character-stats" onclick="spawnBankCharacter(${JSON.stringify(character).replace(/"/g, '&quot;')})">
             КД: ${character.armor_class} | ОЗ: ${character.max_health}
+        </div>
+        <div class="bank-character-actions">
+            <button class="bank-action-btn edit" onclick="event.stopPropagation(); openEditBankCharacterModal(${JSON.stringify(character).replace(/"/g, '&quot;')})" title="Редактировать">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                </svg>
+            </button>
+            <button class="bank-action-btn delete" onclick="event.stopPropagation(); deleteBankCharacter('${character.id}', '${character.name.replace(/'/g, "\\'")}')" title="Удалить">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    <line x1="10" y1="11" x2="10" y2="17"/>
+                    <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+            </button>
         </div>
     `;
 
@@ -6464,10 +6478,19 @@ function openBankCharacterModal() {
 
 function closeBankCharacterModal() {
     document.getElementById("bankCharacterModal").style.display = "none";
+    
+    // Сбрасываем заголовок обратно
+    const modalTitle = document.querySelector("#bankCharacterModal h3");
+    if (modalTitle) {
+        modalTitle.textContent = "Создание персонажа в банке";
+    }
+    
+    // Очищаем ID редактируемого
+    window.editingBankCharacterId = null;
+    
     // Возвращаемся к банку и обновляем список
     openBankModal(); // Это переоткроет банк и загрузит список
 }
-
 function resetBankAvatarPreview() {
     const preview = document.getElementById("bankAvatarPreview");
     if (preview) {
@@ -6545,28 +6568,29 @@ function handleBankAvatarUpload(file) {
 
 function submitBankCharacter() {
     console.log("Submitting bank character");
-
+    
     const name = document.getElementById("bankCharacterName").value.trim();
     const ac = parseInt(document.getElementById("bankCharacterAC").value) || 10;
     const hp = parseInt(document.getElementById("bankCharacterHP").value) || 10;
     const type = document.querySelector("#bankCharacterModal .type-btn.active")?.dataset.type;
-
+    const editingId = window.editingBankCharacterId;
+    
     if (!name) {
         alert("Введите имя персонажа");
         return;
     }
-
+    
     if (!type) {
         alert("Выберите тип персонажа");
         return;
     }
-
+    
     // Получаем аватар, если есть
     const avatarPreview = document.getElementById("bankAvatarPreview");
     const avatarData = avatarPreview?.dataset.base64 || null;
-
-    console.log("Character data:", { name, ac, hp, type, hasAvatar: !!avatarData });
-
+    
+    console.log("Character data:", { name, ac, hp, type, hasAvatar: !!avatarData, editingId });
+    
     // Создаем объект персонажа
     const characterData = {
         name: name,
@@ -6575,16 +6599,20 @@ function submitBankCharacter() {
         max_health: hp,
         has_avatar: !!avatarData
     };
-
+    
     // Добавляем аватар, если есть
     const requestBody = {
         ...characterData,
         avatar_data: avatarData
     };
-
+    
+    // Определяем URL и метод в зависимости от того, редактирование это или создание
+    const url = editingId ? `/api/bank/character/${editingId}` : "/api/bank/character";
+    const method = editingId ? "PUT" : "POST";
+    
     // Отправляем на сервер
-    fetch("/api/bank/character", {
-        method: "POST",
+    fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody)
     })
@@ -6595,16 +6623,99 @@ function submitBankCharacter() {
             return response.json();
         })
         .then(data => {
-            console.log("Bank character created:", data);
-
+            console.log("Bank character saved:", data);
+            
+            // Очищаем ID редактируемого
+            window.editingBankCharacterId = null;
+            
             // Закрываем модальное окно
             closeBankCharacterModal();
-
+            
             // Показываем уведомление
-            showNotification(`Персонаж "${name}" добавлен в банк`, 'success');
+            const action = editingId ? "обновлен" : "добавлен";
+            showNotification(`Персонаж "${name}" ${action} в банк`, 'success');
         })
         .catch(error => {
-            console.error("Error creating bank character:", error);
-            showNotification("Ошибка при создании персонажа", 'error');
+            console.error("Error saving bank character:", error);
+            showNotification("Ошибка при сохранении персонажа", 'error');
+        });
+}
+
+function openEditBankCharacterModal(character) {
+    console.log("Opening edit bank character modal for:", character);
+    
+    // Закрываем банк и открываем окно редактирования персонажа
+    document.getElementById("bankModal").style.display = "none";
+    document.getElementById("bankCharacterModal").style.display = "flex";
+    
+    // Меняем заголовок
+    const modalTitle = document.querySelector("#bankCharacterModal h3");
+    if (modalTitle) {
+        modalTitle.textContent = "Редактирование персонажа в банке";
+    }
+    
+    // Заполняем форму данными персонажа
+    document.getElementById("bankCharacterName").value = character.name || "";
+    document.getElementById("bankCharacterAC").value = character.armor_class || 10;
+    document.getElementById("bankCharacterHP").value = character.max_health || 10;
+    
+    // Устанавливаем тип
+    document.querySelectorAll("#bankCharacterModal .type-btn").forEach(b => b.classList.remove("active"));
+    if (character.type === 'player') {
+        document.querySelector('#bankCharacterModal .type-btn[data-type="player"]').classList.add("active");
+    } else if (character.type === 'npc') {
+        document.querySelector('#bankCharacterModal .type-btn[data-type="npc"]').classList.add("active");
+    } else {
+        document.querySelector('#bankCharacterModal .type-btn[data-type="enemy"]').classList.add("active");
+    }
+    
+    // Загружаем аватар если есть
+    const preview = document.getElementById("bankAvatarPreview");
+    const overlay = document.getElementById("bankAvatarOverlay");
+    const editIcon = document.getElementById("bankEditIcon");
+    
+    if (character.has_avatar && character.avatar_url) {
+        preview.src = `${character.avatar_url}?t=${Date.now()}`;
+        preview.style.display = "block";
+        overlay.style.display = "none";
+        editIcon.style.display = "block";
+    } else {
+        preview.src = "";
+        preview.style.display = "none";
+        preview.removeAttribute("data-base64");
+        overlay.style.display = "block";
+        editIcon.style.display = "none";
+    }
+    
+    // Сохраняем ID редактируемого персонажа
+    window.editingBankCharacterId = character.id;
+}
+
+function deleteBankCharacter(characterId, characterName) {
+    if (!confirm(`Удалить персонажа "${characterName}" из банка?`)) {
+        return;
+    }
+    
+    fetch(`/api/bank/character/${characterId}`, {
+        method: 'DELETE'
+    })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Ошибка при удалении');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Bank character deleted:", data);
+            showNotification(`Персонаж "${characterName}" удален из банка`, 'success');
+            
+            // Обновляем список в банке
+            loadBankCharacters();
+        })
+        .catch(err => {
+            console.error("Error deleting bank character:", err);
+            showNotification(err.message || "Ошибка при удалении персонажа", 'error');
         });
 }

@@ -2507,3 +2507,107 @@ body.sidebar-collapsed-both #canvas-container {
     border: none;
     cursor: pointer;
 }
+
+/* Стили для элементов банка с кнопками действий */
+.bank-character-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #3a3a4a;
+    transition: background 0.2s;
+    position: relative;
+    gap: 10px;
+}
+
+.bank-character-item:hover {
+    background: #2a2a3b;
+}
+
+.bank-character-info {
+    flex: 2;
+    cursor: pointer;
+    min-width: 0; /* Для правильного обрезания текста */
+}
+
+.bank-character-stats {
+    flex: 1;
+    font-size: 12px;
+    color: #ccc;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: right;
+    margin-right: 8px;
+}
+
+.bank-character-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0.3;
+    transition: opacity 0.2s;
+    flex-shrink: 0;
+}
+
+.bank-character-item:hover .bank-character-actions {
+    opacity: 1;
+}
+
+.bank-action-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: #ccc;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.bank-action-btn:hover {
+    background: #3a3a4f;
+    transform: scale(1.05);
+}
+
+.bank-action-btn.edit:hover {
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.2);
+}
+
+.bank-action-btn.delete:hover {
+    color: #F44336;
+    background: rgba(244, 67, 54, 0.2);
+}
+
+.bank-action-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+}
+
+/* Адаптация для мобильных устройств */
+@media (max-width: 768px) {
+    .bank-character-item {
+        flex-wrap: wrap;
+        padding: 10px;
+    }
+    
+    .bank-character-info {
+        flex: 1 1 60%;
+    }
+    
+    .bank-character-stats {
+        flex: 1 1 30%;
+        text-align: left;
+        margin-right: 0;
+    }
+    
+    .bank-character-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        margin-top: 8px;
+        opacity: 1;
+    }
+}
