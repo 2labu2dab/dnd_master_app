@@ -1994,39 +1994,8 @@ function handleCharacterAvatarUpload(event) {
         return;
     }
 
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        const img = new Image();
-        img.onload = function () {
-            // Создаем canvas того же размера, что и оригинал
-            const canvas = document.createElement("canvas");
-            canvas.width = img.width;
-            canvas.height = img.height;
-
-            const ctx = canvas.getContext("2d");
-
-            // Включаем сглаживание
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-
-            // Рисуем в оригинальном размере
-            ctx.drawImage(img, 0, 0, img.width, img.height);
-
-            // Сохраняем с высоким качеством
-            const base64 = canvas.toDataURL("image/png", 1.0); // Максимальное качество
-
-            const preview = document.getElementById("characterAvatarPreview");
-            preview.src = base64;
-            preview.style.display = "block";
-            preview.dataset.base64 = base64;
-
-            document.getElementById("characterAvatarOverlay").style.display = "none";
-            document.getElementById("characterAvatarMask").style.display = "none";
-            document.getElementById("characterEditIcon").style.display = "block";
-        };
-        img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
+    // Открываем кроппер для выбора области
+    openCropModal(file, 'character');
 }
 
 function openEditCharacterModal(character) {
@@ -2431,32 +2400,16 @@ function handleAvatarUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Проверяем размер файла (макс 2MB)
+    // Проверяем размер файла
     if (file.size > 10 * 1024 * 1024) {
-        alert("Файл слишком большой. Максимальный размер 2MB.");
+        alert("Файл слишком большой. Максимальный размер 10MB.");
         return;
     }
 
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        const preview = document.getElementById('avatarPreview');
-        preview.src = e.target.result;
-        preview.style.display = 'block';
-
-        // Сохраняем новые данные аватара
-        preview.dataset.base64 = e.target.result;
-
-        document.getElementById('avatarOverlay').style.display = 'none';
-        document.getElementById('avatarMask').style.display = 'block';
-        document.getElementById('editIcon').style.display = 'block';
-
-        // Если это редактирование, помечаем что аватар изменился
-        if (editingTokenId) {
-            console.log("Avatar changed for token:", editingTokenId);
-        }
-    };
-    reader.readAsDataURL(file);
+    // Открываем кроппер для выбора области
+    openCropModal(file, 'token');
 }
+
 function closeTokenModal() {
     document.getElementById("tokenModal").style.display = "none";
     document.getElementById("tokenName").value = "";
@@ -6568,55 +6521,8 @@ function handleBankAvatarUpload(file) {
         return;
     }
 
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        const img = new Image();
-        img.onload = function () {
-            // Создаем canvas для оптимизации
-            const canvas = document.createElement("canvas");
-            const maxSize = 256;
-
-            let width = img.width;
-            let height = img.height;
-
-            // Изменяем размер если слишком большое
-            if (width > maxSize || height > maxSize) {
-                if (width > height) {
-                    height = Math.round(height * (maxSize / width));
-                    width = maxSize;
-                } else {
-                    width = Math.round(width * (maxSize / height));
-                    height = maxSize;
-                }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-
-            const ctx = canvas.getContext("2d");
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, width, height);
-
-            // Сохраняем как PNG с оптимизацией
-            const base64 = canvas.toDataURL("image/png", 0.9);
-
-            const preview = document.getElementById("bankAvatarPreview");
-            if (preview) {
-                preview.src = base64;
-                preview.style.display = "block";
-                preview.dataset.base64 = base64;
-            }
-
-            const overlay = document.getElementById("bankAvatarOverlay");
-            const editIcon = document.getElementById("bankEditIcon");
-
-            if (overlay) overlay.style.display = "none";
-            if (editIcon) editIcon.style.display = "block";
-        };
-        img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
+    // Открываем кроппер для выбора области
+    openCropModal(file, 'bank');
 }
 
 function submitBankCharacter() {
@@ -6771,4 +6677,130 @@ function deleteBankCharacter(characterId, characterName) {
             console.error("Error deleting bank character:", err);
             showNotification(err.message || "Ошибка при удалении персонажа", 'error');
         });
+}
+
+let cropper = null;
+let currentCropTarget = null; // 'token', 'character', 'bank'
+let cropFile = null;
+
+function openCropModal(file, target) {
+    const modal = document.getElementById("cropModal");
+    const cropImage = document.getElementById("cropImage");
+    
+    // Сохраняем цель и файл
+    currentCropTarget = target;
+    cropFile = file;
+    
+    // Загружаем изображение
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        cropImage.src = e.target.result;
+        
+        // Показываем модальное окно
+        modal.style.display = "flex";
+        
+        // Инициализируем кроппер после загрузки изображения
+        setTimeout(() => {
+            if (cropper) {
+                cropper.destroy();
+            }
+            
+            cropper = new Cropper(cropImage, {
+                aspectRatio: 1, // Квадратное соотношение
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+                minContainerWidth: 650,
+                minContainerHeight: 400,
+                ready: function() {
+                    // Центрируем crop box
+                    const cropBox = cropper.getCropBoxData();
+                    const container = cropper.getContainerData();
+                    const image = cropper.getImageData();
+                    
+                    // Устанавливаем размер как минимум из ширины/высоты
+                    const size = Math.min(image.width, image.height);
+                    
+                    cropper.setCropBoxData({
+                        left: (container.width - size) / 2,
+                        top: (container.height - size) / 2,
+                        width: size,
+                        height: size
+                    });
+                }
+            });
+        }, 100);
+    };
+    reader.readAsDataURL(file);
+}
+
+// Функция для закрытия кроппера
+function closeCropModal() {
+    document.getElementById("cropModal").style.display = "none";
+    if (cropper) {
+        cropper.destroy();
+        cropper = null;
+    }
+    cropFile = null;
+    currentCropTarget = null;
+}
+
+// Функция для применения обрезки
+function applyCrop() {
+    if (!cropper || !currentCropTarget || !cropFile) return;
+    
+    // Получаем обрезанное изображение в максимальном качестве
+    const canvas = cropper.getCroppedCanvas({
+        width: 256,
+        height: 256,
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high'
+    });
+    
+    // Конвертируем в base64
+    const croppedBase64 = canvas.toDataURL('image/png');
+    
+    // В зависимости от цели, обновляем соответствующий превью
+    switch(currentCropTarget) {
+        case 'token':
+            const tokenPreview = document.getElementById("avatarPreview");
+            tokenPreview.src = croppedBase64;
+            tokenPreview.style.display = "block";
+            tokenPreview.dataset.base64 = croppedBase64;
+            
+            document.getElementById("avatarOverlay").style.display = "none";
+            document.getElementById("avatarMask").style.display = "block";
+            document.getElementById("editIcon").style.display = "block";
+            break;
+            
+        case 'character':
+            const charPreview = document.getElementById("characterAvatarPreview");
+            charPreview.src = croppedBase64;
+            charPreview.style.display = "block";
+            charPreview.dataset.base64 = croppedBase64;
+            
+            document.getElementById("characterAvatarOverlay").style.display = "none";
+            document.getElementById("characterAvatarMask").style.display = "none";
+            document.getElementById("characterEditIcon").style.display = "block";
+            break;
+            
+        case 'bank':
+            const bankPreview = document.getElementById("bankAvatarPreview");
+            bankPreview.src = croppedBase64;
+            bankPreview.style.display = "block";
+            bankPreview.dataset.base64 = croppedBase64;
+            
+            document.getElementById("bankAvatarOverlay").style.display = "none";
+            document.getElementById("bankEditIcon").style.display = "block";
+            break;
+    }
+    
+    closeCropModal();
 }

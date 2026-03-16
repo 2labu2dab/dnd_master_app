@@ -2618,3 +2618,50 @@ body.sidebar-collapsed-both #canvas-container {
         opacity: 1;
     }
 }
+
+/* Стили для кроппера */
+#cropModal .modal-content {
+    max-width: 700px;
+    width: 90vw;
+}
+
+#cropModal .cropper-container {
+    max-height: 400px;
+}
+
+#cropModal .cropper-view-box,
+#cropModal .cropper-face {
+    border-radius: 0;
+}
+
+#cropModal .cropper-line {
+    background-color: #4C5BEF;
+}
+
+#cropModal .cropper-point {
+    background-color: #4C5BEF;
+    width: 8px;
+    height: 8px;
+}
+
+#cropModal .cropper-point.point-se {
+    width: 10px;
+    height: 10px;
+}
+
+#cropModal .cropper-modal {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+#cropModal .cropper-crop-box {
+    border: 2px solid #4C5BEF;
+}
+
+#cropModal .cropper-view-box {
+    outline: 2px solid #4C5BEF;
+    outline-color: rgba(76, 91, 239, 0.75);
+}
+
+#cropModal .cropper-dashed {
+    border-color: #4C5BEF;
+}
