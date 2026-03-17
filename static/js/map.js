@@ -8,6 +8,9 @@ const rulerToggle = document.getElementById("rulerToggle");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let mapsList = [];
+let drawingHistory = []; // История рисунков для отмены
+let drawingHistoryIndex = -1; // Текущий индекс в истории
+const MAX_HISTORY_SIZE = 50;
 let editingMapId = null;
 let masterPingInterval = null;
 let currentMapImageFile = null;
@@ -2538,14 +2541,21 @@ canvas.addEventListener("mousedown", (e) => {
         const y = (e.offsetY - offsetY) / scale;
 
         if (isEraseMode) {
+            // Сохраняем состояние ДО стирания
+            saveDrawingStateToHistory();
             eraseNearbyPoints(x, y, 20 / scale);
         } else {
-            // Рисование - начинаем новый штрих
+            // Рисование - сохраняем состояние ТОЛЬКО если это начало нового штриха
+            // и предыдущий штрих был завершен
+            if (!drawingStroke) {
+                saveDrawingStateToHistory();
+            }
+
             drawingStroke = {
                 id: `stroke_${Date.now()}`,
                 points: [[x, y]],
                 color: 'rgba(255, 50, 50, 0.5)',
-                width: 20  // ИЗМЕНИТЕ ЗДЕСЬ с 4 на 20
+                width: 20
             };
             drawingStrokes.push(drawingStroke);
             lastDrawPoint = [x, y];
@@ -3205,9 +3215,15 @@ canvas.addEventListener("mouseup", () => {
             drawThrottle = null;
         }
 
+        // Сохраняем состояние после завершения штриха
+        // Но только если штрих имеет больше 1 точки (реальный штрих)
+        if (drawingStroke.points.length > 1) {
+            saveDrawingStateToHistory();
+        }
+
         // Сохраняем на сервере
         saveDrawings();
-        
+
         // Отправляем финальное обновление всем
         console.log(`📤 Final send: ${drawingStrokes.length} strokes`);
         socket.emit('drawings_updated', {
@@ -3441,6 +3457,91 @@ document.addEventListener("keydown", (e) => {
     // Если фокус на поле ввода - не перехватываем комбинации клавиш
     if (isInputActive) {
         return; // Позволяем стандартному поведению (включая Ctrl+V)
+    }
+
+    if ((e.ctrlKey || e.metaKey)) {
+        // Проверяем разные варианты клавиш (английская Z, русская Я, а также код клавиши)
+        const key = e.key.toLowerCase();
+        const code = e.code;
+
+        // Проверяем, является ли нажатая клавиша Z (в любой раскладке)
+        const isZKey = key === 'z' || key === 'я' || code === 'KeyZ';
+
+        // Проверяем, является ли нажатая клавиша Y (для Ctrl+Y)
+        const isYKey = key === 'y' || key === 'н' || code === 'KeyY';
+
+        // Обработка Ctrl+Z для отмены рисунков
+        if (isZKey && !e.shiftKey) {
+            e.preventDefault();
+
+            // Проверяем, не открыто ли модальное окно
+            const anyModalOpen = checkAnyModalOpen();
+
+            if (!anyModalOpen) {
+                console.log('Ctrl+Z pressed - undo drawing');
+
+                // Важное изменение: не ждем следующего кадра, выполняем сразу
+                if (drawingHistoryIndex > 0) {
+                    drawingHistoryIndex--;
+                    drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
+
+                    console.log(`Undo: Restored state ${drawingHistoryIndex}`);
+
+                    // НЕМЕДЛЕННО сохраняем на сервере
+                    saveDrawings();
+
+                    // НЕМЕДЛЕННО отправляем всем игрокам
+                    socket.emit('drawings_updated', {
+                        map_id: currentMapId,
+                        strokes: drawingStrokes,
+                        layer_id: currentDrawingLayerId
+                    });
+
+                    // НЕМЕДЛЕННО перерисовываем
+                    render();
+                } else {
+                    console.log('Nothing to undo');
+                    // Визуальная подсказка, что нечего отменять
+                    showUndoNotification('Нечего отменять');
+                }
+            }
+            return;
+        }
+
+        // Обработка Ctrl+Shift+Z или Ctrl+Y для повтора
+        if ((e.shiftKey && isZKey) || (isYKey && !e.shiftKey)) {
+            e.preventDefault();
+
+            const anyModalOpen = checkAnyModalOpen();
+
+            if (!anyModalOpen) {
+                console.log('Ctrl+Shift+Z or Ctrl+Y pressed - redo drawing');
+
+                if (drawingHistoryIndex < drawingHistory.length - 1) {
+                    drawingHistoryIndex++;
+                    drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
+
+                    console.log(`Redo: Restored state ${drawingHistoryIndex}`);
+
+                    // НЕМЕДЛЕННО сохраняем на сервере
+                    saveDrawings();
+
+                    // НЕМЕДЛЕННО отправляем всем игрокам
+                    socket.emit('drawings_updated', {
+                        map_id: currentMapId,
+                        strokes: drawingStrokes,
+                        layer_id: currentDrawingLayerId
+                    });
+
+                    // НЕМЕДЛЕННО перерисовываем
+                    render();
+                } else {
+                    console.log('Nothing to redo');
+                    showUndoNotification('Нечего повторять');
+                }
+            }
+            return;
+        }
     }
 
     if (e.key === "Delete") {
@@ -7059,6 +7160,9 @@ function loadDrawingsForMap(mapId) {
 
     console.log('Loading drawings for map:', mapId);
 
+    // Очищаем историю при загрузке новой карты
+    clearDrawingHistory();
+
     fetch(`/api/drawings/${mapId}`)
         .then(res => {
             if (!res.ok) {
@@ -7071,10 +7175,12 @@ function loadDrawingsForMap(mapId) {
                 console.log('Drawings loaded:', data.strokes?.length || 0, 'strokes');
                 drawingStrokes = data.strokes || [];
                 currentDrawingLayerId = data.layer_id;
+
+                // Сохраняем начальное состояние в историю
+                saveDrawingStateToHistory();
+
                 render();
 
-                // ВАЖНО: Принудительно отправляем рисунки всем игрокам после загрузки
-                // Добавляем небольшую задержку, чтобы игроки успели подключиться
                 setTimeout(() => {
                     socket.emit('drawings_updated', {
                         map_id: currentMapId,
@@ -7182,8 +7288,6 @@ function eraseNearbyPoints(x, y, radius) {
 
     for (let i = 0; i < drawingStrokes.length; i++) {
         const stroke = drawingStrokes[i];
-
-        // Проверяем каждую точку штриха
         for (const point of stroke.points) {
             const dist = Math.hypot(point[0] - x, point[1] - y);
             if (dist < closestDistance) {
@@ -7198,7 +7302,10 @@ function eraseNearbyPoints(x, y, radius) {
         const removedStroke = drawingStrokes.splice(closestStrokeIndex, 1)[0];
         console.log(`Removed entire stroke with ${removedStroke.points.length} points`);
 
-        // Сохраняем изменения
+        // Сохраняем состояние после стирания
+        saveDrawingStateToHistory();
+
+        // Сохраняем на сервере
         saveDrawings();
 
         // Отправляем всем игрокам
@@ -7256,3 +7363,139 @@ socket.on('player_connected', (data) => {
         }, 500);
     }
 });
+
+function saveDrawingStateToHistory() {
+    // Создаем глубокую копию текущих рисунков
+    const currentState = JSON.parse(JSON.stringify(drawingStrokes));
+
+    // Проверяем, не совпадает ли новое состояние с последним в истории
+    if (drawingHistory.length > 0) {
+        const lastState = drawingHistory[drawingHistoryIndex];
+
+        // Сравниваем состояния (простое сравнение JSON)
+        if (JSON.stringify(lastState) === JSON.stringify(currentState)) {
+            console.log('State unchanged, not saving to history');
+            return;
+        }
+    }
+
+    // Если мы не в конце истории, обрезаем будущие состояния
+    if (drawingHistoryIndex < drawingHistory.length - 1) {
+        drawingHistory = drawingHistory.slice(0, drawingHistoryIndex + 1);
+    }
+
+    // Добавляем новое состояние
+    drawingHistory.push(currentState);
+    drawingHistoryIndex++;
+
+    // Ограничиваем размер истории
+    if (drawingHistory.length > MAX_HISTORY_SIZE) {
+        drawingHistory.shift();
+        drawingHistoryIndex--;
+    }
+
+    console.log(`Saved drawing state. History size: ${drawingHistory.length}, Index: ${drawingHistoryIndex}`);
+}
+
+function undoDrawing() {
+    if (drawingHistoryIndex > 0) {
+        drawingHistoryIndex--;
+        drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
+        
+        console.log(`Undo: Restored state ${drawingHistoryIndex}`);
+        
+        // Сохраняем на сервере
+        saveDrawings();
+        
+        // Отправляем всем игрокам
+        socket.emit('drawings_updated', {
+            map_id: currentMapId,
+            strokes: drawingStrokes,
+            layer_id: currentDrawingLayerId
+        });
+        
+        render();
+        return true;
+    }
+    return false;
+}
+
+// Функция для повтора отмененного действия (Ctrl+Shift+Z или Ctrl+Y)
+function redoDrawing() {
+    if (drawingHistoryIndex < drawingHistory.length - 1) {
+        drawingHistoryIndex++;
+        drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
+        
+        console.log(`Redo: Restored state ${drawingHistoryIndex}`);
+        
+        // Сохраняем на сервере
+        saveDrawings();
+        
+        // Отправляем всем игрокам
+        socket.emit('drawings_updated', {
+            map_id: currentMapId,
+            strokes: drawingStrokes,
+            layer_id: currentDrawingLayerId
+        });
+        
+        render();
+        return true;
+    }
+    return false;
+}
+
+function clearDrawingHistory() {
+    drawingHistory = [];
+    drawingHistoryIndex = -1;
+    console.log('Drawing history cleared');
+}
+
+function checkAnyModalOpen() {
+    const modals = [
+        'characterModal',
+        'tokenModal',
+        'findModal',
+        'zoneModal',
+        'mapModal',
+        'importTokenModal',
+        'bankModal',
+        'newMapModal',
+        'bankCharacterModal'
+    ];
+
+    return modals.some(modalId => {
+        const modal = document.getElementById(modalId);
+        return modal && modal.style.display === 'flex';
+    });
+}
+
+function showUndoNotification(message) {
+    // Используем существующую функцию showNotification или создаем временное уведомление
+    if (typeof showNotification === 'function') {
+        showNotification(message, 'info');
+    } else {
+        // Создаем временное уведомление
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            z-index: 10000;
+            opacity: 0.9;
+            font-size: 14px;
+            transition: opacity 0.3s;
+        `;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => notification.remove(), 300);
+        }, 1500);
+    }
+}

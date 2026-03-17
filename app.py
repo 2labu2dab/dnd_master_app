@@ -121,22 +121,19 @@ def handle_drawings_updated(data):
     strokes = data.get("strokes", [])
     layer_id = data.get("layer_id")
 
-    print(f"🎨 Drawings updated for map {map_id}, strokes: {len(strokes)}")
 
     # Сохраняем в отдельный файл
     if map_id and layer_id:
         save_drawings_layer(map_id, layer_id, strokes)
 
     # ВАЖНО: Всегда отправляем всем игрокам, но не мастеру
-    # Используем broadcast=True и include_self=False
     emit(
         "drawings_updated",
         {"map_id": map_id, "strokes": strokes, "layer_id": layer_id},
         broadcast=True,
-        include_self=False  # Не отправляем обратно мастеру
+        include_self=False,
     )
-    
-    print(f"📤 Broadcasted drawings to all players")
+
 
 @app.route("/api/drawings/<map_id>", methods=["GET"])
 def get_drawings(map_id):
@@ -944,7 +941,7 @@ def handle_notify_image_loaded(data):
         )
 
 
-@socketio.on('connect')
+@socketio.on("connect")
 def handle_connect():
     print(f"Client connected: {request.sid}")
 

@@ -787,7 +787,7 @@ function drawLayers(offsetX, offsetY, scale) {
         drawGrid(offsetX, offsetY, scale);
     }
 
-    // Рисуем рисунки мастера
+    // Рисуем рисунки мастера - ЭТУ СТРОКУ НУЖНО ДОБАВИТЬ
     drawPlayerStrokes(offsetX, offsetY, scale);
 
     if (mapData.zones && mapData.zones.length) {
@@ -1769,7 +1769,7 @@ socket.on('drawings_updated', (data) => {
             
             // НЕМЕДЛЕННО перерисовываем
             console.log('🎯 Triggering render after drawings update');
-            requestRender();
+            requestRender(); // или render(), если нет функции requestRender
         }
     }
 });
