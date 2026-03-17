@@ -6,7 +6,10 @@ let mapData = null;
 let zoomLevel = 1;
 let pendingTokenUpdates = new Map();
 let tokenUpdateTimeout = null;
-
+let drawingsLoaded = false;
+let lastDrawingsHash = '';
+let playerDrawings = [];
+let playerDrawingLayerId = null;
 let panX = 0;
 let panY = 0;
 const isMiniMap = isEmbeddedPreview;
@@ -425,24 +428,9 @@ if (mapId) {
     if (socket) {
         socket.on('connect', () => {
             console.log('Player socket connected');
-
-            // Если есть mapId, запрашиваем синхронизацию
             if (mapId) {
-                console.log('Requesting map sync for:', mapId);
-                socket.emit("request_map_sync", { map_id: mapId });
-
-                setTimeout(() => {
-                    if (mapData && mapData.has_image && (!mapImage.src || !mapImage.complete)) {
-                        socket.emit("request_map_image", { map_id: mapId });
-                    }
-                }, 500);
-            } else {
-                // Если нет mapId, пробуем получить из parent
-                if (window.parent && window.parent.currentMapId) {
-                    mapId = window.parent.currentMapId;
-                    window.playerMapId = mapId;
-                    fetchMap();
-                }
+                console.log('📤 Requesting drawings on connect');
+                socket.emit('request_drawings', { map_id: mapId });
             }
         });
     }
@@ -793,12 +781,14 @@ socket.on("map_sync", (data) => {
 function drawLayers(offsetX, offsetY, scale) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
 
-    // ИЗМЕНЕНО: Рисуем сетку если она разрешена для игроков, независимо от видимости у мастера
     if (imageLoaded &&
         mapData.grid_settings &&
-        mapData.grid_settings.visible_to_players === true) { // Только проверяем разрешение для игроков
+        mapData.grid_settings.visible_to_players === true) {
         drawGrid(offsetX, offsetY, scale);
     }
+
+    // Рисуем рисунки мастера
+    drawPlayerStrokes(offsetX, offsetY, scale);
 
     if (mapData.zones && mapData.zones.length) {
         for (let i = 0; i < mapData.zones.length; i++) {
@@ -812,11 +802,9 @@ function drawLayers(offsetX, offsetY, scale) {
     if (mapData.tokens && mapData.tokens.length) {
         for (let i = 0; i < mapData.tokens.length; i++) {
             const token = mapData.tokens[i];
-
             if (token.is_visible !== false) {
                 const tokenPosition = token.position;
                 const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
-
                 if (!isInHiddenZone) {
                     drawToken(token, offsetX, offsetY, scale);
                 }
@@ -824,17 +812,18 @@ function drawLayers(offsetX, offsetY, scale) {
         }
     }
 }
+
 function drawGrid(offsetX, offsetY, scale) {
     // Получаем количество клеток из настроек
     let cellsCount = mapData.grid_settings.cell_count || 20; // По умолчанию 20 клеток
-    
+
     // Проверяем границы
     if (cellsCount < 5) cellsCount = 5;
     if (cellsCount > 150) cellsCount = 150;
-    
+
     // Рассчитываем размер клетки в пикселях на карте
     const cellSizeInPixels = mapImage.naturalWidth / cellsCount;
-    
+
     ctx.strokeStyle = mapData.grid_settings.color || "#888";
     ctx.lineWidth = 1;
 
@@ -866,7 +855,7 @@ function drawGrid(offsetX, offsetY, scale) {
     // Рисуем горизонтальные линии - их количество = cellsCount * (высота/ширина)
     const aspectRatio = mapImage.naturalHeight / mapImage.naturalWidth;
     const horizontalCells = Math.round(cellsCount * aspectRatio);
-    
+
     for (let i = 0; i <= horizontalCells; i++) {
         const y = i * cellSizeInPixels; // Позиция в пикселях на карте
         const sy = offsetY + y * scale;
@@ -1302,21 +1291,25 @@ window.addEventListener('load', () => {
         setTimeout(() => {
             if (socket && socket.connected) {
                 socket.emit("request_map_sync", { map_id: mapId });
+                console.log('📤 Requesting drawings on page load');
+                socket.emit('request_drawings', { map_id: mapId });
             }
             fetchMap();
         }, 1000);
     } else {
-        // Если mapId не задан, пробуем получить из parent
         if (window.parent && window.parent.currentMapId) {
             mapId = window.parent.currentMapId;
             window.playerMapId = mapId;
+            console.log('📤 Requesting drawings from parent');
+            if (socket && socket.connected) {
+                socket.emit('request_drawings', { map_id: mapId });
+            }
             fetchMap();
         } else {
             console.error('No mapId available');
         }
     }
 
-    // Инициализируем портреты после загрузки
     setTimeout(updatePortraits, 500);
 });
 
@@ -1504,7 +1497,6 @@ socket.on("characters_updated", (data) => {
 function fetchMap(retryCount = 0, maxRetries = 3) {
     console.log("fetchMap called with mapId:", mapId);
 
-    // Показываем индикатор загрузки на canvas
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.font = "24px Inter";
@@ -1515,14 +1507,12 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
     if (!mapId) {
         console.error("No map ID provided");
 
-        // Пытаемся получить map_id из parent если это iframe
         try {
             if (window.parent && window.parent.currentMapId) {
                 console.log("Getting mapId from parent:", window.parent.currentMapId);
                 mapId = window.parent.currentMapId;
                 window.playerMapId = mapId;
             } else {
-                // Пробуем получить из URL
                 const urlParams = new URLSearchParams(window.location.search);
                 mapId = urlParams.get('map_id');
                 console.log("Getting mapId from URL:", mapId);
@@ -1545,15 +1535,12 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
     console.log("Fetching map from:", fetchUrl);
 
     return fetch(fetchUrl, {
-        // Добавляем timeout для fetch
-        signal: AbortSignal.timeout(10000) // 10 секунд timeout
+        signal: AbortSignal.timeout(10000)
     })
         .then(res => {
             if (!res.ok) {
                 if (res.status === 404) {
                     console.error(`Map ${mapId} not found (404)`);
-
-                    // Если карта не найдена, пробуем получить список карт и взять первую
                     return fetch("/api/maps")
                         .then(mapsRes => mapsRes.json())
                         .then(maps => {
@@ -1562,7 +1549,6 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                                 mapId = maps[0].id;
                                 window.playerMapId = mapId;
 
-                                // Обновляем URL
                                 try {
                                     const url = new URL(window.location);
                                     url.searchParams.set('map_id', mapId);
@@ -1571,7 +1557,6 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                                     console.error("Error updating URL:", err);
                                 }
 
-                                // Пробуем снова с новым ID
                                 return fetchMap(0);
                             }
                             throw new Error("No maps available");
@@ -1590,12 +1575,17 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             console.log("Map data loaded successfully");
             mapData = data;
 
-            // Сохраняем размеры канваса мастера
             if (data.master_canvas_width) {
                 masterCanvasWidth = data.master_canvas_width;
             }
             if (data.master_canvas_height) {
                 masterCanvasHeight = data.master_canvas_height;
+            }
+
+            // ВАЖНО: Запрашиваем рисунки сразу после загрузки карты
+            if (socket && socket.connected) {
+                console.log("📤 Requesting drawings after map load");
+                socket.emit('request_drawings', { map_id: mapId });
             }
 
             zoomLevel = data.zoom_level || 1;
@@ -1606,7 +1596,6 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 mapData.ruler_visible_to_players = false;
             }
 
-            // Инициализируем characters если их нет
             if (!mapData.characters) {
                 mapData.characters = [];
             }
@@ -1637,14 +1626,12 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 newImage.onerror = (err) => {
                     console.error("Error loading map image:", err);
 
-                    // Показываем сообщение об ошибке на canvas
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.font = "24px Inter";
                     ctx.fillStyle = "#f44336";
                     ctx.textAlign = "center";
                     ctx.fillText("Ошибка загрузки изображения", canvas.width / 2, canvas.height / 2);
 
-                    // Если не удалось загрузить изображение, пробуем запросить его через сокет
                     if (socket && socket.connected) {
                         socket.emit("request_map_image", { map_id: mapId });
                     }
@@ -1660,11 +1647,9 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
         .catch(err => {
             console.error("Error fetching map:", err);
 
-            // Пробуем повторно если это не 404 и не превышен лимит попыток
             if (retryCount < maxRetries && !err.message?.includes("404") && err.name !== 'AbortError') {
                 console.log(`Retrying fetchMap (${retryCount + 1}/${maxRetries})...`);
 
-                // Показываем сообщение о повторной попытке
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.font = "20px Inter";
                 ctx.fillStyle = "#666";
@@ -1679,7 +1664,6 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 });
             }
 
-            // Показываем сообщение об ошибке на canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.font = "24px Inter";
             ctx.fillStyle = "#f44336";
@@ -1693,13 +1677,10 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             }
 
             ctx.fillText(errorMessage, canvas.width / 2, canvas.height / 2 - 20);
-
-            // Добавляем кнопку для ручного обновления
             ctx.font = "16px Inter";
             ctx.fillStyle = "#4C5BEF";
             ctx.fillText("Нажмите для повторной попытки", canvas.width / 2, canvas.height / 2 + 20);
 
-            // Добавляем обработчик клика для повторной попытки
             const clickHandler = () => {
                 canvas.removeEventListener('click', clickHandler);
                 fetchMap(0);
@@ -1709,3 +1690,113 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             throw err;
         });
 }
+
+function requestDrawingsSync() {
+    if (socket && socket.connected && mapId) {
+        console.log('📤 Explicitly requesting drawings sync');
+        socket.emit('request_drawings', { map_id: mapId });
+    }
+}
+
+function drawPlayerStrokes(offsetX, offsetY, scale) {
+    // Проверяем наличие рисунков
+    if (!playerDrawings || playerDrawings.length === 0) {
+        console.log('No drawings to draw');
+        return;
+    }
+    
+    console.log(`🎨 Drawing ${playerDrawings.length} strokes on player view`);
+    
+    ctx.save();
+    
+    for (let i = 0; i < playerDrawings.length; i++) {
+        const stroke = playerDrawings[i];
+        
+        // Проверяем структуру штриха
+        if (!stroke || !stroke.points || !Array.isArray(stroke.points) || stroke.points.length < 2) {
+            console.warn('Invalid stroke:', stroke);
+            continue;
+        }
+        
+        console.log(`Drawing stroke ${i} with ${stroke.points.length} points`);
+        
+        ctx.beginPath();
+        
+        // Используем тот же цвет и ширину, что и у мастера
+        ctx.strokeStyle = stroke.color || 'rgba(255, 50, 50, 0.5)';
+        ctx.lineWidth = (stroke.width || 20) * scale;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        // Начинаем с первой точки
+        const firstPoint = stroke.points[0];
+        const startX = firstPoint[0] * scale + offsetX;
+        const startY = firstPoint[1] * scale + offsetY;
+        
+        ctx.moveTo(startX, startY);
+        
+        // Добавляем остальные точки
+        for (let j = 1; j < stroke.points.length; j++) {
+            const point = stroke.points[j];
+            const x = point[0] * scale + offsetX;
+            const y = point[1] * scale + offsetY;
+            ctx.lineTo(x, y);
+        }
+        
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+    
+    console.log('Finished drawing all strokes');
+}
+
+socket.on('drawings_updated', (data) => {
+    console.log('🎨 Player received drawings_updated:', data);
+    
+    if (data.map_id === mapId) {
+        // Проверяем, действительно ли изменились рисунки
+        const newHash = JSON.stringify(data.strokes);
+        
+        if (newHash !== lastDrawingsHash) {
+            console.log('📝 Updating player drawings, count:', data.strokes?.length);
+            
+            // Обновляем рисунки
+            playerDrawings = data.strokes || [];
+            playerDrawingLayerId = data.layer_id;
+            lastDrawingsHash = newHash;
+            drawingsLoaded = true;
+            
+            // НЕМЕДЛЕННО перерисовываем
+            console.log('🎯 Triggering render after drawings update');
+            requestRender();
+        }
+    }
+});
+
+socket.on('drawings_loaded', (data) => {
+    console.log('🎨 Player received drawings_loaded:', data);
+    
+    if (data.map_id === mapId) {
+        console.log('📝 Loading player drawings, count:', data.strokes?.length);
+        
+        // Обновляем рисунки
+        playerDrawings = data.strokes || [];
+        playerDrawingLayerId = data.layer_id;
+        lastDrawingsHash = JSON.stringify(data.strokes);
+        drawingsLoaded = true;
+        
+        console.log('🎯 Triggering render after drawings load');
+        requestRender();
+    }
+});
+
+socket.on('reconnect', () => {
+    console.log('🔄 Socket reconnected, requesting drawings...');
+    if (mapId) {
+        setTimeout(() => {
+            console.log('📤 Requesting drawings after reconnect');
+            socket.emit('request_drawings', { map_id: mapId });
+        }, 1000);
+    }
+});

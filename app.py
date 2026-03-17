@@ -47,6 +47,8 @@ from utils.storage import (
     save_map_data,
     save_map_image,
     save_token_avatar,
+    save_drawings_layer,
+    load_drawings_layer,
 )
 
 app = Flask(__name__)
@@ -107,6 +109,87 @@ def index():
 def get_maps():
     """Получить список всех карт"""
     return jsonify(list_maps())
+
+
+@socketio.on("drawings_updated")
+def handle_drawings_updated(data):
+    """Обработчик обновления рисунков"""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+
+    strokes = data.get("strokes", [])
+    layer_id = data.get("layer_id")
+
+    print(f"🎨 Drawings updated for map {map_id}, strokes: {len(strokes)}")
+
+    # Сохраняем в отдельный файл
+    if map_id and layer_id:
+        save_drawings_layer(map_id, layer_id, strokes)
+
+    # ВАЖНО: Всегда отправляем всем игрокам, но не мастеру
+    # Используем broadcast=True и include_self=False
+    emit(
+        "drawings_updated",
+        {"map_id": map_id, "strokes": strokes, "layer_id": layer_id},
+        broadcast=True,
+        include_self=False  # Не отправляем обратно мастеру
+    )
+    
+    print(f"📤 Broadcasted drawings to all players")
+
+@app.route("/api/drawings/<map_id>", methods=["GET"])
+def get_drawings(map_id):
+    """Получить рисунки для карты"""
+    from utils.storage import load_drawings_layer
+
+    strokes, layer_id = load_drawings_layer(map_id)
+    return jsonify({"status": "ok", "strokes": strokes, "layer_id": layer_id})
+
+
+@app.route("/api/drawings/<map_id>", methods=["POST"])
+def save_drawings(map_id):
+    """Сохранить рисунки для карты"""
+    from utils.storage import save_drawings_layer
+
+    data = request.get_json()
+    layer_id = data.get("layer_id")
+    strokes = data.get("strokes", [])
+
+    if save_drawings_layer(map_id, layer_id, strokes):
+        return jsonify({"status": "ok"})
+    else:
+        return jsonify({"status": "error"}), 500
+
+
+@app.route("/api/drawings/<map_id>", methods=["DELETE"])
+def delete_drawings(map_id):
+    """Удалить рисунки для карты"""
+    from utils.storage import delete_drawings_layer
+
+    if delete_drawings_layer(map_id):
+        return jsonify({"status": "ok"})
+    else:
+        return jsonify({"status": "error"}), 500
+
+
+@socketio.on("request_drawings")
+def handle_request_drawings(data):
+    """Запрос рисунков для карты"""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+
+    print(f"Request drawings for map {map_id}")
+
+    strokes, layer_id = load_drawings_layer(map_id)
+    print(f"Sending {len(strokes)} strokes to client")
+
+    emit(
+        "drawings_loaded",
+        {"map_id": map_id, "strokes": strokes, "layer_id": layer_id},
+        room=request.sid,
+    )
 
 
 @app.route("/api/map/<map_id>", methods=["GET"])
@@ -861,7 +944,7 @@ def handle_notify_image_loaded(data):
         )
 
 
-@socketio.on("connect")
+@socketio.on('connect')
 def handle_connect():
     print(f"Client connected: {request.sid}")
 
@@ -871,13 +954,15 @@ def handle_connect():
         success, lock = acquire_master_lock(session_id, request.sid)
         if success:
             print(f"Master lock acquired for session {session_id}")
-            # Запускаем пинг для поддержания блокировки
             emit("master_status", {"active": True, "is_current": True})
         else:
             print(f"Failed to acquire master lock for session {session_id}")
-            # Отключаем сокет
             emit("master_status", {"active": False, "is_current": False})
             disconnect()
+    else:
+        # Это игрок - уведомляем мастера
+        print(f"Player connected: {request.sid}")
+        # Можно отправить событие мастеру, но это опционально
 
 
 @socketio.on("disconnect")

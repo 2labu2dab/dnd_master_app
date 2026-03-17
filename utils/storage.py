@@ -23,6 +23,7 @@ TOKENS_AVATARS_DIR = os.path.join(
 )  # Папка для аватаров токенов
 PORTRAITS_DIR = os.path.join("data", "portrait_images")
 BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
+DRAWINGS_DIR = os.path.join(DATA_DIR, "drawings")
 
 
 def get_bank_avatar_filepath(character_id):
@@ -733,6 +734,74 @@ def get_portrait_url(portrait_id):
         str: URL для загрузки портрета
     """
     return f"/api/portrait/{portrait_id}"
+
+
+def ensure_drawings_dir():
+    """Создать папку для рисунков если её нет"""
+    os.makedirs(DRAWINGS_DIR, exist_ok=True)
+
+
+def get_drawings_filepath(map_id):
+    """Получить путь к файлу с рисунками для карты"""
+    ensure_drawings_dir()
+    return os.path.join(DRAWINGS_DIR, f"{map_id}.json")
+
+
+def save_drawings_layer(map_id, layer_id, strokes):
+    """Сохранить слой рисунков"""
+    filepath = get_drawings_filepath(map_id)
+
+    data = {
+        "map_id": map_id,
+        "layer_id": layer_id,
+        "strokes": strokes,
+        "modified": datetime.now().isoformat(),
+    }
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        print(f"✓ Drawings saved for map {map_id}")
+        return True
+    except Exception as e:
+        print(f"✗ Error saving drawings: {e}")
+        return False
+
+
+def load_drawings_layer(map_id):
+    """Загрузить слой рисунков"""
+    filepath = get_drawings_filepath(map_id)
+
+    if not os.path.exists(filepath):
+        # Создаём новый слой
+        layer_id = f"layer_{uuid.uuid4().hex[:8]}"
+        return [], layer_id
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        strokes = data.get("strokes", [])
+        layer_id = data.get("layer_id", f"layer_{uuid.uuid4().hex[:8]}")
+
+        return strokes, layer_id
+    except Exception as e:
+        print(f"✗ Error loading drawings: {e}")
+        layer_id = f"layer_{uuid.uuid4().hex[:8]}"
+        return [], layer_id
+
+
+def delete_drawings_layer(map_id):
+    """Удалить слой рисунков"""
+    filepath = get_drawings_filepath(map_id)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            print(f"✓ Drawings deleted for map {map_id}")
+            return True
+        except Exception as e:
+            print(f"✗ Error deleting drawings: {e}")
+    return False
 
 
 def delete_portrait_image(portrait_id):

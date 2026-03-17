@@ -19,7 +19,14 @@ let spawnPosition = null;
 let isClick = true; // Флаг для определения клика vs перетаскивания
 let clickTimer = null; // Таймер для определения задержки
 let allBankCharacters = [];
-
+let isDrawMode = false;
+let isEraseMode = false;
+let drawingStroke = null;
+let drawingStrokes = [];
+let currentStrokePoints = [];
+let lastDrawPoint = null;
+let drawThrottle = null;
+let currentDrawingLayerId = null;
 let selectedTokens = new Set(); // Множество ID выбранных токенов
 let isDraggingMultiple = false; // Флаг перетаскивания нескольких токенов
 let multiDragOffsets = new Map(); // Смещения для каждого токена при групповом перетаскивании
@@ -268,7 +275,7 @@ socket.on("master_switched_map", (data) => {
 function syncGridInputs(value) {
     // Разрешаем дробные значения до десятых
     const num = parseFloat(value);
-    
+
     // Проверка границ: от 5 до 150 клеток по ширине карты
     if (isNaN(num) || num < 5 || num > 150) {
         // Если значение выходит за пределы, корректируем его
@@ -297,11 +304,11 @@ function updateWithValue(num) {
         // Рассчитываем размер клетки в пикселях
         // cell_size = ширина карты / количество клеток
         const newCellSize = mapImage.naturalWidth / num;
-        
+
         // Округляем до целого числа пикселей для практичности
         mapData.grid_settings.cell_size = Math.round(newCellSize);
         mapData.grid_settings.cell_count = num; // Сохраняем количество клеток
-        
+
         console.log(`Карта шириной ${mapImage.naturalWidth}px, ${num} клеток = ${mapData.grid_settings.cell_size}px на клетку`);
     } else {
         // Если карта не загружена, используем примерное значение
@@ -1262,12 +1269,12 @@ function switchMap(mapId) {
             finds: [],
             zones: [],
             characters: [],
-            grid_settings: { 
-                cell_count: 20, 
-                cell_size: 20, 
-                color: "#888888", 
-                visible: false, 
-                visible_to_players: true 
+            grid_settings: {
+                cell_count: 20,
+                cell_size: 20,
+                color: "#888888",
+                visible: false,
+                visible_to_players: true
             }
         };
         render();
@@ -1298,7 +1305,7 @@ function switchMap(mapId) {
             if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
                 mapData.grid_settings.visible_to_players = true;
             }
-            
+
             // Проверяем границы cell_count
             if (mapData.grid_settings && mapData.grid_settings.cell_count) {
                 if (mapData.grid_settings.cell_count < 5) mapData.grid_settings.cell_count = 5;
@@ -1364,6 +1371,7 @@ function switchMap(mapId) {
             }
 
             socket.emit("switch_map", { map_id: mapId });
+            loadDrawingsForMap(mapId);
 
             setTimeout(() => {
                 isSwitchingMap = false;
@@ -1783,7 +1791,14 @@ function drawTempZone(offsetX, offsetY, scale) {
 
 function drawLayers(offsetX, offsetY, scale) {
     if (mapData.grid_settings.visible) drawGrid(offsetX, offsetY, scale);
+
+    // Рисуем зоны (скрытые области)
     mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
+
+    // Рисуем рисунки мастера (НОВОЕ)
+    drawAllStrokes(offsetX, offsetY, scale);
+
+    // Токены и находки поверх рисунков
     mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 }
@@ -2515,6 +2530,30 @@ canvas.addEventListener("mousedown", (e) => {
         return;
     }
 
+    if (isDrawMode || isEraseMode) {
+        if (e.button !== 0) return;
+
+        const { scale, offsetX, offsetY } = getTransform();
+        const x = (e.offsetX - offsetX) / scale;
+        const y = (e.offsetY - offsetY) / scale;
+
+        if (isEraseMode) {
+            eraseNearbyPoints(x, y, 20 / scale);
+        } else {
+            // Рисование - начинаем новый штрих
+            drawingStroke = {
+                id: `stroke_${Date.now()}`,
+                points: [[x, y]],
+                color: 'rgba(255, 50, 50, 0.5)',
+                width: 20  // ИЗМЕНИТЕ ЗДЕСЬ с 4 на 20
+            };
+            drawingStrokes.push(drawingStroke);
+            lastDrawPoint = [x, y];
+        }
+        render();
+        return;
+    }
+
     if (drawingZone) {
         if (e.button === 0) {
             let x = (mouseX - offsetX) / scale;
@@ -2745,6 +2784,34 @@ canvas.addEventListener("mousemove", (e) => {
         return;
     }
 
+    if (isDrawMode && drawingStroke && e.buttons === 1) {
+        const { scale, offsetX, offsetY } = getTransform();
+        const x = (e.offsetX - offsetX) / scale;
+        const y = (e.offsetY - offsetY) / scale;
+
+        if (lastDrawPoint) {
+            const dist = Math.hypot(x - lastDrawPoint[0], y - lastDrawPoint[1]);
+            if (dist < 2) return;
+        }
+
+        drawingStroke.points.push([x, y]);
+        lastDrawPoint = [x, y];
+
+        render();
+
+        // Отправляем с throttle для плавности
+        if (!drawThrottle) {
+            drawThrottle = setTimeout(() => {
+                console.log(`📤 Sending ${drawingStrokes.length} strokes to players`);
+                socket.emit('drawings_updated', {
+                    map_id: currentMapId,
+                    strokes: drawingStrokes,
+                    layer_id: currentDrawingLayerId
+                });
+                drawThrottle = null;
+            }, 30);
+        }
+    }
     if (isRulerMode && rulerStart) {
         const rulerEnd = [
             (e.offsetX - offsetX) / scale,
@@ -3130,6 +3197,27 @@ canvas.addEventListener("mouseup", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(mapData),
         });
+    }
+
+    if (drawingStroke) {
+        if (drawThrottle) {
+            clearTimeout(drawThrottle);
+            drawThrottle = null;
+        }
+
+        // Сохраняем на сервере
+        saveDrawings();
+        
+        // Отправляем финальное обновление всем
+        console.log(`📤 Final send: ${drawingStrokes.length} strokes`);
+        socket.emit('drawings_updated', {
+            map_id: currentMapId,
+            strokes: drawingStrokes,
+            layer_id: currentDrawingLayerId
+        });
+
+        drawingStroke = null;
+        lastDrawPoint = null;
     }
 
     // Завершаем линейку
@@ -3863,9 +3951,16 @@ socket.on("request_image_reload", (data) => {
 });
 
 function updateCanvasCursor() {
-    canvas.classList.remove('zone-drawing-mode', 'ruler-mode', 'token-dragging', 'map-panning', 'multi-dragging');
+    canvas.classList.remove(
+        'zone-drawing-mode', 'ruler-mode', 'token-dragging',
+        'map-panning', 'multi-dragging', 'draw-mode', 'erase-mode'
+    );
 
-    if (drawingZone) {
+    if (isDrawMode) {
+        canvas.classList.add('draw-mode');
+    } else if (isEraseMode) {
+        canvas.classList.add('erase-mode');
+    } else if (drawingZone) {
         canvas.classList.add('zone-drawing-mode');
     } else if (isRulerMode) {
         canvas.classList.add('ruler-mode');
@@ -3879,6 +3974,18 @@ function updateCanvasCursor() {
         canvas.style.cursor = 'default';
     }
 }
+
+const drawStyle = document.createElement('style');
+drawStyle.textContent = `
+    canvas.draw-mode {
+        cursor: crosshair !important;
+    }
+    canvas.erase-mode {
+        cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="white" stroke="red" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="red" stroke-width="2"/><line x1="18" y1="6" x2="6" y2="18" stroke="red" stroke-width="2"/></svg>') 12 12, auto !important;
+    }
+`;
+document.head.appendChild(drawStyle);
+
 
 const style = document.createElement('style');
 style.textContent = `
@@ -6898,48 +7005,254 @@ function applyCrop() {
 
 function updateGridFromImage() {
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return;
-    
+
     const gridSettings = mapData.grid_settings;
-    
+
     // Если есть cell_count, пересчитываем cell_size
     if (gridSettings.cell_count) {
         // Проверяем, что cell_count в допустимых пределах
         let cellCount = gridSettings.cell_count;
         if (cellCount < 5) cellCount = 5;
         if (cellCount > 150) cellCount = 150;
-        
+
         const newCellSize = Math.round(mapImage.naturalWidth / cellCount);
         gridSettings.cell_size = newCellSize;
         gridSettings.cell_count = cellCount;
-        
+
         console.log(`Grid updated: ${cellCount} cells = ${newCellSize}px per cell`);
-        
+
         // Синхронизируем поля ввода
         document.getElementById("gridSlider").value = cellCount;
         document.getElementById("gridInput").value = cellCount;
         updateSliderVisual();
-        
+
         render();
     }
     // Если есть только cell_size (старые данные), конвертируем в cell_count
     else if (gridSettings.cell_size) {
         let newCellCount = Math.round(mapImage.naturalWidth / gridSettings.cell_size);
-        
+
         // Проверяем, что newCellCount в допустимых пределах
         if (newCellCount < 5) newCellCount = 5;
         if (newCellCount > 150) newCellCount = 150;
-        
+
         gridSettings.cell_count = newCellCount;
         // Пересчитываем cell_size для точности
         gridSettings.cell_size = Math.round(mapImage.naturalWidth / newCellCount);
-        
+
         console.log(`Converted old grid: ${gridSettings.cell_size}px per cell = ${newCellCount} cells`);
-        
+
         // Синхронизируем поля ввода
         document.getElementById("gridSlider").value = newCellCount;
         document.getElementById("gridInput").value = newCellCount;
         updateSliderVisual();
-        
+
         render();
     }
 }
+
+function loadDrawingsForMap(mapId) {
+    if (!mapId) {
+        console.log('No mapId provided to loadDrawingsForMap');
+        return;
+    }
+
+    console.log('Loading drawings for map:', mapId);
+
+    fetch(`/api/drawings/${mapId}`)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'ok') {
+                console.log('Drawings loaded:', data.strokes?.length || 0, 'strokes');
+                drawingStrokes = data.strokes || [];
+                currentDrawingLayerId = data.layer_id;
+                render();
+
+                // ВАЖНО: Принудительно отправляем рисунки всем игрокам после загрузки
+                // Добавляем небольшую задержку, чтобы игроки успели подключиться
+                setTimeout(() => {
+                    socket.emit('drawings_updated', {
+                        map_id: currentMapId,
+                        strokes: drawingStrokes,
+                        layer_id: currentDrawingLayerId
+                    });
+                }, 500);
+            }
+        })
+        .catch(err => console.error('Error loading drawings:', err));
+}
+
+// Сохраняем рисунки
+function saveDrawings() {
+    if (!currentMapId || !currentDrawingLayerId) {
+        console.log('Cannot save drawings: no mapId or layerId');
+        return;
+    }
+
+    console.log('Saving drawings, count:', drawingStrokes.length);
+
+    fetch(`/api/drawings/${currentMapId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            layer_id: currentDrawingLayerId,
+            strokes: drawingStrokes
+        })
+    })
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'ok') {
+                console.log('Drawings saved successfully');
+            }
+        })
+        .catch(err => console.error('Error saving drawings:', err));
+}
+
+// Отрисовка всех штрихов
+function drawAllStrokes(offsetX, offsetY, scale) {
+    if (!drawingStrokes || drawingStrokes.length === 0) return;
+
+    ctx.save();
+
+    for (const stroke of drawingStrokes) {
+        if (!stroke.points || stroke.points.length < 2) continue;
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 50, 50, 0.5)';
+        ctx.lineWidth = (stroke.width || 20) * scale; // Здесь stroke.width = 20
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const firstPoint = stroke.points[0];
+        ctx.moveTo(
+            firstPoint[0] * scale + offsetX,
+            firstPoint[1] * scale + offsetY
+        );
+
+        for (let i = 1; i < stroke.points.length; i++) {
+            const point = stroke.points[i];
+            ctx.lineTo(
+                point[0] * scale + offsetX,
+                point[1] * scale + offsetY
+            );
+        }
+
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+document.getElementById('drawToggle').addEventListener('click', () => {
+    isDrawMode = !isDrawMode;
+    isEraseMode = false;
+
+    document.getElementById('drawToggle').classList.toggle('active', isDrawMode);
+    document.getElementById('eraserToggle').classList.remove('active');
+
+    updateCanvasCursor();
+});
+
+document.getElementById('eraserToggle').addEventListener('click', () => {
+    isEraseMode = !isEraseMode;
+    isDrawMode = false;
+
+    document.getElementById('eraserToggle').classList.toggle('active', isEraseMode);
+    document.getElementById('drawToggle').classList.remove('active');
+
+    updateCanvasCursor();
+});
+
+function eraseNearbyPoints(x, y, radius) {
+    console.log('Erasing near point:', x, y, 'radius:', radius);
+
+    // Находим штрих, который находится ближе всего к точке клика
+    let closestStrokeIndex = -1;
+    let closestDistance = Infinity;
+
+    for (let i = 0; i < drawingStrokes.length; i++) {
+        const stroke = drawingStrokes[i];
+
+        // Проверяем каждую точку штриха
+        for (const point of stroke.points) {
+            const dist = Math.hypot(point[0] - x, point[1] - y);
+            if (dist < closestDistance) {
+                closestDistance = dist;
+                closestStrokeIndex = i;
+            }
+        }
+    }
+
+    // Если нашли штрих достаточно близко, удаляем его целиком
+    if (closestStrokeIndex !== -1 && closestDistance < radius) {
+        const removedStroke = drawingStrokes.splice(closestStrokeIndex, 1)[0];
+        console.log(`Removed entire stroke with ${removedStroke.points.length} points`);
+
+        // Сохраняем изменения
+        saveDrawings();
+
+        // Отправляем всем игрокам
+        socket.emit('drawings_updated', {
+            map_id: currentMapId,
+            strokes: drawingStrokes,
+            layer_id: currentDrawingLayerId
+        });
+
+        render();
+        return true;
+    }
+
+    console.log('No stroke found to erase');
+    return false;
+}
+
+function clearAllDrawings() {
+    if (!confirm('Очистить все рисунки на карте?')) return;
+
+    drawingStrokes = [];
+    saveDrawings();
+
+    socket.emit('drawings_updated', {
+        map_id: currentMapId,
+        strokes: [],
+        layer_id: currentDrawingLayerId
+    });
+
+    render();
+}
+
+socket.on('request_drawings_from_master', (data) => {
+    console.log('Master received request for drawings:', data);
+    if (data.map_id === currentMapId) {
+        socket.emit('drawings_updated', {
+            map_id: currentMapId,
+            strokes: drawingStrokes,
+            layer_id: currentDrawingLayerId
+        });
+    }
+});
+
+// Добавляем обработчик для принудительной отправки рисунков при подключении игрока
+socket.on('player_connected', (data) => {
+    console.log('Player connected to map:', data.map_id);
+    if (data.map_id === currentMapId) {
+        // Отправляем текущие рисунки новому игроку
+        setTimeout(() => {
+            socket.emit('drawings_updated', {
+                map_id: currentMapId,
+                strokes: drawingStrokes,
+                layer_id: currentDrawingLayerId
+            });
+        }, 500);
+    }
+});
