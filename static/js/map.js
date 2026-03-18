@@ -249,16 +249,16 @@ socket.on('master_status', (data) => {
         // Мы потеряли статус мастера
         clearInterval(masterPingInterval);
 
-        if (!data.active) {
-            // Мастер не активен - можем попробовать перезахватить
-            if (confirm('Соединение с мастером потеряно. Перезагрузить страницу?')) {
-                window.location.reload();
-            }
-        } else {
-            // Другой мастер активен
-            alert('Другой мастер управляет картой. Вы будете перенаправлены.');
-            window.location.href = '/master-locked';
-        }
+        // if (!data.active) {
+        //     // Мастер не активен - можем попробовать перезахватить
+        //     if (confirm('Соединение с мастером потеряно. Перезагрузить страницу?')) {
+        //         window.location.reload();
+        //     }
+        // } else {
+        //     // Другой мастер активен
+        //     alert('Другой мастер управляет картой. Вы будете перенаправлены.');
+        //     window.location.href = '/master-locked';
+        // }
     }
 });
 
@@ -2409,42 +2409,42 @@ function addZone() {
             rulerStart = null;
             mapData.ruler_start = null;
             mapData.ruler_end = null;
-            
+
             // Отключаем видимость линейки для игроков
             mapData.ruler_visible_to_players = false;
-            
+
             // Обновляем кнопку в интерфейсе мастера
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             if (playerRulerToggle) {
                 playerRulerToggle.classList.remove("active");
             }
-            
+
             // Отправляем обновление линейки
             socket.emit("ruler_update", {
                 map_id: currentMapId,
                 ruler_start: null,
                 ruler_end: null
             });
-            
+
             socket.emit("ruler_visibility_change", {
                 map_id: currentMapId,
                 ruler_visible_to_players: false
             });
-            
+
             // Обновляем кнопку линейки мастера
             const rulerBtn = document.getElementById("rulerToggle");
             if (rulerBtn) {
                 rulerBtn.classList.remove("active");
             }
         }
-        
+
         // Выключаем режимы рисования
         if (isDrawMode || isEraseMode) {
             isDrawMode = false;
             isEraseMode = false;
             document.getElementById('drawToggle').classList.remove('active');
             document.getElementById('eraserToggle').classList.remove('active');
-            
+
             // Завершаем текущий штрих если есть
             if (drawingStroke) {
                 if (drawThrottle) {
@@ -2460,7 +2460,7 @@ function addZone() {
             }
         }
     }
-    
+
     drawingZone = true;
     currentZoneVertices = [];
     updateCanvasCursor();
@@ -2644,6 +2644,7 @@ canvas.addEventListener("mousedown", (e) => {
 
     // Проверяем клик по токену
     let clickedToken = null;
+    let clickedTokenId = null;
     for (const token of mapData.tokens) {
         const [x, y] = token.position;
         const sx = x * scale + offsetX;
@@ -2652,6 +2653,7 @@ canvas.addEventListener("mousedown", (e) => {
 
         if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
             clickedToken = token;
+            clickedTokenId = token.id;
             break;
         }
     }
@@ -2682,9 +2684,22 @@ canvas.addEventListener("mousedown", (e) => {
             } else {
                 selectedTokenId = null;
             }
+            
+            // ВАЖНО: При Shift+клике всегда сбрасываем selectedTokens, если клик не по выделенному
+            if (!selectedTokens.has(clickedToken.id)) {
+                selectedTokens.clear();
+                selectedTokens.add(clickedToken.id);
+                selectedTokenId = clickedToken.id;
+            }
         } else {
-            // Обычный клик без Shift - пока просто запоминаем, что кликнули
-            // Окончательная обработка будет в обработчике click
+            // ИСПРАВЛЕНИЕ: При обычном клике без Shift, если токен не выделен,
+            // сбрасываем предыдущее выделение и выделяем этот токен
+            if (!selectedTokens.has(clickedToken.id)) {
+                selectedTokens.clear();
+                selectedTokens.add(clickedToken.id);
+                selectedTokenId = clickedToken.id;
+            }
+            // Если токен уже выделен, оставляем выделение как есть
         }
 
         clicked = true;
@@ -2696,9 +2711,10 @@ canvas.addEventListener("mousedown", (e) => {
         const tokenSy = ty * scale + offsetY;
         dragOffset = [(mouseX - tokenSx) / scale, (mouseY - tokenSy) / scale];
 
-        // Если выделено несколько токенов (независимо от того, как они были выделены),
+        // Проверяем, что кликнутый токен входит в выделение
+        // Только если кликнутый токен уже выделен И выделено несколько токенов,
         // начинаем групповое перетаскивание
-        if (selectedTokens.size > 1) {
+        if (selectedTokens.size > 1 && selectedTokens.has(clickedToken.id)) {
             isDraggingMultiple = true;
 
             // Сохраняем смещения для всех выделенных токенов
@@ -4036,61 +4052,61 @@ window.onload = () => {
 
     const rulerBtn = document.getElementById("rulerToggle");
     rulerBtn.addEventListener("click", () => {
-    // Если включаем линейку
-    if (!isRulerMode) {
-        // Выключаем режимы рисования
-        if (isDrawMode || isEraseMode) {
-            isDrawMode = false;
-            isEraseMode = false;
-            document.getElementById('drawToggle').classList.remove('active');
-            document.getElementById('eraserToggle').classList.remove('active');
+        // Если включаем линейку
+        if (!isRulerMode) {
+            // Выключаем режимы рисования
+            if (isDrawMode || isEraseMode) {
+                isDrawMode = false;
+                isEraseMode = false;
+                document.getElementById('drawToggle').classList.remove('active');
+                document.getElementById('eraserToggle').classList.remove('active');
 
-            // Завершаем текущий штрих если есть
-            if (drawingStroke) {
-                if (drawThrottle) {
-                    clearTimeout(drawThrottle);
-                    drawThrottle = null;
+                // Завершаем текущий штрих если есть
+                if (drawingStroke) {
+                    if (drawThrottle) {
+                        clearTimeout(drawThrottle);
+                        drawThrottle = null;
+                    }
+                    if (drawingStroke.points.length > 1) {
+                        saveDrawingStateToHistory();
+                        saveDrawings();
+                    }
+                    drawingStroke = null;
+                    lastDrawPoint = null;
                 }
-                if (drawingStroke.points.length > 1) {
-                    saveDrawingStateToHistory();
-                    saveDrawings();
-                }
-                drawingStroke = null;
-                lastDrawPoint = null;
+            }
+
+            // Выключаем режим рисования зон
+            if (drawingZone) {
+                drawingZone = false;
+                currentZoneVertices = [];
+                const hint = document.getElementById('drawing-hint');
+                if (hint) hint.remove();
             }
         }
 
-        // Выключаем режим рисования зон
-        if (drawingZone) {
-            drawingZone = false;
-            currentZoneVertices = [];
-            const hint = document.getElementById('drawing-hint');
-            if (hint) hint.remove();
+        isRulerMode = !isRulerMode;
+
+        if (!isRulerMode) {
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+
+            socket.emit("ruler_update", {
+                ruler_start: null,
+                ruler_end: null
+            });
+
+            saveMapData();
+        } else {
+            rulerStart = null;
         }
-    }
 
-    isRulerMode = !isRulerMode;
+        rulerBtn.classList.toggle("active", isRulerMode);
 
-    if (!isRulerMode) {
-        mapData.ruler_start = null;
-        mapData.ruler_end = null;
-
-        socket.emit("ruler_update", {
-            ruler_start: null,
-            ruler_end: null
-        });
-
-        saveMapData();
-    } else {
-        rulerStart = null;
-    }
-
-    rulerBtn.classList.toggle("active", isRulerMode);
-    
-    // ВАЖНО: принудительно перерисовываем канвас
-    render();
-    updateCanvasCursor();
-});
+        // ВАЖНО: принудительно перерисовываем канвас
+        render();
+        updateCanvasCursor();
+    });
 
     const gridToggle = document.getElementById("gridToggle");
     gridToggle.addEventListener("click", () => {
@@ -7435,35 +7451,35 @@ document.getElementById('drawToggle').addEventListener('click', () => {
             rulerStart = null;
             mapData.ruler_start = null;
             mapData.ruler_end = null;
-            
+
             // Отключаем видимость линейки для игроков
             mapData.ruler_visible_to_players = false;
-            
+
             // Обновляем кнопку в интерфейсе мастера
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             if (playerRulerToggle) {
                 playerRulerToggle.classList.remove("active");
             }
-            
+
             // Отправляем обновление линейки
             socket.emit("ruler_update", {
                 map_id: currentMapId,
                 ruler_start: null,
                 ruler_end: null
             });
-            
+
             socket.emit("ruler_visibility_change", {
                 map_id: currentMapId,
                 ruler_visible_to_players: false
             });
-            
+
             // Обновляем кнопку линейки мастера
             const rulerBtn = document.getElementById("rulerToggle");
             if (rulerBtn) {
                 rulerBtn.classList.remove("active");
             }
         }
-        
+
         // Выключаем режим рисования зон
         if (drawingZone) {
             drawingZone = false;
@@ -7472,7 +7488,7 @@ document.getElementById('drawToggle').addEventListener('click', () => {
             if (hint) hint.remove();
         }
     }
-    
+
     isDrawMode = !isDrawMode;
     isEraseMode = false;
 
@@ -7493,35 +7509,35 @@ document.getElementById('eraserToggle').addEventListener('click', () => {
             rulerStart = null;
             mapData.ruler_start = null;
             mapData.ruler_end = null;
-            
+
             // Отключаем видимость линейки для игроков
             mapData.ruler_visible_to_players = false;
-            
+
             // Обновляем кнопку в интерфейсе мастера
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             if (playerRulerToggle) {
                 playerRulerToggle.classList.remove("active");
             }
-            
+
             // Отправляем обновление линейки
             socket.emit("ruler_update", {
                 map_id: currentMapId,
                 ruler_start: null,
                 ruler_end: null
             });
-            
+
             socket.emit("ruler_visibility_change", {
                 map_id: currentMapId,
                 ruler_visible_to_players: false
             });
-            
+
             // Обновляем кнопку линейки мастера
             const rulerBtn = document.getElementById("rulerToggle");
             if (rulerBtn) {
                 rulerBtn.classList.remove("active");
             }
         }
-        
+
         // Выключаем режим рисования зон
         if (drawingZone) {
             drawingZone = false;
@@ -7530,7 +7546,7 @@ document.getElementById('eraserToggle').addEventListener('click', () => {
             if (hint) hint.remove();
         }
     }
-    
+
     isEraseMode = !isEraseMode;
     isDrawMode = false;
 
