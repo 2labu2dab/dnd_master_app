@@ -2401,9 +2401,69 @@ function drawZone(zone, offsetX, offsetY, scale) {
 }
 
 function addZone() {
+    // Если включаем рисование зон
+    if (!drawingZone) {
+        // Выключаем линейку
+        if (isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+            
+            // Отключаем видимость линейки для игроков
+            mapData.ruler_visible_to_players = false;
+            
+            // Обновляем кнопку в интерфейсе мастера
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            if (playerRulerToggle) {
+                playerRulerToggle.classList.remove("active");
+            }
+            
+            // Отправляем обновление линейки
+            socket.emit("ruler_update", {
+                map_id: currentMapId,
+                ruler_start: null,
+                ruler_end: null
+            });
+            
+            socket.emit("ruler_visibility_change", {
+                map_id: currentMapId,
+                ruler_visible_to_players: false
+            });
+            
+            // Обновляем кнопку линейки мастера
+            const rulerBtn = document.getElementById("rulerToggle");
+            if (rulerBtn) {
+                rulerBtn.classList.remove("active");
+            }
+        }
+        
+        // Выключаем режимы рисования
+        if (isDrawMode || isEraseMode) {
+            isDrawMode = false;
+            isEraseMode = false;
+            document.getElementById('drawToggle').classList.remove('active');
+            document.getElementById('eraserToggle').classList.remove('active');
+            
+            // Завершаем текущий штрих если есть
+            if (drawingStroke) {
+                if (drawThrottle) {
+                    clearTimeout(drawThrottle);
+                    drawThrottle = null;
+                }
+                if (drawingStroke.points.length > 1) {
+                    saveDrawingStateToHistory();
+                    saveDrawings();
+                }
+                drawingStroke = null;
+                lastDrawPoint = null;
+            }
+        }
+    }
+    
     drawingZone = true;
     currentZoneVertices = [];
-    updateCanvasCursor(); // Добавьте эту строку
+    updateCanvasCursor();
 
     // Опционально: показать подсказку пользователю
     showZoneDrawingHint();
@@ -3026,6 +3086,43 @@ function renderTokenContextMenu(token, x, y) {
 
 canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    if (isDrawMode || isEraseMode) {
+        // Завершаем текущий штрих если есть
+        if (drawingStroke) {
+            if (drawThrottle) {
+                clearTimeout(drawThrottle);
+                drawThrottle = null;
+            }
+
+            if (drawingStroke.points.length > 1) {
+                saveDrawingStateToHistory();
+                saveDrawings();
+                socket.emit('drawings_updated', {
+                    map_id: currentMapId,
+                    strokes: drawingStrokes,
+                    layer_id: currentDrawingLayerId
+                });
+            }
+
+            drawingStroke = null;
+            lastDrawPoint = null;
+        }
+
+        isDrawMode = false;
+        isEraseMode = false;
+
+        // Обновляем кнопки
+        const drawToggle = document.getElementById('drawToggle');
+        const eraserToggle = document.getElementById('eraserToggle');
+
+        if (drawToggle) drawToggle.classList.remove('active');
+        if (eraserToggle) eraserToggle.classList.remove('active');
+
+        updateCanvasCursor();
+        render();
+        console.log("Drawing/Erase mode disabled with right-click");
+        return;
+    }
     if (isRulerMode) {
         isRulerMode = false;
         rulerStart = null;
@@ -3373,6 +3470,40 @@ document.addEventListener("keydown", (e) => {
             closeAllModals();
         } else {
             // Если модалки закрыты, обрабатываем другие режимы
+
+            if (isDrawMode || isEraseMode) {
+                // Завершаем текущий штрих если есть
+                if (drawingStroke) {
+                    if (drawThrottle) {
+                        clearTimeout(drawThrottle);
+                        drawThrottle = null;
+                    }
+
+                    if (drawingStroke.points.length > 1) {
+                        saveDrawingStateToHistory();
+                        saveDrawings();
+                        socket.emit('drawings_updated', {
+                            map_id: currentMapId,
+                            strokes: drawingStrokes,
+                            layer_id: currentDrawingLayerId
+                        });
+                    }
+
+                    drawingStroke = null;
+                    lastDrawPoint = null;
+                }
+
+                isDrawMode = false;
+                isEraseMode = false;
+
+                // Обновляем кнопки
+                document.getElementById('drawToggle').classList.remove('active');
+                document.getElementById('eraserToggle').classList.remove('active');
+
+                updateCanvasCursor();
+                render();
+                console.log("Drawing/Erase mode disabled with Escape");
+            }
 
             // Отключаем линейку
             if (isRulerMode) {
@@ -3905,25 +4036,61 @@ window.onload = () => {
 
     const rulerBtn = document.getElementById("rulerToggle");
     rulerBtn.addEventListener("click", () => {
-        isRulerMode = !isRulerMode;
+    // Если включаем линейку
+    if (!isRulerMode) {
+        // Выключаем режимы рисования
+        if (isDrawMode || isEraseMode) {
+            isDrawMode = false;
+            isEraseMode = false;
+            document.getElementById('drawToggle').classList.remove('active');
+            document.getElementById('eraserToggle').classList.remove('active');
 
-        if (!isRulerMode) {
-            mapData.ruler_start = null;
-            mapData.ruler_end = null;
-
-            socket.emit("ruler_update", {
-                ruler_start: null,
-                ruler_end: null
-            });
-
-            saveMapData();
-        } else {
-            rulerStart = null;
+            // Завершаем текущий штрих если есть
+            if (drawingStroke) {
+                if (drawThrottle) {
+                    clearTimeout(drawThrottle);
+                    drawThrottle = null;
+                }
+                if (drawingStroke.points.length > 1) {
+                    saveDrawingStateToHistory();
+                    saveDrawings();
+                }
+                drawingStroke = null;
+                lastDrawPoint = null;
+            }
         }
 
-        rulerBtn.classList.toggle("active", isRulerMode);
-        render();
-    });
+        // Выключаем режим рисования зон
+        if (drawingZone) {
+            drawingZone = false;
+            currentZoneVertices = [];
+            const hint = document.getElementById('drawing-hint');
+            if (hint) hint.remove();
+        }
+    }
+
+    isRulerMode = !isRulerMode;
+
+    if (!isRulerMode) {
+        mapData.ruler_start = null;
+        mapData.ruler_end = null;
+
+        socket.emit("ruler_update", {
+            ruler_start: null,
+            ruler_end: null
+        });
+
+        saveMapData();
+    } else {
+        rulerStart = null;
+    }
+
+    rulerBtn.classList.toggle("active", isRulerMode);
+    
+    // ВАЖНО: принудительно перерисовываем канвас
+    render();
+    updateCanvasCursor();
+});
 
     const gridToggle = document.getElementById("gridToggle");
     gridToggle.addEventListener("click", () => {
@@ -7260,24 +7427,121 @@ function drawAllStrokes(offsetX, offsetY, scale) {
 }
 
 document.getElementById('drawToggle').addEventListener('click', () => {
+    // Если включаем рисование
+    if (!isDrawMode) {
+        // Выключаем линейку
+        if (isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+            
+            // Отключаем видимость линейки для игроков
+            mapData.ruler_visible_to_players = false;
+            
+            // Обновляем кнопку в интерфейсе мастера
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            if (playerRulerToggle) {
+                playerRulerToggle.classList.remove("active");
+            }
+            
+            // Отправляем обновление линейки
+            socket.emit("ruler_update", {
+                map_id: currentMapId,
+                ruler_start: null,
+                ruler_end: null
+            });
+            
+            socket.emit("ruler_visibility_change", {
+                map_id: currentMapId,
+                ruler_visible_to_players: false
+            });
+            
+            // Обновляем кнопку линейки мастера
+            const rulerBtn = document.getElementById("rulerToggle");
+            if (rulerBtn) {
+                rulerBtn.classList.remove("active");
+            }
+        }
+        
+        // Выключаем режим рисования зон
+        if (drawingZone) {
+            drawingZone = false;
+            currentZoneVertices = [];
+            const hint = document.getElementById('drawing-hint');
+            if (hint) hint.remove();
+        }
+    }
+    
     isDrawMode = !isDrawMode;
     isEraseMode = false;
 
     document.getElementById('drawToggle').classList.toggle('active', isDrawMode);
     document.getElementById('eraserToggle').classList.remove('active');
 
+    // ВАЖНО: принудительно перерисовываем канвас
+    render();
     updateCanvasCursor();
 });
 
 document.getElementById('eraserToggle').addEventListener('click', () => {
+    // Если включаем ластик
+    if (!isEraseMode) {
+        // Выключаем линейку
+        if (isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+            
+            // Отключаем видимость линейки для игроков
+            mapData.ruler_visible_to_players = false;
+            
+            // Обновляем кнопку в интерфейсе мастера
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            if (playerRulerToggle) {
+                playerRulerToggle.classList.remove("active");
+            }
+            
+            // Отправляем обновление линейки
+            socket.emit("ruler_update", {
+                map_id: currentMapId,
+                ruler_start: null,
+                ruler_end: null
+            });
+            
+            socket.emit("ruler_visibility_change", {
+                map_id: currentMapId,
+                ruler_visible_to_players: false
+            });
+            
+            // Обновляем кнопку линейки мастера
+            const rulerBtn = document.getElementById("rulerToggle");
+            if (rulerBtn) {
+                rulerBtn.classList.remove("active");
+            }
+        }
+        
+        // Выключаем режим рисования зон
+        if (drawingZone) {
+            drawingZone = false;
+            currentZoneVertices = [];
+            const hint = document.getElementById('drawing-hint');
+            if (hint) hint.remove();
+        }
+    }
+    
     isEraseMode = !isEraseMode;
     isDrawMode = false;
 
     document.getElementById('eraserToggle').classList.toggle('active', isEraseMode);
     document.getElementById('drawToggle').classList.remove('active');
 
+    // ВАЖНО: принудительно перерисовываем канвас
+    render();
     updateCanvasCursor();
 });
+
 
 function eraseNearbyPoints(x, y, radius) {
     console.log('Erasing near point:', x, y, 'radius:', radius);
@@ -7401,19 +7665,19 @@ function undoDrawing() {
     if (drawingHistoryIndex > 0) {
         drawingHistoryIndex--;
         drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-        
+
         console.log(`Undo: Restored state ${drawingHistoryIndex}`);
-        
+
         // Сохраняем на сервере
         saveDrawings();
-        
+
         // Отправляем всем игрокам
         socket.emit('drawings_updated', {
             map_id: currentMapId,
             strokes: drawingStrokes,
             layer_id: currentDrawingLayerId
         });
-        
+
         render();
         return true;
     }
@@ -7425,19 +7689,19 @@ function redoDrawing() {
     if (drawingHistoryIndex < drawingHistory.length - 1) {
         drawingHistoryIndex++;
         drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-        
+
         console.log(`Redo: Restored state ${drawingHistoryIndex}`);
-        
+
         // Сохраняем на сервере
         saveDrawings();
-        
+
         // Отправляем всем игрокам
         socket.emit('drawings_updated', {
             map_id: currentMapId,
             strokes: drawingStrokes,
             layer_id: currentDrawingLayerId
         });
-        
+
         render();
         return true;
     }
