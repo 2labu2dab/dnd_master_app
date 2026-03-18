@@ -358,7 +358,20 @@
           </div>
         </div>
       </div>
-
+      <div class="size-selector">
+        <label>Размер токена:</label>
+        <div class="size-buttons">
+          <select id="tokenSize" class="size-select"
+            style="width: 100%; padding: 8px; border-radius: 6px; background: #2a2a3b; color: white; border: 1px solid #3a3a4a;">
+            <option value="tiny">Крошечный</option>
+            <option value="small">Маленький</option>
+            <option value="medium" selected>Средний</option>
+            <option value="large">Большой</option>
+            <option value="huge">Огромный</option>
+            <option value="gargantuan">Гигантский</option>
+          </select>
+        </div>
+      </div>
       <div class="visibility-toggle">
         <input type="checkbox" id="addToCharactersCheckbox" />
         <label for="addToCharactersCheckbox">Добавить в портреты</label>
@@ -503,7 +516,20 @@
           </div>
         </div>
       </div>
-
+      <div class="size-selector">
+        <label>Размер токена:</label>
+        <div class="size-buttons">
+          <select id="bankCharacterSize" class="size-select"
+            style="width: 100%; padding: 8px; border-radius: 6px; background: #2a2a3b; color: white; border: 1px solid #3a3a4a;">
+            <option value="tiny">Крошечный</option>
+            <option value="small">Маленький</option>
+            <option value="medium" selected>Средний</option>
+            <option value="large">Большой</option>
+            <option value="huge">Огромный</option>
+            <option value="gargantuan">Гигантский</option>
+          </select>
+        </div>
+      </div>
       <!-- Кнопки -->
       <div class="token-buttons">
         <button class="save-btn" onclick="submitBankCharacter()">Сохранить в банк</button>

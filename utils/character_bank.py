@@ -13,12 +13,20 @@ from utils.bank_storage import (
 from utils.bank_storage import bank_avatar_exists as bank_storage_avatar_exists
 
 DB_PATH = os.path.join("data", "character_bank.db")
+TOKEN_SIZES = {
+    "tiny": {"name": "Крошечный", "scale": 0.25, "grid_cells": 0.25},
+    "small": {"name": "Маленький", "scale": 1.0, "grid_cells": 1},
+    "medium": {"name": "Средний", "scale": 1.0, "grid_cells": 1},
+    "large": {"name": "Большой", "scale": 2.0, "grid_cells": 4},
+    "huge": {"name": "Огромный", "scale": 3.0, "grid_cells": 9},
+    "gargantuan": {"name": "Гигантский", "scale": 4.0, "grid_cells": 20},
+}
 
 
 def init_db():
     """Инициализация базы данных банка персонажей"""
     os.makedirs("data", exist_ok=True)
-    ensure_bank_avatars_dir()  # Создаем папку для аватаров
+    ensure_bank_avatars_dir()
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -33,12 +41,22 @@ def init_db():
             current_health INTEGER DEFAULT 10,
             is_dead BOOLEAN DEFAULT 0,
             has_avatar BOOLEAN DEFAULT 0,
+            size TEXT DEFAULT 'medium',
             avatar_path TEXT,
             created_at TIMESTAMP,
             updated_at TIMESTAMP,
             metadata TEXT
         )
     """)
+
+    # Проверяем, есть ли колонка size, если нет - добавляем
+    cursor.execute("PRAGMA table_info(characters)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "size" not in columns:
+        cursor.execute(
+            "ALTER TABLE characters ADD COLUMN size TEXT DEFAULT 'medium'"
+        )
+        print("Added 'size' column to characters table")
 
     conn.commit()
     conn.close()
@@ -61,23 +79,18 @@ def get_all_bank_characters():
 
     for row in rows:
         char = dict(row)
-        # Парсим metadata если есть
         if char.get("metadata"):
             try:
                 char["metadata"] = json.loads(char["metadata"])
             except:
                 char["metadata"] = {}
 
-        # Добавляем URL аватара, если есть аватар
+        # Убеждаемся, что размер есть
+        if "size" not in char or not char["size"]:
+            char["size"] = "medium"
+
         if char.get("has_avatar"):
             char["avatar_url"] = get_bank_avatar_url(char["id"])
-        else:
-            # Проверяем, может быть файл есть, а в БД не отмечено
-            if bank_avatar_exists(char["id"]):
-                char["has_avatar"] = True
-                char["avatar_url"] = get_bank_avatar_url(char["id"])
-                # Обновляем БД
-                update_character_avatar_status(char["id"], True)
 
         characters.append(char)
 
@@ -111,15 +124,14 @@ def add_character_to_bank(character_data):
 
     now = datetime.now().isoformat()
 
-    # Подготавливаем metadata для JSON полей
     metadata = character_data.get("metadata", {})
 
     cursor.execute(
         """
         INSERT OR REPLACE INTO characters 
         (id, name, type, armor_class, max_health, current_health, is_dead, 
-         has_avatar, avatar_path, created_at, updated_at, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         has_avatar, size, avatar_path, created_at, updated_at, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
         (
             char_id,
@@ -128,8 +140,9 @@ def add_character_to_bank(character_data):
             character_data.get("armor_class", 10),
             character_data.get("max_health", 10),
             character_data.get("current_health", 10),
-            0,  # is_dead всегда 0 при добавлении
+            0,
             character_data.get("has_avatar", False),
+            character_data.get("size", "medium"),  # НОВОЕ: размер
             character_data.get("avatar_path"),
             now,
             now,
@@ -155,7 +168,7 @@ def update_character_in_bank(char_id, character_data):
         """
         UPDATE characters 
         SET name = ?, type = ?, armor_class = ?, max_health = ?, 
-            current_health = ?, updated_at = ?, metadata = ?
+            current_health = ?, size = ?, updated_at = ?, metadata = ?
         WHERE id = ?
     """,
         (
@@ -164,6 +177,7 @@ def update_character_in_bank(char_id, character_data):
             character_data.get("armor_class"),
             character_data.get("max_health"),
             character_data.get("current_health"),
+            character_data.get("size", "medium"),  # НОВОЕ: размер
             now,
             json.dumps(character_data.get("metadata", {})),
             char_id,
@@ -209,9 +223,12 @@ def get_bank_character(char_id):
             except:
                 char["metadata"] = {}
 
+        # Убеждаемся, что размер есть
+        if "size" not in char or not char["size"]:
+            char["size"] = "medium"
+
         if char.get("has_avatar") or bank_avatar_exists(char_id):
             char["has_avatar"] = True
-            # ИСПРАВЛЕНО: используем URL для банка
             char["avatar_url"] = get_bank_avatar_url(char["id"])
 
         return char

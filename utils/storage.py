@@ -24,7 +24,18 @@ TOKENS_AVATARS_DIR = os.path.join(
 PORTRAITS_DIR = os.path.join("data", "portrait_images")
 BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
 DRAWINGS_DIR = os.path.join(DATA_DIR, "drawings")
+TOKEN_SIZE_SCALES = {
+    'tiny': 0.25,
+    'small': 1.0,
+    'medium': 1.0,
+    'large': 2.0,
+    'huge': 3.0,
+    'gargantuan': 4.0
+}
 
+def get_token_size_scale(size_key):
+    """Получить масштаб для токена по его размеру"""
+    return TOKEN_SIZE_SCALES.get(size_key, 1.0)
 
 def get_bank_avatar_filepath(character_id):
     """Получить путь к файлу аватара персонажа из банка"""
@@ -117,40 +128,30 @@ def sync_token_across_maps(token_id, updates):
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Проверяем, есть ли токен на этой карте
                 token_updated = False
                 if "tokens" in data:
                     for token in data["tokens"]:
                         if token.get("id") == token_id:
-                            # Обновляем поля (кроме позиции)
+                            # Обновляем все поля кроме позиции
                             for key, value in updates.items():
-                                if (
-                                    key != "position"
-                                    and key != "avatar_data"
-                                    and key != "avatar_url"
-                                ):
+                                if key != "position" and key != "avatar_data":
                                     token[key] = value
 
-                            # Отдельно обрабатываем avatar_url
-                            if (
-                                "avatar_url" in updates
-                                and updates["avatar_url"]
-                            ):
-                                token["avatar_url"] = (
-                                    updates["avatar_url"].split("?")[0]
-                                    + f"?t={int(time.time())}"
-                                )
+                            if "avatar_url" in updates and updates["avatar_url"]:
+                                token["avatar_url"] = updates["avatar_url"].split("?")[0] + f"?t={int(time.time())}"
 
-                            # Обновляем has_avatar если есть
                             if "has_avatar" in updates:
                                 token["has_avatar"] = updates["has_avatar"]
+                                
+                            # Убеждаемся, что размер синхронизирован
+                            if "size" in updates:
+                                token["size"] = updates["size"]
 
                             token_updated = True
                             print(f"  ✓ Updated token on map {map_id}")
                             break
 
                 if token_updated:
-                    # Сохраняем карту
                     with open(filepath, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
                     updated_maps.append(map_id)
@@ -158,13 +159,11 @@ def sync_token_across_maps(token_id, updates):
             except Exception as e:
                 print(f"  ✗ Error updating map {filename}: {e}")
                 import traceback
-
                 traceback.print_exc()
                 continue
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
-
 
 def ensure_dirs():
     """Создать необходимые директории"""
@@ -750,19 +749,19 @@ def get_drawings_filepath(map_id):
 def save_drawings_layer(map_id, layer_id, strokes):
     """Сохранить слой рисунков"""
     filepath = get_drawings_filepath(map_id)
-    
+
     # Проверяем структуру перед сохранением
     print(f"Saving {len(strokes)} strokes")
     if strokes and len(strokes) > 0:
         print(f"Sample stroke: {strokes[0]}")
-    
+
     data = {
         "map_id": map_id,
         "layer_id": layer_id,
         "strokes": strokes,
         "modified": datetime.now().isoformat(),
     }
-    
+
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -771,6 +770,7 @@ def save_drawings_layer(map_id, layer_id, strokes):
     except Exception as e:
         print(f"✗ Error saving drawings: {e}")
         return False
+
 
 def load_drawings_layer(map_id):
     """Загрузить слой рисунков"""

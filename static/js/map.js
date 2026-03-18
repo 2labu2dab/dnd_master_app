@@ -340,8 +340,11 @@ function submitToken() {
     const name = document.getElementById("tokenName").value;
     const avatarPreview = document.getElementById("avatarPreview");
     const avatarData = avatarPreview.dataset.base64 || null;
+    const sizeSelect = document.getElementById("tokenSize");
+    const tokenSize = sizeSelect ? sizeSelect.value : 'medium'; // НОВОЕ: размер
 
     console.log("Avatar data present:", !!avatarData);
+    console.log("Token size:", tokenSize);
 
     const ac = parseInt(document.getElementById("tokenAC").value);
     const hp = parseInt(document.getElementById("tokenHP").value);
@@ -352,18 +355,18 @@ function submitToken() {
     const addToBank = document.getElementById("addToBankCheckbox").checked;
 
     if (editingTokenId) {
-        // Редактирование существующего токена
-        editExistingToken(name, ac, hp, type, avatarData, addToBank);
+        // При редактировании передаём размер
+        editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize);
     } else {
-        // Создание нового токена
-        createNewToken(name, ac, hp, type, avatarData, addToBank);
+        // При создании передаём размер
+        createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize);
     }
 
     editingTokenId = null;
     avatarChanged = false;
 }
 
-function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
+function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
     const token = mapData.tokens.find(t => t.id === editingTokenId);
     if (!token) return;
 
@@ -379,25 +382,26 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
     token.is_player = type === "player";
     token.is_npc = type === "npc";
 
+    // ВАЖНО: обновляем размер токена
+    token.size = tokenSize;
+    console.log(`Token size updated to: ${tokenSize}`);
+
     if (avatarChangedNow) {
         token.has_avatar = true;
         token.avatar_data = avatarData;
         console.log("Avatar changed for token:", editingTokenId);
 
-        // Очищаем кэш аватара при изменении
         if (avatarCache.has(editingTokenId)) {
             avatarCache.delete(editingTokenId);
             console.log("Avatar cache cleared for token:", editingTokenId);
         }
 
-        // Обновляем avatar_url с новым timestamp
         token.avatar_url = `/api/token/avatar/${editingTokenId}?t=${Date.now()}`;
     } else {
         token.has_avatar = oldHasAvatar;
         token.avatar_url = oldAvatar;
     }
 
-    // Проверяем, нужно ли добавить в портреты
     const addToCharacters = document.getElementById("addToCharactersCheckbox").checked;
 
     // Сначала обновляем токен на сервере
@@ -410,7 +414,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank) {
         is_player: token.is_player,
         is_npc: token.is_npc,
         position: token.position,
-        size: token.size,
+        size: token.size,  // ВАЖНО: передаём размер на сервер
         is_dead: token.is_dead,
         is_visible: token.is_visible,
         has_avatar: token.has_avatar
@@ -475,20 +479,20 @@ function refreshCharacterList() {
     console.log("Character list refreshed, count:", mapData.characters.length);
 }
 
-function createNewToken(name, ac, hp, type, avatarData, addToBank) {
+function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
     const centerX = mapImage.width ? mapImage.width / 2 : 500;
     const centerY = mapImage.height ? mapImage.height / 2 : 500;
 
     const tokenId = `token_${Date.now()}`;
 
-    // Создаем URL для аватара сразу
+    // Получаем выбранный размер
     const avatarUrl = avatarData ? `/api/token/avatar/${tokenId}?t=${Date.now()}` : null;
 
     const token = {
         id: tokenId,
         name,
         position: [centerX, centerY],
-        size: mapData.grid_settings.cell_size,
+        size: tokenSize,  // Сохраняем строковый идентификатор размера
         is_dead: false,
         is_player: type === "player",
         is_npc: type === "npc",
@@ -512,7 +516,6 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank) {
         avatar_data: avatarData
     };
 
-    // Добавляем в банк если нужно
     if (addToBank) {
         const bankCharData = {
             id: tokenId,
@@ -520,6 +523,7 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank) {
             type: type,
             armor_class: ac,
             max_health: hp,
+            size: tokenSize,  // ВАЖНО: передаём размер в банк
             has_avatar: !!avatarData
         };
 
@@ -1856,17 +1860,43 @@ function drawToken(token, offsetX, offsetY, scale) {
     const [x, y] = token.position;
     const sx = x * scale + offsetX;
     const sy = y * scale + offsetY;
-    const size = mapData.grid_settings.cell_size * scale;
-    const radius = size / 2;
+
+    // Получаем базовый размер клетки
+    const cellSize = mapData.grid_settings.cell_size * scale;
+
+    // Определяем масштаб размера токена
+    let sizeScale = 1.0;
+    switch (token.size) {
+        case 'tiny':
+            sizeScale = 0.5;
+            break;
+        case 'small':
+        case 'medium':
+            sizeScale = 1.0;
+            break;
+        case 'large':
+            sizeScale = 2.0;
+            break;
+        case 'huge':
+            sizeScale = 3.0;
+            break;
+        case 'gargantuan':
+            sizeScale = 4.0;
+            break;
+        default:
+            sizeScale = 1.0;
+    }
+
+    // Размер токена в пикселях на экране
+    const tokenSize = cellSize * sizeScale;
+    const radius = tokenSize / 2;
 
     // Проверяем, находится ли токен под скрытой зоной
     const isUnderHiddenZone = isPointInHiddenZone(token.position, mapData.zones);
-    // Проверяем, скрыт ли токен вручную мастером
     const isManuallyHidden = token.is_visible === false;
 
     ctx.save();
 
-    // Если токен под скрытой зоной ИЛИ скрыт вручную, делаем его полупрозрачным
     if (isUnderHiddenZone || isManuallyHidden) {
         ctx.globalAlpha = 0.4;
     }
@@ -1896,11 +1926,11 @@ function drawToken(token, offsetX, offsetY, scale) {
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, tokenSize, tokenSize);
                 ctx.filter = 'none';
                 ctx.globalAlpha = 1;
             } else {
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, tokenSize, tokenSize);
             }
 
             ctx.restore();
@@ -1953,7 +1983,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    // Единый стиль выделения для всех выбранных токенов (сплошная линия)
     if (selectedTokens.has(token.id)) {
         ctx.beginPath();
         ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
@@ -1969,8 +1998,6 @@ function drawToken(token, offsetX, offsetY, scale) {
     }
 
     ctx.restore();
-
-    // Иконки УБРАНЫ - оставляем только прозрачность
 }
 
 function reloadTokenAvatar(tokenId) {
@@ -2577,12 +2604,11 @@ canvas.addEventListener("mousedown", (e) => {
     // Сбрасываем флаг клика
     isClick = true;
 
-    // Устанавливаем таймер для определения перетаскивания
     if (clickTimer) {
         clearTimeout(clickTimer);
     }
     clickTimer = setTimeout(() => {
-        isClick = false; // Если прошло больше 200ms - это перетаскивание
+        isClick = false;
     }, 200);
 
     if (isRulerMode) {
@@ -2645,18 +2671,20 @@ canvas.addEventListener("mousedown", (e) => {
     // Проверяем клик по токену
     let clickedToken = null;
     let clickedTokenId = null;
-    for (const token of mapData.tokens) {
-        const [x, y] = token.position;
-        const sx = x * scale + offsetX;
-        const sy = y * scale + offsetY;
-        const radius = (mapData.grid_settings.cell_size * scale) / 2;
 
-        if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
-            clickedToken = token;
-            clickedTokenId = token.id;
-            break;
-        }
+    // Проходим по всем токенам в обратном порядке, чтобы верхние перехватывали клик
+    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
+    const token = mapData.tokens[i];
+    const [x, y] = token.position;
+    const sx = x * scale + offsetX;
+    const sy = y * scale + offsetY;
+    const radius = getTokenScreenRadius(token, scale);
+
+    if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
+        clickedToken = token;
+        break;
     }
+}
 
     // Логика выделения и перетаскивания
     selectedTokenId = null;
@@ -2671,53 +2699,39 @@ canvas.addEventListener("mousedown", (e) => {
     // Обработка клика по токену
     if (clickedToken) {
         if (isShiftPressed) {
-            // Shift + клик - переключаем выделение токена (мультивыделение)
+            // Shift + клик - переключаем выделение
             if (selectedTokens.has(clickedToken.id)) {
                 selectedTokens.delete(clickedToken.id);
             } else {
                 selectedTokens.add(clickedToken.id);
             }
 
-            // Обновляем selectedTokenId для отображения в сайдбаре
             if (selectedTokens.size > 0) {
-                selectedTokenId = clickedToken.id; // Показываем последний кликнутый
+                selectedTokenId = clickedToken.id;
             } else {
                 selectedTokenId = null;
             }
-            
-            // ВАЖНО: При Shift+клике всегда сбрасываем selectedTokens, если клик не по выделенному
-            if (!selectedTokens.has(clickedToken.id)) {
-                selectedTokens.clear();
-                selectedTokens.add(clickedToken.id);
-                selectedTokenId = clickedToken.id;
-            }
         } else {
-            // ИСПРАВЛЕНИЕ: При обычном клике без Shift, если токен не выделен,
-            // сбрасываем предыдущее выделение и выделяем этот токен
+            // Обычный клик без Shift
             if (!selectedTokens.has(clickedToken.id)) {
                 selectedTokens.clear();
                 selectedTokens.add(clickedToken.id);
                 selectedTokenId = clickedToken.id;
             }
-            // Если токен уже выделен, оставляем выделение как есть
         }
 
         clicked = true;
 
-        // ВАЖНО: Всегда начинаем перетаскивание при клике на токен (независимо от Shift)
+        // Начинаем перетаскивание
         draggingToken = clickedToken;
         const [tx, ty] = clickedToken.position;
         const tokenSx = tx * scale + offsetX;
         const tokenSy = ty * scale + offsetY;
         dragOffset = [(mouseX - tokenSx) / scale, (mouseY - tokenSy) / scale];
 
-        // Проверяем, что кликнутый токен входит в выделение
-        // Только если кликнутый токен уже выделен И выделено несколько токенов,
-        // начинаем групповое перетаскивание
+        // Проверяем групповое перетаскивание
         if (selectedTokens.size > 1 && selectedTokens.has(clickedToken.id)) {
             isDraggingMultiple = true;
-
-            // Сохраняем смещения для всех выделенных токенов
             multiDragOffsets.clear();
 
             for (const tokenId of selectedTokens) {
@@ -2734,7 +2748,6 @@ canvas.addEventListener("mousedown", (e) => {
             }
         }
 
-        // Обновляем сайдбар
         updateSidebar();
     }
 
@@ -3013,6 +3026,23 @@ canvas.addEventListener("mousemove", (e) => {
     }
 });
 
+function getTokenScreenRadius(token, scale) {
+    const cellSize = mapData.grid_settings.cell_size * scale;
+    let sizeScale = 1.0;
+    
+    switch(token.size) {
+        case 'tiny': sizeScale = 0.5; break;
+        case 'small':
+        case 'medium': sizeScale = 1.0; break;
+        case 'large': sizeScale = 2.0; break;
+        case 'huge': sizeScale = 3.0; break;
+        case 'gargantuan': sizeScale = 4.0; break;
+        default: sizeScale = 1.0;
+    }
+    
+    return (cellSize * sizeScale) / 2;
+}
+
 function renderTokenContextMenu(token, x, y) {
     const menu = document.getElementById("tokenContextMenu");
     const nameElem = document.getElementById("contextTokenName");
@@ -3181,12 +3211,28 @@ canvas.addEventListener("contextmenu", (e) => {
     }
     const { scale, offsetX, offsetY } = getTransform();
 
-    // Проверяем клик по токену
-    for (const token of mapData.tokens) {
+    // Проверяем клик по токену с учётом размера
+    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
+        const token = mapData.tokens[i];
         const [x, y] = token.position;
         const sx = x * scale + offsetX;
         const sy = y * scale + offsetY;
-        const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+        // Получаем размер токена с учётом масштаба
+        const cellSize = mapData.grid_settings.cell_size * scale;
+        let sizeScale = 1.0;
+        switch (token.size) {
+            case 'tiny': sizeScale = 0.5; break;
+            case 'small':
+            case 'medium': sizeScale = 1.0; break;
+            case 'large': sizeScale = 2.0; break;
+            case 'huge': sizeScale = 3.0; break;
+            case 'gargantuan': sizeScale = 4.0; break;
+            default: sizeScale = 1.0;
+        }
+
+        const tokenSize = cellSize * sizeScale;
+        const radius = tokenSize / 2;
 
         if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
             e.preventDefault();
@@ -3385,16 +3431,31 @@ canvas.addEventListener("click", (e) => {
     const { scale, offsetX, offsetY } = getTransform();
     const isShiftPressed = e.shiftKey;
 
-    // Проверяем, был ли это именно клик, а не перетаскивание
     if (!isClick) return;
 
-    // Проверяем клик по токену
+    // Проверяем клик по токену с учётом размера
     let clickedToken = null;
-    for (const token of mapData.tokens) {
+    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
+        const token = mapData.tokens[i];
         const [x, y] = token.position;
         const sx = x * scale + offsetX;
         const sy = y * scale + offsetY;
-        const radius = (mapData.grid_settings.cell_size * scale) / 2;
+
+        // Получаем размер токена с учётом масштаба
+        const cellSize = mapData.grid_settings.cell_size * scale;
+        let sizeScale = 1.0;
+        switch (token.size) {
+            case 'tiny': sizeScale = 0.5; break;
+            case 'small':
+            case 'medium': sizeScale = 1.0; break;
+            case 'large': sizeScale = 2.0; break;
+            case 'huge': sizeScale = 3.0; break;
+            case 'gargantuan': sizeScale = 4.0; break;
+            default: sizeScale = 1.0;
+        }
+
+        const tokenSize = cellSize * sizeScale;
+        const radius = tokenSize / 2;
 
         if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
             clickedToken = token;
@@ -3403,12 +3464,10 @@ canvas.addEventListener("click", (e) => {
     }
 
     if (clickedToken && !isShiftPressed) {
-        // Обычный клик без Shift - сбрасываем множественное выделение и выделяем этот токен
         selectedTokens.clear();
         selectedTokens.add(clickedToken.id);
         selectedTokenId = clickedToken.id;
 
-        // Снимаем выделение с других объектов
         selectedZoneId = null;
         selectedFindId = null;
         selectedCharacterId = null;
@@ -4750,6 +4809,12 @@ function openEditTokenModal(token) {
         document.querySelector('.type-btn[data-type="enemy"]').classList.add("active");
     }
 
+    // НОВОЕ: устанавливаем размер
+    const sizeSelect = document.getElementById("tokenSize");
+    if (sizeSelect && token.size) {
+        sizeSelect.value = token.size;
+    }
+
     // Сохраняем ID редактируемого токена
     editingTokenId = token.id;
 
@@ -4770,8 +4835,8 @@ function openEditTokenModal(token) {
     document.getElementById("addToCharactersCheckbox").checked = false;
     document.getElementById("addToBankCheckbox").checked = false;
 
-    // Загружаем текущий аватар токена с принудительным сбросом кэша
-    loadTokenAvatarInModal(token, true); // Передаем true для принудительной перезагрузки
+    // Загружаем текущий аватар токена
+    loadTokenAvatarInModal(token, true);
 }
 
 function clearAvatarCacheForToken(tokenId) {
@@ -5862,16 +5927,25 @@ function createBankCharacterItem(character) {
 
     const typeText = character.type === 'player' ? 'Игрок' : (character.type === 'npc' ? 'НПС' : 'Враг');
 
-    // Убеждаемся, что используем правильный URL для аватара
+    // Получаем название размера
+    const sizeNames = {
+        'tiny': 'Крош.',
+        'small': 'Мал.',
+        'medium': 'Сред.',
+        'large': 'Бол.',
+        'huge': 'Огр.',
+        'gargantuan': 'Гиг.'
+    };
+    const sizeText = sizeNames[character.size] || 'Сред.';
+
     const avatarUrl = character.avatar_url || '/static/default-avatar.png';
-    console.log(`Bank character ${character.name} avatar URL:`, avatarUrl);
 
     div.innerHTML = `
         <img class="bank-character-avatar" src="${avatarUrl}" 
-             onerror="this.src='/static/default-avatar.png'; console.error('Failed to load avatar for ${character.name}')">
+             onerror="this.src='/static/default-avatar.png'">
         <div class="bank-character-info" onclick="spawnBankCharacter(${JSON.stringify(character).replace(/"/g, '&quot;')})">
             <div class="bank-character-name">${character.name}</div>
-            <div class="bank-character-type">${typeText}</div>
+            <div class="bank-character-type">${typeText} • ${sizeText}</div>
         </div>
         <div class="bank-character-stats" onclick="spawnBankCharacter(${JSON.stringify(character).replace(/"/g, '&quot;')})">
             КД: ${character.armor_class} | ОЗ: ${character.max_health}
@@ -7014,6 +7088,8 @@ function submitBankCharacter() {
     const ac = parseInt(document.getElementById("bankCharacterAC").value) || 10;
     const hp = parseInt(document.getElementById("bankCharacterHP").value) || 10;
     const type = document.querySelector("#bankCharacterModal .type-btn.active")?.dataset.type;
+    const sizeSelect = document.getElementById("bankCharacterSize");
+    const size = sizeSelect ? sizeSelect.value : 'medium'; // НОВОЕ: размер
     const editingId = window.editingBankCharacterId;
 
     if (!name) {
@@ -7026,32 +7102,28 @@ function submitBankCharacter() {
         return;
     }
 
-    // Получаем аватар, если есть
     const avatarPreview = document.getElementById("bankAvatarPreview");
     const avatarData = avatarPreview?.dataset.base64 || null;
 
-    console.log("Character data:", { name, ac, hp, type, hasAvatar: !!avatarData, editingId });
+    console.log("Character data:", { name, ac, hp, type, size, hasAvatar: !!avatarData, editingId });
 
-    // Создаем объект персонажа
     const characterData = {
         name: name,
         type: type,
         armor_class: ac,
         max_health: hp,
+        size: size, // НОВОЕ: размер
         has_avatar: !!avatarData
     };
 
-    // Добавляем аватар, если есть
     const requestBody = {
         ...characterData,
         avatar_data: avatarData
     };
 
-    // Определяем URL и метод в зависимости от того, редактирование это или создание
     const url = editingId ? `/api/bank/character/${editingId}` : "/api/bank/character";
     const method = editingId ? "PUT" : "POST";
 
-    // Отправляем на сервер
     fetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
@@ -7065,16 +7137,9 @@ function submitBankCharacter() {
         })
         .then(data => {
             console.log("Bank character saved:", data);
-
-            // Очищаем ID редактируемого
             window.editingBankCharacterId = null;
-
-            // Закрываем модальное окно
             closeBankCharacterModal();
-
-            // Показываем уведомление
-            const action = editingId ? "обновлен" : "добавлен";
-            showNotification(`Персонаж "${name}" ${action} в банк`, 'success');
+            showNotification(`Персонаж "${name}" ${editingId ? "обновлен" : "добавлен"} в банк`, 'success');
         })
         .catch(error => {
             console.error("Error saving bank character:", error);
@@ -7085,17 +7150,14 @@ function submitBankCharacter() {
 function openEditBankCharacterModal(character) {
     console.log("Opening edit bank character modal for:", character);
 
-    // Закрываем банк и открываем окно редактирования персонажа
     document.getElementById("bankModal").style.display = "none";
     document.getElementById("bankCharacterModal").style.display = "flex";
 
-    // Меняем заголовок
     const modalTitle = document.querySelector("#bankCharacterModal h3");
     if (modalTitle) {
         modalTitle.textContent = "Редактирование персонажа в банке";
     }
 
-    // Заполняем форму данными персонажа
     document.getElementById("bankCharacterName").value = character.name || "";
     document.getElementById("bankCharacterAC").value = character.armor_class || 10;
     document.getElementById("bankCharacterHP").value = character.max_health || 10;
@@ -7110,7 +7172,13 @@ function openEditBankCharacterModal(character) {
         document.querySelector('#bankCharacterModal .type-btn[data-type="enemy"]').classList.add("active");
     }
 
-    // Загружаем аватар если есть
+    // НОВОЕ: устанавливаем размер
+    const sizeSelect = document.getElementById("bankCharacterSize");
+    if (sizeSelect && character.size) {
+        sizeSelect.value = character.size;
+    }
+
+    // Загружаем аватар
     const preview = document.getElementById("bankAvatarPreview");
     const overlay = document.getElementById("bankAvatarOverlay");
     const editIcon = document.getElementById("bankEditIcon");
@@ -7128,7 +7196,6 @@ function openEditBankCharacterModal(character) {
         editIcon.style.display = "none";
     }
 
-    // Сохраняем ID редактируемого персонажа
     window.editingBankCharacterId = character.id;
 }
 
@@ -7787,7 +7854,7 @@ let currentImportTypeFilter = 'all';
 // Фильтрация банка по типу
 function filterBankByType(type) {
     currentBankTypeFilter = type;
-    
+
     // Обновляем активное состояние кнопок
     document.querySelectorAll('#bankModal .filter-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -7795,7 +7862,7 @@ function filterBankByType(type) {
             btn.classList.add('active');
         }
     });
-    
+
     // Применяем фильтрацию
     applyBankFilters();
 }
@@ -7803,25 +7870,25 @@ function filterBankByType(type) {
 // Применение всех фильтров банка (тип + поиск)
 function applyBankFilters() {
     const searchText = document.getElementById("bankSearchInput").value.toLowerCase().trim();
-    
+
     if (!allBankCharacters || allBankCharacters.length === 0) return;
-    
+
     // Фильтруем сначала по типу
     let filtered = allBankCharacters;
-    
+
     if (currentBankTypeFilter !== 'all') {
         filtered = filtered.filter(char => char.type === currentBankTypeFilter);
     }
-    
+
     // Затем по поиску
     if (searchText !== "") {
-        filtered = filtered.filter(char => 
+        filtered = filtered.filter(char =>
             char.name.toLowerCase().includes(searchText)
         );
     }
-    
+
     displayBankCharacters(filtered);
-    
+
     // Показываем сообщение, если ничего не найдено
     if (filtered.length === 0) {
         const list = document.getElementById("bankCharacterList");
@@ -7832,7 +7899,7 @@ function applyBankFilters() {
 // Фильтрация импорта токенов по типу
 function filterImportTokensByType(type) {
     currentImportTypeFilter = type;
-    
+
     // Обновляем активное состояние кнопок
     document.querySelectorAll('#importTokenModal .filter-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -7840,7 +7907,7 @@ function filterImportTokensByType(type) {
             btn.classList.add('active');
         }
     });
-    
+
     // Применяем фильтрацию
     applyImportFilters();
 }
@@ -7848,12 +7915,12 @@ function filterImportTokensByType(type) {
 // Применение всех фильтров импорта (тип + поиск)
 function applyImportFilters() {
     const searchText = document.getElementById("importTokenSearchInput").value.toLowerCase().trim();
-    
+
     if (!allTokensFromMaps || allTokensFromMaps.length === 0) return;
-    
+
     // Фильтруем сначала по типу
     let filtered = allTokensFromMaps;
-    
+
     if (currentImportTypeFilter !== 'all') {
         filtered = filtered.filter(token => {
             if (currentImportTypeFilter === 'player') return token.is_player === true;
@@ -7862,16 +7929,16 @@ function applyImportFilters() {
             return true;
         });
     }
-    
+
     // Затем по поиску
     if (searchText !== "") {
-        filtered = filtered.filter(token => 
+        filtered = filtered.filter(token =>
             token.name.toLowerCase().includes(searchText)
         );
     }
-    
+
     displayImportTokens(filtered);
-    
+
     // Показываем сообщение, если ничего не найдено
     if (filtered.length === 0) {
         const list = document.getElementById("importTokenList");

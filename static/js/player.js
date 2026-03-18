@@ -873,8 +873,24 @@ function drawToken(token, offsetX, offsetY, scale) {
     const [x, y] = token.position;
     const sx = x * scale + offsetX;
     const sy = y * scale + offsetY;
-    const size = mapData.grid_settings.cell_size * scale;
-    const radius = size / 2;
+    
+    // Получаем базовый размер клетки
+    const cellSize = mapData.grid_settings.cell_size * scale;
+    
+    // Определяем масштаб размера токена
+    let sizeScale = 1.0;
+    switch(token.size) {
+        case 'tiny': sizeScale = 0.5; break;
+        case 'small':
+        case 'medium': sizeScale = 1.0; break;
+        case 'large': sizeScale = 2.0; break;
+        case 'huge': sizeScale = 3.0; break;
+        case 'gargantuan': sizeScale = 4.0; break;
+        default: sizeScale = 1.0;
+    }
+    
+    const tokenSize = cellSize * sizeScale;
+    const radius = tokenSize / 2;
 
     ctx.beginPath();
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
@@ -882,12 +898,9 @@ function drawToken(token, offsetX, offsetY, scale) {
     const avatarSrc = token.avatar_url || token.avatar_data;
 
     if (avatarSrc) {
-        // Проверяем, есть ли изображение в кэше
         let cachedImg = avatarCache.get(token.id);
 
-        // Если изображение помечено как загружающееся, рисуем заглушку
         if (cachedImg === 'loading') {
-            // Рисуем заглушку
             ctx.fillStyle = token.is_dead
                 ? "#616161"
                 : token.is_player
@@ -897,7 +910,6 @@ function drawToken(token, offsetX, offsetY, scale) {
                         : "#F44336";
             ctx.fill();
         }
-        // Если изображение загружено и валидно
         else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
             ctx.save();
             ctx.clip();
@@ -905,38 +917,31 @@ function drawToken(token, offsetX, offsetY, scale) {
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, tokenSize, tokenSize);
                 ctx.filter = 'none';
                 ctx.globalAlpha = 1;
             } else {
-                ctx.drawImage(cachedImg, sx - radius, sy - radius, size, size);
+                ctx.drawImage(cachedImg, sx - radius, sy - radius, tokenSize, tokenSize);
             }
 
             ctx.restore();
         }
-        // Если изображения нет в кэше или оно невалидно
         else {
-            // Помечаем как загружающееся, только если ещё не начали загрузку
             if (!avatarCache.has(token.id) || avatarCache.get(token.id) === null) {
                 avatarCache.set(token.id, 'loading');
 
                 const img = new Image();
                 img.onload = () => {
-                    console.log(`Avatar loaded for token ${token.id}`);
                     avatarCache.set(token.id, img);
                     requestRender();
                 };
                 img.onerror = () => {
-                    console.warn(`Failed to load avatar for token ${token.name}, using placeholder`);
-                    // Сохраняем null, чтобы не пытаться загружать снова при каждом рендере
                     avatarCache.set(token.id, null);
                     requestRender();
                 };
-                // Добавляем timestamp для сброса кэша браузера
                 img.src = avatarSrc.includes('?') ? avatarSrc : `${avatarSrc}?t=${Date.now()}`;
             }
 
-            // Рисуем заглушку
             ctx.fillStyle = token.is_dead
                 ? "#616161"
                 : token.is_player

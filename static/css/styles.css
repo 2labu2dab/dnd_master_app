@@ -2872,3 +2872,44 @@ canvas.erase-mode {
     padding-top: 10px;
     border-top: 1px solid rgba(148, 163, 184, 0.2);
 }
+
+/* Добавить в static/css/styles.css */
+
+/* Стили для селекта размера */
+.size-select {
+    width: 100%;
+    padding: 10px 12px;
+    background: #2a2a3b;
+    border: 1px solid #3f4555;
+    border-radius: 8px;
+    color: white;
+    font-size: 14px;
+    outline: none;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+}
+
+.size-select:hover {
+    border-color: #4C5BEF;
+}
+
+.size-select:focus {
+    border-color: #4C5BEF;
+    box-shadow: 0 0 0 2px rgba(76, 91, 239, 0.2);
+}
+
+.size-select option {
+    background: #2a2a3b;
+    color: white;
+    padding: 8px;
+}
+
+.size-buttons{
+  padding-top: 10px;
+}
