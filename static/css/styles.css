@@ -205,8 +205,10 @@ details[open] > summary::after {
   backdrop-filter: blur(8px);
   z-index: 999;
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* Меняем с center на flex-start */
   justify-content: center;
+  overflow-y: auto; /* Добавляем прокрутку для очень высоких окон */
+  padding: 20px 0; /* Добавляем отступы сверху и снизу */
 }
 
 .modal-content {
@@ -1393,18 +1395,6 @@ canvas.map-panning {
 }
 
 /* Адаптация для мобильных устройств */
-@media (max-width: 768px) {
-  #portrait-sidebar.visible {
-    width: 40%;
-    padding: 10px;
-  }
-  
-  .portrait-name {
-    font-size: 10px;
-    padding: 2px 4px;
-    margin: 2px 0 0 0;
-  }
-}
 
 
 #notification {
@@ -1557,15 +1547,6 @@ canvas.map-panning {
   scrollbar-color: #4a4a6a #1e1e2e;
 }
 
-.bank-character-item {
-    display: flex;
-    align-items: center;
-    padding: 8px;
-    border-bottom: 1px solid #3a3a4a;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
 .bank-character-item:hover {
     background: #3a4a6b;
 }
@@ -1574,29 +1555,36 @@ canvas.map-panning {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    margin-right: 10px;
     object-fit: cover;
     background: #2a2a3b;
+    flex-shrink: 0;
 }
 
 .bank-character-info {
-    flex: 1;
+    flex: 2;
+    min-width: 0; /* Для правильного обрезания текста */
 }
 
 .bank-character-name {
     font-weight: bold;
     color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .bank-character-type {
-    font-size: 12px;
+    font-size: 11px;
     color: #aaa;
 }
 
 .bank-character-stats {
+    flex: 1;
     font-size: 12px;
     color: #ccc;
-    margin-left: 10px;
+    white-space: nowrap;
+    text-align: right;
+    margin-right: 8px;
 }
 
 /* Стили для кнопок в ряд */
@@ -2522,8 +2510,9 @@ body.sidebar-collapsed-both #canvas-container {
     padding: 8px 12px;
     border-bottom: 1px solid #3a3a4a;
     transition: background 0.2s;
-    position: relative;
-    gap: 10px;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .bank-character-item:hover {
@@ -2596,22 +2585,43 @@ body.sidebar-collapsed-both #canvas-container {
 
 /* Адаптация для мобильных устройств */
 @media (max-width: 768px) {
-    .bank-character-item {
+  #bankModal .modal-content.large-modal,
+    #importTokenModal .modal-content.large-modal {
+        width: 95vw;
+        min-width: unset;
+        padding: 15px;
+    }
+    .bank-character-item,
+    .import-token-item {
         flex-wrap: wrap;
         padding: 10px;
     }
     
-    .bank-character-info {
+    .bank-character-info,
+    .import-token-info {
         flex: 1 1 60%;
     }
     
-    .bank-character-stats {
+    .bank-character-stats,
+    .import-token-stats {
         flex: 1 1 30%;
         text-align: left;
         margin-right: 0;
     }
+
+      #portrait-sidebar.visible {
+    width: 40%;
+    padding: 10px;
+  }
+  
+  .portrait-name {
+    font-size: 10px;
+    padding: 2px 4px;
+    margin: 2px 0 0 0;
+  }
     
-    .bank-character-actions {
+    .bank-character-actions,
+    .import-token-select-btn {
         flex: 1 1 100%;
         justify-content: flex-end;
         margin-top: 8px;
@@ -2690,4 +2700,169 @@ canvas.draw-mode {
 
 canvas.erase-mode {
     cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="white" stroke="%234CAF50" stroke-width="2"/><line x1="8" y1="8" x2="24" y2="24" stroke="%234CAF50" stroke-width="3"/><line x1="24" y1="8" x2="8" y2="24" stroke="%234CAF50" stroke-width="3"/></svg>') 16 16, auto !important;
+}
+
+/* Стили для кнопок фильтров */
+.filter-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    background: #2a2a3b;
+    border: 1px solid #3a3a4a;
+    color: #ccc;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+    background: #3a4a6b;
+    border-color: #4C5BEF;
+    color: white;
+}
+
+.filter-btn.active {
+    background: #4C5BEF;
+    border-color: #4C5BEF;
+    color: white;
+}
+
+#bankModal .modal-content.large-modal {
+    width: 600px;
+    max-width: 90vw;
+    min-width: 400px;
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+    padding: 22px 24px;
+    box-sizing: border-box;
+}
+
+#bankModal .modal-content > h3,
+#bankModal .filter-buttons,
+#bankModal div[style*="display: flex; gap: 8px; margin-bottom: 15px;"] {
+    flex-shrink: 0;
+    margin-bottom: 15px !important;
+}
+
+#bankCharacterList {
+    flex: 1 1 auto;
+    min-height: 0; /* Важно для правильной работы flex */
+    overflow-y: auto;
+    max-height: 400px;
+    padding-right: 4px; /* Небольшой отступ для скроллбара */
+}
+
+#bankModal .token-buttons {
+    flex-shrink: 0; /* Запрещаем сжатие */
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+#importTokenModal .modal-content.large-modal {
+    width: 600px;
+    max-width: 90vw;
+    min-width: 400px;
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+}
+
+/* Фиксированная верхняя часть */
+#importTokenModal .modal-content > h3,
+#importTokenModal .filter-buttons,
+#importTokenModal div[style*="margin-bottom: 15px;"] {
+    flex-shrink: 0;
+}
+
+#importTokenList {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    max-height: 400px;
+    padding-right: 4px;
+}
+
+.import-token-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #3a3a4a;
+    cursor: pointer;
+    transition: background 0.2s;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.import-token-item:hover {
+    background: #3a4a6b;
+}
+
+.import-token-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #2a2a3b;
+    flex-shrink: 0;
+}
+
+.import-token-info {
+    flex: 2;
+    min-width: 0;
+}
+
+.import-token-name {
+    font-weight: bold;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.import-token-type {
+    font-size: 11px;
+    color: #aaa;
+}
+
+.import-token-stats {
+    flex: 1;
+    font-size: 12px;
+    color: #ccc;
+    white-space: nowrap;
+    text-align: right;
+    margin-right: 8px;
+}
+
+.import-token-select-btn {
+    background: #4C5BEF;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.import-token-select-btn:hover {
+    background: #3e4cd4;
+}
+
+#importTokenModal .token-buttons {
+    flex-shrink: 0;
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
 }

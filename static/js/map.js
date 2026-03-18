@@ -7779,3 +7779,180 @@ function showUndoNotification(message) {
         }, 1500);
     }
 }
+
+// Переменные для хранения текущих фильтров
+let currentBankTypeFilter = 'all';
+let currentImportTypeFilter = 'all';
+
+// Фильтрация банка по типу
+function filterBankByType(type) {
+    currentBankTypeFilter = type;
+    
+    // Обновляем активное состояние кнопок
+    document.querySelectorAll('#bankModal .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === type) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Применяем фильтрацию
+    applyBankFilters();
+}
+
+// Применение всех фильтров банка (тип + поиск)
+function applyBankFilters() {
+    const searchText = document.getElementById("bankSearchInput").value.toLowerCase().trim();
+    
+    if (!allBankCharacters || allBankCharacters.length === 0) return;
+    
+    // Фильтруем сначала по типу
+    let filtered = allBankCharacters;
+    
+    if (currentBankTypeFilter !== 'all') {
+        filtered = filtered.filter(char => char.type === currentBankTypeFilter);
+    }
+    
+    // Затем по поиску
+    if (searchText !== "") {
+        filtered = filtered.filter(char => 
+            char.name.toLowerCase().includes(searchText)
+        );
+    }
+    
+    displayBankCharacters(filtered);
+    
+    // Показываем сообщение, если ничего не найдено
+    if (filtered.length === 0) {
+        const list = document.getElementById("bankCharacterList");
+        list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Ничего не найдено</div>';
+    }
+}
+
+// Фильтрация импорта токенов по типу
+function filterImportTokensByType(type) {
+    currentImportTypeFilter = type;
+    
+    // Обновляем активное состояние кнопок
+    document.querySelectorAll('#importTokenModal .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === type) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Применяем фильтрацию
+    applyImportFilters();
+}
+
+// Применение всех фильтров импорта (тип + поиск)
+function applyImportFilters() {
+    const searchText = document.getElementById("importTokenSearchInput").value.toLowerCase().trim();
+    
+    if (!allTokensFromMaps || allTokensFromMaps.length === 0) return;
+    
+    // Фильтруем сначала по типу
+    let filtered = allTokensFromMaps;
+    
+    if (currentImportTypeFilter !== 'all') {
+        filtered = filtered.filter(token => {
+            if (currentImportTypeFilter === 'player') return token.is_player === true;
+            if (currentImportTypeFilter === 'npc') return token.is_npc === true;
+            if (currentImportTypeFilter === 'enemy') return !token.is_player && !token.is_npc;
+            return true;
+        });
+    }
+    
+    // Затем по поиску
+    if (searchText !== "") {
+        filtered = filtered.filter(token => 
+            token.name.toLowerCase().includes(searchText)
+        );
+    }
+    
+    displayImportTokens(filtered);
+    
+    // Показываем сообщение, если ничего не найдено
+    if (filtered.length === 0) {
+        const list = document.getElementById("importTokenList");
+        list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Ничего не найдено</div>';
+    }
+}
+
+// Обновляем существующую функцию filterBankCharacters
+function filterBankCharacters() {
+    applyBankFilters();
+}
+
+// Обновляем существующую функцию filterImportTokens
+function filterImportTokens() {
+    applyImportFilters();
+}
+
+// Обновляем функцию loadBankCharacters для сброса фильтра при загрузке
+function loadBankCharacters() {
+    const list = document.getElementById("bankCharacterList");
+    list.innerHTML = '<div style="text-align: center; padding: 20px;">Загрузка...</div>';
+
+    // Сбрасываем фильтр на "Все"
+    currentBankTypeFilter = 'all';
+    document.querySelectorAll('#bankModal .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === 'all') {
+            btn.classList.add('active');
+        }
+    });
+
+    // Очищаем поле поиска
+    const searchInput = document.getElementById("bankSearchInput");
+    if (searchInput) searchInput.value = "";
+
+    fetch("/api/bank/characters")
+        .then(res => res.json())
+        .then(characters => {
+            allBankCharacters = characters;
+
+            if (characters.length === 0) {
+                list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Банк пуст</div>';
+                return;
+            }
+
+            displayBankCharacters(characters);
+        })
+        .catch(err => {
+            console.error("Error loading bank characters:", err);
+            list.innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Ошибка загрузки</div>';
+        });
+}
+
+// Обновляем функцию loadAllTokens для сброса фильтра при загрузке
+function loadAllTokens() {
+    const list = document.getElementById("importTokenList");
+    list.innerHTML = '<div style="text-align: center; padding: 20px;">Загрузка...</div>';
+
+    // Сбрасываем фильтр на "Все"
+    currentImportTypeFilter = 'all';
+    document.querySelectorAll('#importTokenModal .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === 'all') {
+            btn.classList.add('active');
+        }
+    });
+
+    fetch("/api/tokens/all")
+        .then(res => res.json())
+        .then(tokens => {
+            allTokensFromMaps = tokens;
+
+            if (tokens.length === 0) {
+                list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Нет токенов на других картах</div>';
+                return;
+            }
+
+            displayImportTokens(tokens);
+        })
+        .catch(err => {
+            console.error("Error loading tokens:", err);
+            list.innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Ошибка загрузки</div>';
+        });
+}
