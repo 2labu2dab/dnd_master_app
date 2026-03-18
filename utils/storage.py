@@ -750,14 +750,19 @@ def get_drawings_filepath(map_id):
 def save_drawings_layer(map_id, layer_id, strokes):
     """Сохранить слой рисунков"""
     filepath = get_drawings_filepath(map_id)
-
+    
+    # Проверяем структуру перед сохранением
+    print(f"Saving {len(strokes)} strokes")
+    if strokes and len(strokes) > 0:
+        print(f"Sample stroke: {strokes[0]}")
+    
     data = {
         "map_id": map_id,
         "layer_id": layer_id,
         "strokes": strokes,
         "modified": datetime.now().isoformat(),
     }
-
+    
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -766,7 +771,6 @@ def save_drawings_layer(map_id, layer_id, strokes):
     except Exception as e:
         print(f"✗ Error saving drawings: {e}")
         return False
-
 
 def load_drawings_layer(map_id):
     """Загрузить слой рисунков"""

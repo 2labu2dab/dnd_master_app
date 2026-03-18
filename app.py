@@ -121,7 +121,6 @@ def handle_drawings_updated(data):
     strokes = data.get("strokes", [])
     layer_id = data.get("layer_id")
 
-
     # Сохраняем в отдельный файл
     if map_id and layer_id:
         save_drawings_layer(map_id, layer_id, strokes)

@@ -1699,37 +1699,48 @@ function requestDrawingsSync() {
 }
 
 function drawPlayerStrokes(offsetX, offsetY, scale) {
-    // Проверяем наличие рисунков
     if (!playerDrawings || playerDrawings.length === 0) {
         console.log('No drawings to draw');
         return;
     }
     
-    console.log(`🎨 Drawing ${playerDrawings.length} strokes on player view`);
+    console.log(`🎨 Drawing ${playerDrawings.length} strokes`);
+    console.log('First stroke sample:', playerDrawings[0]);
     
     ctx.save();
     
     for (let i = 0; i < playerDrawings.length; i++) {
         const stroke = playerDrawings[i];
         
-        // Проверяем структуру штриха
+        console.log(`Stroke ${i}:`, {
+            hasPoints: !!stroke.points,
+            pointsLength: stroke.points?.length,
+            color: stroke.color,
+            width: stroke.width
+        });
+        
+        // Пропускаем штрихи с одной точкой
         if (!stroke || !stroke.points || !Array.isArray(stroke.points) || stroke.points.length < 2) {
-            console.warn('Invalid stroke:', stroke);
+            console.log(`  ⚠️ Skipping stroke ${i} - insufficient points`);
             continue;
         }
         
-        console.log(`Drawing stroke ${i} with ${stroke.points.length} points`);
+        // Проверяем первую точку
+        const firstPoint = stroke.points[0];
+        if (!Array.isArray(firstPoint) || firstPoint.length < 2) {
+            console.log(`  ⚠️ Invalid first point for stroke ${i}:`, firstPoint);
+            continue;
+        }
+        
+        console.log(`  ✅ Drawing stroke ${i} with ${stroke.points.length} points`);
+        console.log(`  First point: (${firstPoint[0]}, ${firstPoint[1]})`);
         
         ctx.beginPath();
-        
-        // Используем тот же цвет и ширину, что и у мастера
         ctx.strokeStyle = stroke.color || 'rgba(255, 50, 50, 0.5)';
         ctx.lineWidth = (stroke.width || 20) * scale;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Начинаем с первой точки
-        const firstPoint = stroke.points[0];
         const startX = firstPoint[0] * scale + offsetX;
         const startY = firstPoint[1] * scale + offsetY;
         
@@ -1738,39 +1749,42 @@ function drawPlayerStrokes(offsetX, offsetY, scale) {
         // Добавляем остальные точки
         for (let j = 1; j < stroke.points.length; j++) {
             const point = stroke.points[j];
+            if (!Array.isArray(point) || point.length < 2) {
+                console.log(`    ⚠️ Invalid point at index ${j}:`, point);
+                continue;
+            }
+            
             const x = point[0] * scale + offsetX;
             const y = point[1] * scale + offsetY;
             ctx.lineTo(x, y);
+            
+            // Логируем каждую 10-ю точку для отладки
+            if (j % 10 === 0) {
+                console.log(`    Point ${j}: (${x}, ${y})`);
+            }
         }
         
         ctx.stroke();
+        console.log(`  ✅ Stroke ${i} drawn`);
     }
     
     ctx.restore();
-    
     console.log('Finished drawing all strokes');
 }
-
 socket.on('drawings_updated', (data) => {
-    console.log('🎨 Player received drawings_updated:', data);
+    console.log('RAW drawings data:', data);
     
     if (data.map_id === mapId) {
-        // Проверяем, действительно ли изменились рисунки
-        const newHash = JSON.stringify(data.strokes);
+        // Фильтруем штрихи - оставляем только те, у которых >= 2 точек
+        const filteredStrokes = (data.strokes || []).filter(stroke => 
+            stroke && stroke.points && stroke.points.length >= 2
+        );
         
-        if (newHash !== lastDrawingsHash) {
-            console.log('📝 Updating player drawings, count:', data.strokes?.length);
-            
-            // Обновляем рисунки
-            playerDrawings = data.strokes || [];
-            playerDrawingLayerId = data.layer_id;
-            lastDrawingsHash = newHash;
-            drawingsLoaded = true;
-            
-            // НЕМЕДЛЕННО перерисовываем
-            console.log('🎯 Triggering render after drawings update');
-            requestRender(); // или render(), если нет функции requestRender
-        }
+        console.log(`Filtered strokes: ${filteredStrokes.length} (removed ${(data.strokes || []).length - filteredStrokes.length} single-point strokes)`);
+        
+        playerDrawings = filteredStrokes;
+        playerDrawingLayerId = data.layer_id;
+        requestRender();
     }
 });
 
@@ -1778,12 +1792,16 @@ socket.on('drawings_loaded', (data) => {
     console.log('🎨 Player received drawings_loaded:', data);
     
     if (data.map_id === mapId) {
-        console.log('📝 Loading player drawings, count:', data.strokes?.length);
+        // Фильтруем штрихи при загрузке
+        const filteredStrokes = (data.strokes || []).filter(stroke => 
+            stroke && stroke.points && stroke.points.length >= 2
+        );
         
-        // Обновляем рисунки
-        playerDrawings = data.strokes || [];
+        console.log(`📝 Loading player drawings, original: ${data.strokes?.length}, filtered: ${filteredStrokes.length}`);
+        
+        playerDrawings = filteredStrokes;
         playerDrawingLayerId = data.layer_id;
-        lastDrawingsHash = JSON.stringify(data.strokes);
+        lastDrawingsHash = JSON.stringify(filteredStrokes);
         drawingsLoaded = true;
         
         console.log('🎯 Triggering render after drawings load');
