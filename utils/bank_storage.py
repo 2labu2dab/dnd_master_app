@@ -40,11 +40,6 @@ def save_bank_avatar(image_data, character_id):
         if img.mode != "RGBA":
             img = img.convert("RGBA")
 
-        # Изменяем размер если слишком большое
-        max_size = 256
-        if img.width > max_size or img.height > max_size:
-            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-
         # Сохраняем как PNG
         img_path = get_bank_avatar_filepath(character_id)
         img.save(img_path, "PNG", optimize=True)

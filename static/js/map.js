@@ -1861,37 +1861,21 @@ function drawToken(token, offsetX, offsetY, scale) {
     const sx = x * scale + offsetX;
     const sy = y * scale + offsetY;
 
-    // Получаем базовый размер клетки
     const cellSize = mapData.grid_settings.cell_size * scale;
-
-    // Определяем масштаб размера токена
     let sizeScale = 1.0;
     switch (token.size) {
-        case 'tiny':
-            sizeScale = 0.5;
-            break;
+        case 'tiny': sizeScale = 0.5; break;
         case 'small':
-        case 'medium':
-            sizeScale = 1.0;
-            break;
-        case 'large':
-            sizeScale = 2.0;
-            break;
-        case 'huge':
-            sizeScale = 3.0;
-            break;
-        case 'gargantuan':
-            sizeScale = 4.0;
-            break;
-        default:
-            sizeScale = 1.0;
+        case 'medium': sizeScale = 1.0; break;
+        case 'large': sizeScale = 2.0; break;
+        case 'huge': sizeScale = 3.0; break;
+        case 'gargantuan': sizeScale = 4.0; break;
+        default: sizeScale = 1.0;
     }
 
-    // Размер токена в пикселях на экране
     const tokenSize = cellSize * sizeScale;
     const radius = tokenSize / 2;
 
-    // Проверяем, находится ли токен под скрытой зоной
     const isUnderHiddenZone = isPointInHiddenZone(token.position, mapData.zones);
     const isManuallyHidden = token.is_visible === false;
 
@@ -1923,6 +1907,9 @@ function drawToken(token, offsetX, offsetY, scale) {
             ctx.save();
             ctx.clip();
 
+            // ВАЖНО: ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
+            ctx.imageSmoothingEnabled = false;
+            
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
@@ -2674,17 +2661,17 @@ canvas.addEventListener("mousedown", (e) => {
 
     // Проходим по всем токенам в обратном порядке, чтобы верхние перехватывали клик
     for (let i = mapData.tokens.length - 1; i >= 0; i--) {
-    const token = mapData.tokens[i];
-    const [x, y] = token.position;
-    const sx = x * scale + offsetX;
-    const sy = y * scale + offsetY;
-    const radius = getTokenScreenRadius(token, scale);
+        const token = mapData.tokens[i];
+        const [x, y] = token.position;
+        const sx = x * scale + offsetX;
+        const sy = y * scale + offsetY;
+        const radius = getTokenScreenRadius(token, scale);
 
-    if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
-        clickedToken = token;
-        break;
+        if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
+            clickedToken = token;
+            break;
+        }
     }
-}
 
     // Логика выделения и перетаскивания
     selectedTokenId = null;
@@ -3029,8 +3016,8 @@ canvas.addEventListener("mousemove", (e) => {
 function getTokenScreenRadius(token, scale) {
     const cellSize = mapData.grid_settings.cell_size * scale;
     let sizeScale = 1.0;
-    
-    switch(token.size) {
+
+    switch (token.size) {
         case 'tiny': sizeScale = 0.5; break;
         case 'small':
         case 'medium': sizeScale = 1.0; break;
@@ -3039,7 +3026,7 @@ function getTokenScreenRadius(token, scale) {
         case 'gargantuan': sizeScale = 4.0; break;
         default: sizeScale = 1.0;
     }
-    
+
     return (cellSize * sizeScale) / 2;
 }
 
@@ -4860,7 +4847,6 @@ function loadTokenAvatarInModal(token, forceReload = false) {
     preview.src = "";
     preview.style.display = "none";
     preview.removeAttribute("data-base64");
-
     // Отменяем предыдущие загрузки
     if (preview._abortController) {
         preview._abortController.abort();
@@ -4882,7 +4868,6 @@ function loadTokenAvatarInModal(token, forceReload = false) {
 
         // Генерируем URL с уникальным timestamp для сброса кэша
         const timestamp = Date.now();
-        // ВАЖНО: используем базовый URL аватара без параметров
         const baseAvatarUrl = token.avatar_url
             ? token.avatar_url.split('?')[0]
             : `/api/token/avatar/${token.id}`;
@@ -4893,24 +4878,28 @@ function loadTokenAvatarInModal(token, forceReload = false) {
 
         // Создаем новый Image для загрузки
         const img = new Image();
-        img.crossOrigin = "anonymous"; // Добавляем для CORS
+        img.crossOrigin = "anonymous";
 
         img.onload = () => {
-            console.log("Avatar loaded successfully in modal");
-
-            // Устанавливаем src в preview
+            console.log("Avatar loaded successfully in modal, original size:", img.naturalWidth, "x", img.naturalHeight);
             preview.src = avatarUrl;
             preview.style.opacity = "1";
 
-            // Конвертируем в base64 для сохранения при редактировании
+            // Конвертируем в base64 БЕЗ ПОТЕРИ КАЧЕСТВА
             try {
                 const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
                 const ctx = canvas.getContext('2d');
+                
+                // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
+                ctx.imageSmoothingEnabled = false;
+                
                 ctx.drawImage(img, 0, 0);
-                preview.dataset.base64 = canvas.toDataURL('image/png');
-                console.log("Avatar converted to base64 for saving");
+                
+                // Используем максимальное качество для PNG
+                preview.dataset.base64 = canvas.toDataURL('image/png', 1.0);
+                console.log("Avatar converted to base64 with original size:", img.naturalWidth, "x", img.naturalHeight);
             } catch (e) {
                 console.warn("Could not convert avatar to base64:", e);
             }
@@ -4921,41 +4910,24 @@ function loadTokenAvatarInModal(token, forceReload = false) {
 
         img.onerror = (err) => {
             console.error("Failed to load avatar in modal:", err);
-
-            // Показываем заглушку
+            
             preview.style.display = "none";
             preview.style.opacity = "1";
             preview.removeAttribute("data-base64");
-
+            
             overlay.style.display = "block";
             mask.style.display = "none";
             editIcon.style.display = "none";
-
-            // Пытаемся загрузить с сервера напрямую
+            
             fetchAvatarFromServer(token.id);
         };
 
         img.src = avatarUrl;
-
-        // Если принудительная перезагрузка, добавляем обработчик для обновления кэша браузера
-        if (forceReload) {
-            // Добавляем заголовки для предотвращения кэширования
-            fetch(avatarUrl, {
-                method: 'HEAD',
-                cache: 'no-store',
-                headers: {
-                    'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                }
-            }).catch(() => { });
-        }
-
     } else {
-        // Если у токена нет аватара, показываем заглушку
         overlay.style.display = "block";
         mask.style.display = "none";
         editIcon.style.display = "none";
-
+        
         preview.style.display = "none";
         preview.src = "";
         preview.removeAttribute("data-base64");
@@ -5177,26 +5149,33 @@ function duplicateToken(sourceToken) {
     let newX = sourceToken.position[0] + offset;
     let newY = sourceToken.position[1] + offset;
 
-    // Проверяем границы карты
     newX = Math.max(0, Math.min(newX, mapImage.width));
     newY = Math.max(0, Math.min(newY, mapImage.height));
 
     const newTokenId = `token_${Date.now()}`;
 
-    // Если у исходного токена есть аватар, нужно его скопировать
+    // Если у исходного токена есть аватар, получаем его с максимальным качеством
     let avatarDataToSend = null;
 
     if (sourceToken.has_avatar && sourceToken.avatar_url) {
-        // Пытаемся получить изображение из кэша
         const cachedImg = avatarCache.get(sourceToken.id);
         if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-            // Конвертируем изображение в base64
+            // Конвертируем в base64 с оригинальным качеством
             const canvas = document.createElement('canvas');
-            canvas.width = cachedImg.width;
-            canvas.height = cachedImg.height;
+            canvas.width = cachedImg.naturalWidth;
+            canvas.height = cachedImg.naturalHeight;
             const ctx = canvas.getContext('2d');
+            
+            // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
+            ctx.imageSmoothingEnabled = false;
+            
             ctx.drawImage(cachedImg, 0, 0);
-            avatarDataToSend = canvas.toDataURL('image/png');
+            
+            // Используем максимальное качество PNG
+            avatarDataToSend = canvas.toDataURL('image/png', 1.0);
+        } else {
+            // Если нет в кэше, загружаем с сервера
+            avatarDataToSend = sourceToken.avatar_data || null;
         }
     }
 
@@ -5212,14 +5191,13 @@ function duplicateToken(sourceToken) {
         health_points: sourceToken.health_points,
         max_health_points: sourceToken.max_health_points,
         has_avatar: sourceToken.has_avatar,
-        avatar_url: sourceToken.avatar_url, // Временный URL
-        is_visible: sourceToken.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
+        avatar_url: sourceToken.avatar_url,
+        is_visible: sourceToken.is_visible
     };
 
-    // Отправляем на сервер вместе с данными аватара если есть
     const requestBody = {
         ...newToken,
-        avatar_data: avatarDataToSend // Отправляем base64 если есть
+        avatar_data: avatarDataToSend
     };
 
     fetch("/api/token", {
@@ -5234,14 +5212,13 @@ function duplicateToken(sourceToken) {
             return response.json();
         })
         .then(data => {
-            // Обновляем URL аватара из ответа сервера
             if (data.avatar_url) {
                 newToken.avatar_url = data.avatar_url;
             }
 
             mapData.tokens.push(newToken);
 
-            // Если есть аватар в кэше, копируем его в кэш для нового токена
+            // Копируем аватар в кэш
             if (sourceToken.has_avatar && avatarCache.get(sourceToken.id) instanceof HTMLImageElement) {
                 const sourceImg = avatarCache.get(sourceToken.id);
                 const newImg = new Image();
@@ -7305,15 +7282,18 @@ function closeCropModal() {
 function applyCrop() {
     if (!cropper || !currentCropTarget || !cropFile) return;
 
-    // Получаем обрезанное изображение в максимальном качестве
+    // ПОЛУЧАЕМ ОРИГИНАЛЬНЫЙ РАЗМЕР ИЗОБРАЖЕНИЯ
+    const imageData = cropper.getImageData();
+
+    // СОЗДАЕМ CANVAS С ОРИГИНАЛЬНЫМ РАЗМЕРОМ
     const canvas = cropper.getCroppedCanvas({
-        width: 256,
-        height: 256,
-        imageSmoothingEnabled: true,
+        width: imageData.naturalWidth,  // Используем оригинальную ширину
+        height: imageData.naturalHeight, // Используем оригинальную высоту
+        imageSmoothingEnabled: false,    // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ для сохранения четкости
         imageSmoothingQuality: 'high'
     });
 
-    // Конвертируем в base64
+    // Конвертируем в base64 без потерь (PNG)
     const croppedBase64 = canvas.toDataURL('image/png');
 
     // В зависимости от цели, обновляем соответствующий превью
