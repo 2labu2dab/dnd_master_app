@@ -1911,7 +1911,7 @@ function drawToken(token, offsetX, offsetY, scale) {
             // Если токен рисуется меньше оригинального размера, включаем сглаживание
             // Если больше - отключаем для четкости
             const scaleFactor = tokenSize / Math.max(cachedImg.naturalWidth, cachedImg.naturalHeight);
-            
+
             if (scaleFactor < 1) {
                 // Уменьшение - включаем сглаживание для плавности
                 ctx.imageSmoothingEnabled = true;
@@ -1920,7 +1920,7 @@ function drawToken(token, offsetX, offsetY, scale) {
                 // Увеличение - отключаем сглаживание для четкости пикселей
                 ctx.imageSmoothingEnabled = false;
             }
-            
+
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
@@ -4859,7 +4859,7 @@ function loadTokenAvatarInModal(token, forceReload = false) {
     preview.src = "";
     preview.style.display = "none";
     preview.removeAttribute("data-base64");
-    
+
     if (preview._abortController) {
         preview._abortController.abort();
     }
@@ -4898,13 +4898,13 @@ function loadTokenAvatarInModal(token, forceReload = false) {
                 canvas.width = img.naturalWidth;
                 canvas.height = img.naturalHeight;
                 const ctx = canvas.getContext('2d');
-                
+
                 // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
                 ctx.imageSmoothingEnabled = false;
                 ctx.imageSmoothingQuality = 'high'; // но это не влияет при false
-                
+
                 ctx.drawImage(img, 0, 0);
-                
+
                 // Используем PNG без потерь
                 preview.dataset.base64 = canvas.toDataURL('image/png', 1.0);
                 console.log("Avatar converted to base64 with original size:", img.naturalWidth, "x", img.naturalHeight);
@@ -4917,15 +4917,15 @@ function loadTokenAvatarInModal(token, forceReload = false) {
 
         img.onerror = (err) => {
             console.error("Failed to load avatar in modal:", err);
-            
+
             preview.style.display = "none";
             preview.style.opacity = "1";
             preview.removeAttribute("data-base64");
-            
+
             overlay.style.display = "block";
             mask.style.display = "none";
             editIcon.style.display = "none";
-            
+
             fetchAvatarFromServer(token.id);
         };
 
@@ -4934,7 +4934,7 @@ function loadTokenAvatarInModal(token, forceReload = false) {
         overlay.style.display = "block";
         mask.style.display = "none";
         editIcon.style.display = "none";
-        
+
         preview.style.display = "none";
         preview.src = "";
         preview.removeAttribute("data-base64");
@@ -5172,12 +5172,12 @@ function duplicateToken(sourceToken) {
             canvas.width = cachedImg.naturalWidth;
             canvas.height = cachedImg.naturalHeight;
             const ctx = canvas.getContext('2d');
-            
+
             // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
             ctx.imageSmoothingEnabled = false;
-            
+
             ctx.drawImage(cachedImg, 0, 0);
-            
+
             // Используем максимальное качество PNG
             avatarDataToSend = canvas.toDataURL('image/png', 1.0);
         } else {

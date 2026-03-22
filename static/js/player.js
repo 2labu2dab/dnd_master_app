@@ -12,6 +12,7 @@ let playerDrawings = [];
 let playerDrawingLayerId = null;
 let panX = 0;
 let panY = 0;
+const TOKEN_SMOOTHING_ENABLED = true;
 const isMiniMap = isEmbeddedPreview;
 const playerChannel = new BroadcastChannel('dnd_map_channel');
 
@@ -402,7 +403,17 @@ if (!mapId && window.parent && window.parent.currentMapId) {
 
 }
 
+socket.on('connect', () => {
+    console.log('Player socket connected');
+    if (mapId) {
+        console.log('📤 Requesting drawings on connect');
+        socket.emit('request_drawings', { map_id: mapId });
 
+        // ДОБАВЬТЕ ЭТО: запрашиваем синхронизацию позиции
+        console.log('📤 Requesting map sync on connect');
+        socket.emit('request_map_sync', { map_id: mapId });
+    }
+});
 
 // Сохраняем размеры канваса мастера (будут обновляться при получении данных)
 let masterCanvasWidth = 1380;
@@ -551,37 +562,28 @@ socket.on("ruler_visibility_change", (data) => {
     }
 });
 
-
-
-
-
-
-
 socket.on("zoom_update", (data) => {
+    console.log("PLAYER: Received zoom_update:", data);  // Добавьте для отладки
 
-
-    if (data.map_id === mapId) {
-
-
-
+    if (data.map_id === mapId && mapData) {
         zoomLevel = data.zoom_level || 1;
         panX = data.pan_x ?? 0;
         panY = data.pan_y ?? 0;
 
+        if (data.canvas_width) {
+            masterCanvasWidth = data.canvas_width;
+        }
+        if (data.canvas_height) {
+            masterCanvasHeight = data.canvas_height;
+        }
+
+        // ВАЖНО: сохраняем размеры канваса мастера
         if (mapData) {
-            if (data.canvas_width) {
-                masterCanvasWidth = data.canvas_width;
-            }
-            if (data.canvas_height) {
-                masterCanvasHeight = data.canvas_height;
-            }
             mapData.master_canvas_width = data.canvas_width;
             mapData.master_canvas_height = data.canvas_height;
         }
 
-
-
-
+        console.log(`PLAYER: Updated position: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
         requestRender();
     }
 });
@@ -613,12 +615,8 @@ socket.on("master_switched_map", (data) => {
 });
 
 function render() {
-
-
-
     // 1. Базовые проверки
     if (!mapId || !mapData) {
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
@@ -629,7 +627,6 @@ function render() {
 
     // 2. Проверка видимости карты
     if (mapData.player_map_enabled === false) {
-
         const disabledImg = document.getElementById("mapDisabledImage");
         if (disabledImg) disabledImg.style.display = "block";
         canvas.style.display = "none";
@@ -656,7 +653,6 @@ function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!mapData.has_image) {
-
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
@@ -665,7 +661,6 @@ function render() {
     }
 
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
-
         if (!mapImage.src || !mapImage.src.includes(mapId)) {
             const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
             mapImage = new Image();
@@ -679,70 +674,28 @@ function render() {
         return;
     }
 
-    // 5. Получаем размеры
+    // 5. Получаем размеры карты
     const mapW = mapImage.width;
     const mapH = mapImage.height;
 
-
-
-
-
-
-
-
-    // 6. Вычисления
-
-
-    const masterBaseScale = Math.min(masterCanvasWidth / mapW, masterCanvasHeight / mapH);
-
-
-    const masterScale = masterBaseScale * zoomLevel;
-
-
-    const masterCenterX = masterCanvasWidth / 2;
-    const masterCenterY = masterCanvasHeight / 2;
-
-
-    const worldCenterX = (masterCenterX - panX) / masterScale;
-    const worldCenterY = (masterCenterY - panY) / masterScale;
-
-
-
-    // 7. Вычисления для игрока
-
-
+    // 6. Вычисляем масштаб для игрока
     const playerBaseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
-
-
     const playerScale = playerBaseScale * zoomLevel;
 
+    // 7. Центрируем карту на экране игрока
+    // Используем те же мировые координаты, что и у мастера
+    // Для этого нам нужно знать, какой размер канваса у мастера
+    const masterScale = Math.min(masterCanvasWidth / mapW, masterCanvasHeight / mapH) * zoomLevel;
+    const worldCenterX = (masterCanvasWidth / 2 - panX) / masterScale;
+    const worldCenterY = (masterCanvasHeight / 2 - panY) / masterScale;
 
-    const playerCenterX = canvas.width / 2;
-    const playerCenterY = canvas.height / 2;
+    // Вычисляем смещение для игрока
+    const offsetX = canvas.width / 2 - worldCenterX * playerScale;
+    const offsetY = canvas.height / 2 - worldCenterY * playerScale;
 
-
-    const offsetX = playerCenterX - worldCenterX * playerScale;
-    const offsetY = playerCenterY - worldCenterY * playerScale;
-
-
-
-    // 8. Проверка
-
-    const testX = offsetX + worldCenterX * playerScale;
-    const testY = offsetY + worldCenterY * playerScale;
-
-
-
-    // 9. Границы изображения
-
-
-
-
-    // 10. Рисуем изображение
+    // 8. Рисуем изображение
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(mapImage, offsetX, offsetY, mapW * playerScale, mapH * playerScale);
-
-
 
     // Рисуем остальные слои
     drawLayers(offsetX, offsetY, playerScale);
@@ -752,21 +705,40 @@ function render() {
         drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, playerScale);
     }
 }
-
 socket.on("map_sync", (data) => {
-
+    console.log("PLAYER: Received map_sync:", data);
 
     if (!data || data.map_id !== mapId) {
         return;
     }
 
-    zoomLevel = data.zoom_level ?? zoomLevel ?? 1;
-    panX = data.pan_x ?? panX ?? 0;
-    panY = data.pan_y ?? panY ?? 0;
+    // Обновляем параметры отображения
+    if (data.zoom_level !== undefined) {
+        zoomLevel = data.zoom_level;
+        console.log(`PLAYER: Zoom updated to ${zoomLevel}`);
+    }
+    if (data.pan_x !== undefined) {
+        panX = data.pan_x;
+        console.log(`PLAYER: PanX updated to ${panX}`);
+    }
+    if (data.pan_y !== undefined) {
+        panY = data.pan_y;
+        console.log(`PLAYER: PanY updated to ${panY}`);
+    }
 
+    // Сохраняем размеры канваса мастера
+    if (data.canvas_width) {
+        masterCanvasWidth = data.canvas_width;
+        console.log(`PLAYER: Master canvas width updated to ${masterCanvasWidth}`);
+    }
+    if (data.canvas_height) {
+        masterCanvasHeight = data.canvas_height;
+        console.log(`PLAYER: Master canvas height updated to ${masterCanvasHeight}`);
+    }
+
+    console.log(`PLAYER: Final position after sync: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
     requestRender();
 });
-
 function drawLayers(offsetX, offsetY, scale) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
 
@@ -900,9 +872,16 @@ function drawToken(token, offsetX, offsetY, scale) {
             ctx.save();
             ctx.clip();
 
-            // Для игрока ОСТАВЛЯЕМ сглаживание ВКЛЮЧЕННЫМ (убираем отключение)
-            // ctx.imageSmoothingEnabled = false; // НЕ ДОБАВЛЯЕМ ЭТУ СТРОКУ
-            
+            // ===== УПРАВЛЕНИЕ СГЛАЖИВАНИЕМ =====
+            if (TOKEN_SMOOTHING_ENABLED) {
+                // Включаем сглаживание для плавности
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+            } else {
+                // Отключаем сглаживание для четкости
+                ctx.imageSmoothingEnabled = false;
+            }
+
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
                 ctx.filter = 'grayscale(100%)';
@@ -1464,7 +1443,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 секунд таймаут
 
-    return fetch(fetchUrl, { 
+    return fetch(fetchUrl, {
         signal: controller.signal,
         method: 'GET',
         headers: {
@@ -1475,7 +1454,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
         .then(res => {
             clearTimeout(timeoutId);
             console.log("Fetch response status:", res.status);
-            
+
             if (!res.ok) {
                 console.error(`HTTP error! status: ${res.status}`);
                 if (res.status === 404) {
@@ -1509,26 +1488,41 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             }
 
             console.log("Map data loaded successfully");
+            console.log("Received data keys:", Object.keys(data));
+
+            // Сохраняем данные карты
             mapData = data;
 
-            if (data.master_canvas_width) masterCanvasWidth = data.master_canvas_width;
-            if (data.master_canvas_height) masterCanvasHeight = data.master_canvas_height;
-
-            if (socket && socket.connected) {
-                console.log("📤 Requesting drawings after map load");
-                socket.emit('request_drawings', { map_id: mapId });
+            // ===== ВАЖНО: ИНИЦИАЛИЗИРУЕМ ПАРАМЕТРЫ ОТОБРАЖЕНИЯ =====
+            // Получаем размеры канваса мастера из данных
+            if (data.master_canvas_width) {
+                masterCanvasWidth = data.master_canvas_width;
+                console.log("Master canvas width from data:", masterCanvasWidth);
+            }
+            if (data.master_canvas_height) {
+                masterCanvasHeight = data.master_canvas_height;
+                console.log("Master canvas height from data:", masterCanvasHeight);
             }
 
+            // Загружаем сохраненный zoom и pan из данных карты
             zoomLevel = data.zoom_level || 1;
             panX = data.pan_x || 0;
             panY = data.pan_y || 0;
 
+            console.log(`PLAYER: Initial position from map data: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
+            console.log(`PLAYER: Master canvas size: ${masterCanvasWidth}x${masterCanvasHeight}`);
+
+            // Убеждаемся, что ruler_visible_to_players имеет значение по умолчанию
             if (mapData.ruler_visible_to_players === undefined) {
                 mapData.ruler_visible_to_players = false;
             }
 
-            if (!mapData.characters) mapData.characters = [];
+            // Инициализируем массив персонажей если его нет
+            if (!mapData.characters) {
+                mapData.characters = [];
+            }
 
+            // Обработка видимости карты
             const disabledImg = document.getElementById("mapDisabledImage");
             if (disabledImg) {
                 disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
@@ -1542,9 +1536,11 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 canvas.style.display = "block";
             }
 
+            // Загрузка изображения карты
             if (mapData.has_image) {
                 const imageUrl = `${baseUrl}/api/map/image/${mapId}?t=${Date.now()}`;
                 console.log("Loading map image from:", imageUrl);
+
                 const newImage = new Image();
                 newImage.onload = () => {
                     console.log("Map image loaded successfully");
@@ -1570,13 +1566,23 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 requestRender();
                 updatePortraits();
             }
+
+            // Запрашиваем синхронизацию позиции после загрузки карты
+            if (socket && socket.connected) {
+                console.log('📤 Requesting map sync after map load');
+                socket.emit('request_map_sync', { map_id: mapId });
+
+                // Также запрашиваем рисунки
+                console.log('📤 Requesting drawings after map load');
+                socket.emit('request_drawings', { map_id: mapId });
+            }
         })
         .catch(err => {
             clearTimeout(timeoutId);
             console.error("Error fetching map:", err);
             console.error("Error name:", err.name);
             console.error("Error message:", err.message);
-            
+
             // Проверяем тип ошибки
             if (err.name === 'AbortError') {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1597,7 +1603,8 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 ctx.fillStyle = "#4C5BEF";
                 ctx.fillText("Проверьте, запущен ли сервер", canvas.width / 2, canvas.height / 2 + 20);
             }
-            
+
+            // Повторная попытка
             if (retryCount < maxRetries && !err.message?.includes("404") && err.name !== 'AbortError') {
                 console.log(`Retrying fetchMap (${retryCount + 1}/${maxRetries})...`);
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1606,25 +1613,25 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 ctx.textAlign = "center";
                 ctx.fillText(`Повторная попытка загрузки... (${retryCount + 1}/${maxRetries})`,
                     canvas.width / 2, canvas.height / 2);
-                
+
                 return new Promise(resolve => {
                     setTimeout(() => {
                         resolve(fetchMap(retryCount + 1, maxRetries));
                     }, 3000);
                 });
             }
-            
+
             // Показываем кнопку для повторной попытки
             ctx.font = "16px Inter";
             ctx.fillStyle = "#4C5BEF";
             ctx.fillText("Нажмите для повторной попытки", canvas.width / 2, canvas.height / 2 + 60);
-            
+
             const clickHandler = () => {
                 canvas.removeEventListener('click', clickHandler);
                 fetchMap(0);
             };
             canvas.addEventListener('click', clickHandler);
-            
+
             throw err;
         });
 }
