@@ -1907,8 +1907,19 @@ function drawToken(token, offsetX, offsetY, scale) {
             ctx.save();
             ctx.clip();
 
-            // ВАЖНО: ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
-            ctx.imageSmoothingEnabled = false;
+            // ===== ВАЖНО: Включаем сглаживание для лучшего качества при уменьшении =====
+            // Если токен рисуется меньше оригинального размера, включаем сглаживание
+            // Если больше - отключаем для четкости
+            const scaleFactor = tokenSize / Math.max(cachedImg.naturalWidth, cachedImg.naturalHeight);
+            
+            if (scaleFactor < 1) {
+                // Уменьшение - включаем сглаживание для плавности
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+            } else {
+                // Увеличение - отключаем сглаживание для четкости пикселей
+                ctx.imageSmoothingEnabled = false;
+            }
             
             if (token.is_dead) {
                 ctx.globalAlpha = 0.7;
@@ -1928,7 +1939,7 @@ function drawToken(token, offsetX, offsetY, scale) {
 
                 const img = new Image();
                 img.onload = () => {
-                    console.log(`Avatar loaded for token ${token.id}`);
+                    console.log(`Avatar loaded for token ${token.id}, size: ${img.naturalWidth}x${img.naturalHeight}`);
                     avatarCache.set(token.id, img);
                     render();
                 };
@@ -2008,10 +2019,12 @@ function reloadTokenAvatar(tokenId) {
         // Загружаем заново
         const img = new Image();
         img.onload = () => {
+            console.log(`Avatar reloaded for token ${tokenId}, size: ${img.naturalWidth}x${img.naturalHeight}`);
             avatarCache.set(tokenId, img);
             render();
         };
         img.onerror = () => {
+            console.warn(`Failed to reload avatar for token ${tokenId}`);
             avatarCache.set(tokenId, null);
             render();
         };
@@ -4843,30 +4856,25 @@ function loadTokenAvatarInModal(token, forceReload = false) {
     const mask = document.getElementById("avatarMask");
     const editIcon = document.getElementById("editIcon");
 
-    // Сначала сбрасываем preview
     preview.src = "";
     preview.style.display = "none";
     preview.removeAttribute("data-base64");
-    // Отменяем предыдущие загрузки
+    
     if (preview._abortController) {
         preview._abortController.abort();
     }
 
     if (token.has_avatar) {
-        // Показываем состояние загрузки
         overlay.style.display = "none";
         mask.style.display = "block";
         editIcon.style.display = "block";
 
-        // Показываем временный серый фон
         preview.style.display = "block";
         preview.style.opacity = "0.5";
 
-        // Создаем AbortController для отмены загрузки при необходимости
         const abortController = new AbortController();
         preview._abortController = abortController;
 
-        // Генерируем URL с уникальным timestamp для сброса кэша
         const timestamp = Date.now();
         const baseAvatarUrl = token.avatar_url
             ? token.avatar_url.split('?')[0]
@@ -4876,16 +4884,15 @@ function loadTokenAvatarInModal(token, forceReload = false) {
 
         console.log("Loading avatar from:", avatarUrl);
 
-        // Создаем новый Image для загрузки
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        img.crossOrigin = "Anonymous";
 
         img.onload = () => {
-            console.log("Avatar loaded successfully in modal, original size:", img.naturalWidth, "x", img.naturalHeight);
+            console.log("Avatar loaded successfully in modal, size:", img.naturalWidth, "x", img.naturalHeight);
             preview.src = avatarUrl;
             preview.style.opacity = "1";
 
-            // Конвертируем в base64 БЕЗ ПОТЕРИ КАЧЕСТВА
+            // ===== ВАЖНО: сохраняем с оригинальным размером БЕЗ сглаживания =====
             try {
                 const canvas = document.createElement('canvas');
                 canvas.width = img.naturalWidth;
@@ -4894,17 +4901,17 @@ function loadTokenAvatarInModal(token, forceReload = false) {
                 
                 // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
                 ctx.imageSmoothingEnabled = false;
+                ctx.imageSmoothingQuality = 'high'; // но это не влияет при false
                 
                 ctx.drawImage(img, 0, 0);
                 
-                // Используем максимальное качество для PNG
+                // Используем PNG без потерь
                 preview.dataset.base64 = canvas.toDataURL('image/png', 1.0);
                 console.log("Avatar converted to base64 with original size:", img.naturalWidth, "x", img.naturalHeight);
             } catch (e) {
                 console.warn("Could not convert avatar to base64:", e);
             }
 
-            // Обновляем кэш
             avatarCache.set(token.id, img);
         };
 

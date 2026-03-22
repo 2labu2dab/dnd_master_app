@@ -264,25 +264,26 @@ def get_map(map_id):
 
     return jsonify(data)
 
+
 @app.route("/api/map/image/<map_id>")
 def get_map_image(map_id):
     """Получить изображение карты как файл без изменений"""
     from utils.storage import get_image_filepath
-    
+
     image_path = get_image_filepath(map_id)
     print(f"Getting map image: {image_path}")
     print(f"File exists: {os.path.exists(image_path)}")
-    
+
     if os.path.exists(image_path):
         # Определяем MIME тип по расширению
-        if image_path.endswith('.png'):
-            mimetype = 'image/png'
+        if image_path.endswith(".png"):
+            mimetype = "image/png"
         else:
-            mimetype = 'image/jpeg'
-        
+            mimetype = "image/jpeg"
+
         # Отправляем файл без изменений
         return send_file(image_path, mimetype=mimetype)
-    
+
     print(f"Image not found: {image_path}")
     return "", 404
 
@@ -548,7 +549,10 @@ def sync_token_across_maps(token_id):
         print(f"\n=== Syncing token {token_id} across all maps ===")
         print(f"Sync data: {data}")
 
-        from utils.storage import get_all_maps_with_token, sync_token_across_maps as sync_storage
+        from utils.storage import (
+            get_all_maps_with_token,
+            sync_token_across_maps as sync_storage,
+        )
 
         maps_with_token = get_all_maps_with_token(token_id)
         print(f"Token found on {len(maps_with_token)} maps")
@@ -564,7 +568,11 @@ def sync_token_across_maps(token_id):
                     token_copy = t.copy()
                     if token_copy.get("has_avatar"):
                         from utils.storage import get_token_avatar_url
-                        token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"]) + f"?t={int(time.time())}"
+
+                        token_copy["avatar_url"] = (
+                            get_token_avatar_url(token_copy["id"])
+                            + f"?t={int(time.time())}"
+                        )
                     token_copy.pop("avatar_data", None)
                     tokens_for_players.append(token_copy)
 
@@ -574,12 +582,16 @@ def sync_token_across_maps(token_id):
                     "zones": map_data.get("zones", []),
                     "finds": map_data.get("finds", []),
                     "grid_settings": map_data.get("grid_settings", {}),
-                    "player_map_enabled": map_data.get("player_map_enabled", True),
+                    "player_map_enabled": map_data.get(
+                        "player_map_enabled", True
+                    ),
                     "has_image": map_data.get("has_image", False),
                 }
 
                 if map_data.get("has_image"):
-                    player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+                    player_data["image_url"] = (
+                        f"/api/map/image/{map_id}?t={int(time.time())}"
+                    )
 
                 socketio.emit("map_updated", player_data)
 
@@ -600,8 +612,10 @@ def sync_token_across_maps(token_id):
     except Exception as e:
         print(f"Error syncing token: {e}")
         import traceback
+
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/token/avatar/<source_token_id>/copy", methods=["POST"])
 def copy_token_avatar(source_token_id):
@@ -725,6 +739,7 @@ def add_token():
         token_copy = t.copy()
         if token_copy.get("has_avatar"):
             from utils.storage import get_token_avatar_url
+
             token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
@@ -736,23 +751,30 @@ def add_token():
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "ruler_visible_to_players": data.get(
+            "ruler_visible_to_players", False
+        ),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        player_data["image_url"] = (
+            f"/api/map/image/{map_id}?t={int(time.time())}"
+        )
 
     socketio.emit("map_updated", player_data)
     print("Map updated event sent to players")
 
-    return jsonify({
-        "status": "token added",
-        "token_id": token["id"],
-        "avatar_url": avatar_url,
-        "size": token_size
-    })
+    return jsonify(
+        {
+            "status": "token added",
+            "token_id": token["id"],
+            "avatar_url": avatar_url,
+            "size": token_size,
+        }
+    )
+
 
 @app.route("/favicon.ico")
 def favicon():
@@ -854,7 +876,7 @@ def upload_map():
     """Загрузить изображение карты с максимальным качеством"""
     if "map_image" not in request.files:
         return "No file", 400
-    
+
     file = request.files["map_image"]
     if file.filename == "":
         return "No selected file", 400
@@ -865,7 +887,7 @@ def upload_map():
         session["current_map_id"] = map_id
 
     print(f"Uploading map image for {map_id}, filename: {file.filename}")
-    
+
     # Читаем файл напрямую, без изменений
     file_data = file.read()
     print(f"File size: {len(file_data)} bytes")
@@ -875,13 +897,13 @@ def upload_map():
         # Обновляем данные карты
         data = load_map_data(map_id)
         data["has_image"] = True
-        
+
         # Сохраняем информацию о формате
-        if file.filename.lower().endswith('.png'):
+        if file.filename.lower().endswith(".png"):
             data["image_format"] = "png"
         else:
             data["image_format"] = "jpg"
-            
+
         save_map_data(data, map_id)
 
         # Получаем изображение в base64 для мастера
@@ -905,7 +927,9 @@ def upload_map():
             "zones": data.get("zones", []),
             "finds": data.get("finds", []),
             "grid_settings": data.get("grid_settings", {}),
-            "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+            "ruler_visible_to_players": data.get(
+                "ruler_visible_to_players", False
+            ),
             "player_map_enabled": data.get("player_map_enabled", True),
             "has_image": True,
             "image_url": f"/api/map/image/{map_id}?t={int(time.time())}",
@@ -923,12 +947,13 @@ def upload_map():
             },
             broadcast=True,
         )
-        
+
         print(f"✓ Map image uploaded and processed successfully")
         return jsonify({"status": "ok", "map_id": map_id})
 
     print(f"✗ Failed to save map image")
     return "Failed to save image", 500
+
 
 @socketio.on("notify_image_loaded")
 def handle_notify_image_loaded(data):
@@ -1267,7 +1292,6 @@ def handle_ruler_visibility_change(data):
     )
 
 
-
 @app.route("/api/token/<token_id>", methods=["PUT"])
 def update_token(token_id):
     """Обновить существующий токен с сохранением качества аватара"""
@@ -1320,7 +1344,9 @@ def update_token(token_id):
                 if success:
                     token["has_avatar"] = True
                     timestamp = int(time.time())
-                    token["avatar_url"] = f"/api/token/avatar/{token_id}?t={timestamp}"
+                    token["avatar_url"] = (
+                        f"/api/token/avatar/{token_id}?t={timestamp}"
+                    )
                     print(f"✓ Avatar updated successfully")
                     avatar_changed = True
                 else:
@@ -1352,12 +1378,14 @@ def update_token(token_id):
             sync_data["avatar_url"] = token["avatar_url"]
 
         from utils.storage import sync_token_across_maps
+
         updated_maps = sync_token_across_maps(token_id, sync_data)
         print(f"Token {token_id} synced on {len(updated_maps)} maps")
 
     except Exception as e:
         print(f"Error during cross-map sync: {e}")
         import traceback
+
         traceback.print_exc()
 
     # Подготавливаем данные для игроков
@@ -1366,7 +1394,9 @@ def update_token(token_id):
         token_copy = t.copy()
         if token_copy.get("has_avatar"):
             timestamp = int(time.time())
-            token_copy["avatar_url"] = f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
+            token_copy["avatar_url"] = (
+                f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
+            )
         token_copy.pop("avatar_data", None)
         tokens_for_players.append(token_copy)
 
@@ -1377,13 +1407,17 @@ def update_token(token_id):
         "zones": data.get("zones", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "ruler_visible_to_players": data.get(
+            "ruler_visible_to_players", False
+        ),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
     }
 
     if data.get("has_image"):
-        player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+        player_data["image_url"] = (
+            f"/api/map/image/{map_id}?t={int(time.time())}"
+        )
 
     socketio.emit("map_updated", player_data)
 
@@ -1614,19 +1648,24 @@ def upload_portrait():
 
         # Читаем файл напрямую, без изменений
         file_data = file.read()
-        
+
         if save_portrait_image(file_data, character_id):
-            print(f"✓ Portrait saved for character {character_id}, size: {len(file_data)} bytes")
-            return jsonify({
-                "status": "ok",
-                "portrait_url": f"/api/portrait/{character_id}",
-            })
+            print(
+                f"✓ Portrait saved for character {character_id}, size: {len(file_data)} bytes"
+            )
+            return jsonify(
+                {
+                    "status": "ok",
+                    "portrait_url": f"/api/portrait/{character_id}",
+                }
+            )
 
         return jsonify({"error": "Failed to save portrait"}), 500
 
     except Exception as e:
         print(f"Error uploading portrait: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 @socketio.on("token_move")
 def handle_token_move(data):
@@ -1712,7 +1751,9 @@ def add_bank_character():
 
         # Извлекаем avatar_data если есть
         avatar_data = data.pop("avatar_data", None)
-        print(f"Adding bank character, avatar_data present: {bool(avatar_data)}")
+        print(
+            f"Adding bank character, avatar_data present: {bool(avatar_data)}"
+        )
         if avatar_data:
             print(f"Avatar data length: {len(avatar_data)}")
 
@@ -1722,6 +1763,7 @@ def add_bank_character():
         # Если есть аватар, сохраняем его в банк с максимальным качеством
         if avatar_data:
             from utils.character_bank import save_bank_character_avatar
+
             success = save_bank_character_avatar(avatar_data, char_id)
             if success:
                 print(f"✓ Bank avatar saved for character {char_id}")
@@ -1864,11 +1906,13 @@ def spawn_bank_character(char_id):
             if os.path.exists(bank_avatar_path):
                 with open(bank_avatar_path, "rb") as f:
                     avatar_data = f.read()
-                
+
                 # Сохраняем для токена
                 save_token_avatar(avatar_data, token_id)
                 token["has_avatar"] = True
-                token["avatar_url"] = f"/api/token/avatar/{token_id}?t={int(time.time())}"
+                token["avatar_url"] = (
+                    f"/api/token/avatar/{token_id}?t={int(time.time())}"
+                )
                 print(f"✓ Avatar copied from bank to token {token_id}")
 
         # Добавляем токен на карту
@@ -1880,7 +1924,9 @@ def spawn_bank_character(char_id):
         for t in map_data.get("tokens", []):
             token_copy = t.copy()
             if token_copy.get("has_avatar"):
-                token_copy["avatar_url"] = f"/api/token/avatar/{token_copy['id']}?t={int(time.time())}"
+                token_copy["avatar_url"] = (
+                    f"/api/token/avatar/{token_copy['id']}?t={int(time.time())}"
+                )
             token_copy.pop("avatar_data", None)
             tokens_for_players.append(token_copy)
 
@@ -1896,7 +1942,9 @@ def spawn_bank_character(char_id):
         }
 
         if map_data.get("has_image"):
-            player_data["image_url"] = f"/api/map/image/{map_id}?t={int(time.time())}"
+            player_data["image_url"] = (
+                f"/api/map/image/{map_id}?t={int(time.time())}"
+            )
 
         socketio.emit("map_updated", player_data)
 
@@ -1905,6 +1953,7 @@ def spawn_bank_character(char_id):
     except Exception as e:
         print(f"Error spawning character: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 @socketio.on("maps_list_updated")
 def handle_maps_list_updated(data):
@@ -1933,17 +1982,19 @@ def update_map(map_id):
             file = request.files["map_image"]
             if file.filename:
                 file_data = file.read()
-                print(f"Updating map image, new file size: {len(file_data)} bytes")
-                
+                print(
+                    f"Updating map image, new file size: {len(file_data)} bytes"
+                )
+
                 if save_map_image(file_data, map_id):
                     map_data["has_image"] = True
-                    
+
                     # Сохраняем информацию о формате
-                    if file.filename.lower().endswith('.png'):
+                    if file.filename.lower().endswith(".png"):
                         map_data["image_format"] = "png"
                     else:
                         map_data["image_format"] = "jpg"
-                    
+
                     print(f"✓ Map image updated successfully")
 
         # Сохраняем данные
@@ -1967,10 +2018,12 @@ def update_map(map_id):
             socketio.emit("map_updated", player_data, broadcast=True)
 
         return jsonify({"status": "ok", "map_id": map_id})
-        
+
     except Exception as e:
         print(f"Error updating map: {e}")
         return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/map/thumbnail/<map_id>")
 def get_map_thumbnail(map_id):
     """Получить миниатюру карты с сохранением качества"""
@@ -1985,38 +2038,39 @@ def get_map_thumbnail(map_id):
     try:
         # Открываем изображение
         img = Image.open(image_path)
-        
+
         # Создаем копию для миниатюры, не изменяя оригинал
         img_copy = img.copy()
-        
+
         # Увеличиваем размер миниатюры для лучшего качества
         img_copy.thumbnail((300, 300), Image.Resampling.LANCZOS)
-        
+
         # Сохраняем с максимальным качеством
         img_io = io.BytesIO()
-        
+
         # Сохраняем в том же формате
-        if img_copy.mode == "RGBA" or image_path.endswith('.png'):
+        if img_copy.mode == "RGBA" or image_path.endswith(".png"):
             img_copy.save(img_io, "PNG", optimize=False, compress_level=0)
             mimetype = "image/png"
         else:
             # Для JPEG используем максимальное качество
-            if img_copy.mode in ('RGBA', 'LA', 'P'):
+            if img_copy.mode in ("RGBA", "LA", "P"):
                 rgb_img = Image.new("RGB", img_copy.size, (255, 255, 255))
-                if img_copy.mode == 'RGBA':
+                if img_copy.mode == "RGBA":
                     rgb_img.paste(img_copy, mask=img_copy.split()[3])
                 else:
                     rgb_img.paste(img_copy)
                 img_copy = rgb_img
             img_copy.save(img_io, "JPEG", quality=95, optimize=False)
             mimetype = "image/jpeg"
-            
+
         img_io.seek(0)
         return send_file(img_io, mimetype=mimetype)
-        
+
     except Exception as e:
         print(f"Error creating thumbnail: {e}")
         return "", 500
+
 
 @app.route("/api/bank/character/<char_id>", methods=["PUT"])
 def update_bank_character(char_id):
@@ -2026,20 +2080,26 @@ def update_bank_character(char_id):
 
         # Извлекаем avatar_data если есть
         avatar_data = data.pop("avatar_data", None)
-        print(f"Updating bank character {char_id}, avatar_data present: {bool(avatar_data)}")
+        print(
+            f"Updating bank character {char_id}, avatar_data present: {bool(avatar_data)}"
+        )
 
         # Обновляем в базе данных
         from utils.character_bank import update_character_in_bank
+
         update_character_in_bank(char_id, data)
 
         # Если есть новый аватар, сохраняем его с максимальным качеством
         if avatar_data:
             from utils.character_bank import save_bank_character_avatar
+
             success = save_bank_character_avatar(avatar_data, char_id)
             if success:
                 print(f"✓ Bank avatar updated for character {char_id}")
             else:
-                print(f"✗ Failed to update bank avatar for character {char_id}")
+                print(
+                    f"✗ Failed to update bank avatar for character {char_id}"
+                )
 
         return jsonify({"status": "ok"})
     except Exception as e:

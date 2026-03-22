@@ -25,17 +25,19 @@ PORTRAITS_DIR = os.path.join("data", "portrait_images")
 BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
 DRAWINGS_DIR = os.path.join(DATA_DIR, "drawings")
 TOKEN_SIZE_SCALES = {
-    'tiny': 0.25,
-    'small': 1.0,
-    'medium': 1.0,
-    'large': 2.0,
-    'huge': 3.0,
-    'gargantuan': 4.0
+    "tiny": 0.25,
+    "small": 1.0,
+    "medium": 1.0,
+    "large": 2.0,
+    "huge": 3.0,
+    "gargantuan": 4.0,
 }
+
 
 def get_token_size_scale(size_key):
     """Получить масштаб для токена по его размеру"""
     return TOKEN_SIZE_SCALES.get(size_key, 1.0)
+
 
 def get_bank_avatar_filepath(character_id):
     """Получить путь к файлу аватара персонажа из банка"""
@@ -73,14 +75,18 @@ def save_bank_avatar(image_data, character_id):
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
 
         img.save(img_path, "PNG", optimize=False, compress_level=0)
-        print(f"Bank avatar saved with original size: {img.width}x{img.height}")
+        print(
+            f"Bank avatar saved with original size: {img.width}x{img.height}"
+        )
 
         return True
     except Exception as e:
         print(f"Error saving bank avatar: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def delete_bank_avatar(character_id):
     """Удалить аватар персонажа из банка"""
@@ -134,12 +140,18 @@ def sync_token_across_maps(token_id, updates):
                                 if key != "position" and key != "avatar_data":
                                     token[key] = value
 
-                            if "avatar_url" in updates and updates["avatar_url"]:
-                                token["avatar_url"] = updates["avatar_url"].split("?")[0] + f"?t={int(time.time())}"
+                            if (
+                                "avatar_url" in updates
+                                and updates["avatar_url"]
+                            ):
+                                token["avatar_url"] = (
+                                    updates["avatar_url"].split("?")[0]
+                                    + f"?t={int(time.time())}"
+                                )
 
                             if "has_avatar" in updates:
                                 token["has_avatar"] = updates["has_avatar"]
-                                
+
                             # Убеждаемся, что размер синхронизирован
                             if "size" in updates:
                                 token["size"] = updates["size"]
@@ -156,11 +168,13 @@ def sync_token_across_maps(token_id, updates):
             except Exception as e:
                 print(f"  ✗ Error updating map {filename}: {e}")
                 import traceback
+
                 traceback.print_exc()
                 continue
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
+
 
 def ensure_dirs():
     """Создать необходимые директории"""
@@ -229,33 +243,26 @@ def save_token_avatar(image_data, token_id):
 
         # Открываем изображение
         img = Image.open(io.BytesIO(image_bytes))
+        original_size = f"{img.width}x{img.height}"
+        print(f"Original image size: {original_size}, mode: {img.mode}")
 
         # Сохраняем оригинальный размер - НИЧЕГО НЕ ИЗМЕНЯЕМ
-        # Просто конвертируем в RGBA если нужно для поддержки прозрачности
-        if img.mode != "RGBA" and img.mode != "RGB":
-            img = img.convert("RGBA")
-        elif img.mode == "RGB":
-            # RGB в RGBA для единообразия
-            rgba = Image.new("RGBA", img.size, (255, 255, 255, 255))
-            rgba.paste(img, (0, 0))
-            img = rgba
-
-        # Сохраняем как PNG БЕЗ ОПТИМИЗАЦИИ (optimize=False сохраняет качество)
         img_path = get_token_avatar_filepath(token_id)
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
         
-        # Сохраняем с максимальным качеством, без оптимизации
+        # Сохраняем как PNG без потерь
         img.save(img_path, "PNG", optimize=False, compress_level=0)
-        print(f"Avatar saved successfully with original size: {img.width}x{img.height}")
-        print(f"File exists: {os.path.exists(img_path)}, size: {os.path.getsize(img_path)} bytes")
-
+        
+        saved_size = os.path.getsize(img_path)
+        print(f"Avatar saved: {img_path}")
+        print(f"  Size: {original_size}, File size: {saved_size} bytes")
+        
         return True
     except Exception as e:
         print(f"Error saving token avatar: {e}")
         import traceback
         traceback.print_exc()
         return False
-
 def load_token_avatar(token_id):
     """Загрузить аватар токена и вернуть base64 для отображения"""
     img_path = get_token_avatar_filepath(token_id)
@@ -379,12 +386,12 @@ def get_image_filepath(map_id):
     png_path = os.path.join(IMAGES_DIR, f"{map_id}.png")
     if os.path.exists(png_path):
         return png_path
-    
+
     # Если нет PNG, проверяем JPEG
     jpg_path = os.path.join(IMAGES_DIR, f"{map_id}.jpg")
     if os.path.exists(jpg_path):
         return jpg_path
-    
+
     # По умолчанию возвращаем PNG (будет создан)
     return os.path.join(IMAGES_DIR, f"{map_id}.png")
 
@@ -393,7 +400,7 @@ def save_map_image(image_data, map_id):
     """Сохранить изображение карты как файл с максимальным качеством"""
     try:
         print(f"Saving map image for {map_id}")
-        
+
         # Если пришла base64 строка
         if isinstance(image_data, str) and image_data.startswith("data:image"):
             # Извлекаем base64 данные
@@ -407,7 +414,9 @@ def save_map_image(image_data, map_id):
 
         # Открываем изображение
         img = Image.open(io.BytesIO(image_bytes))
-        print(f"Original image size: {img.width}x{img.height}, mode: {img.mode}")
+        print(
+            f"Original image size: {img.width}x{img.height}, mode: {img.mode}"
+        )
 
         # Определяем формат по исходным данным
         original_format = img.format
@@ -418,24 +427,30 @@ def save_map_image(image_data, map_id):
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
 
         # Сохраняем в оригинальном формате с максимальным качеством
-        if original_format == 'PNG' or img.mode == 'RGBA':
+        if original_format == "PNG" or img.mode == "RGBA":
             # Для PNG сохраняем как PNG без потерь
             img.save(img_path, "PNG", optimize=False, compress_level=0)
-            print(f"Saved as PNG (lossless), size: {os.path.getsize(img_path)} bytes")
+            print(
+                f"Saved as PNG (lossless), size: {os.path.getsize(img_path)} bytes"
+            )
         else:
             # Для JPEG сохраняем с максимальным качеством
             # Конвертируем в RGB если нужно
-            if img.mode in ('RGBA', 'LA', 'P'):
+            if img.mode in ("RGBA", "LA", "P"):
                 rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == 'RGBA':
+                if img.mode == "RGBA":
                     rgb_img.paste(img, mask=img.split()[3])
                 else:
                     rgb_img.paste(img)
                 img = rgb_img
-            
+
             # Сохраняем с качеством 100%
-            img.save(img_path, "JPEG", quality=100, optimize=False, subsampling=0)
-            print(f"Saved as JPEG (quality=100), size: {os.path.getsize(img_path)} bytes")
+            img.save(
+                img_path, "JPEG", quality=100, optimize=False, subsampling=0
+            )
+            print(
+                f"Saved as JPEG (quality=100), size: {os.path.getsize(img_path)} bytes"
+            )
 
         # Проверяем, что файл сохранился
         if os.path.exists(img_path):
@@ -448,8 +463,10 @@ def save_map_image(image_data, map_id):
     except Exception as e:
         print(f"Error saving map image: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def load_map_image(map_id):
     """Загрузить изображение карты и вернуть base64 без потерь"""
@@ -458,13 +475,13 @@ def load_map_image(map_id):
         try:
             with open(img_path, "rb") as f:
                 img_bytes = f.read()
-                
+
             # Определяем MIME тип по расширению файла
-            if img_path.lower().endswith('.png'):
+            if img_path.lower().endswith(".png"):
                 mime_type = "image/png"
             else:
                 mime_type = "image/jpeg"
-                
+
             return f"data:{mime_type};base64,{base64.b64encode(img_bytes).decode('utf-8')}"
         except Exception as e:
             print(f"Error loading map image: {e}")
@@ -671,7 +688,9 @@ def save_map_data(data, map_id):
     if data.get("has_image"):
         img_path = get_image_filepath(map_id)
         if os.path.exists(img_path):
-            data["image_format"] = "png" if img_path.endswith('.png') else "jpg"
+            data["image_format"] = (
+                "png" if img_path.endswith(".png") else "jpg"
+            )
 
     # Убираем base64 изображения из JSON если оно там есть
     if "map_image_base64" in data:
@@ -698,8 +717,10 @@ def save_map_data(data, map_id):
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    
+
     print(f"Map data saved for {map_id}")
+
+
 def save_portrait_image(image_data, portrait_id):
     """
     Сохранить изображение портрета как файл с максимальным качеством
@@ -710,8 +731,11 @@ def save_portrait_image(image_data, portrait_id):
 
         # Если image_data - строка base64, конвертируем в бинарные данные
         if isinstance(image_data, str) and image_data.startswith("data:image"):
-            base64_data = image_data.split(",")[1] if "," in image_data else image_data
+            base64_data = (
+                image_data.split(",")[1] if "," in image_data else image_data
+            )
             import base64
+
             image_binary = base64.b64decode(base64_data)
         elif isinstance(image_data, bytes):
             image_binary = image_data
@@ -721,7 +745,7 @@ def save_portrait_image(image_data, portrait_id):
 
         # Открываем и сохраняем с оригинальным размером
         img = Image.open(io.BytesIO(image_binary))
-        
+
         # Конвертируем в RGBA для поддержки прозрачности
         if img.mode != "RGBA" and img.mode != "RGB":
             img = img.convert("RGBA")
@@ -738,6 +762,7 @@ def save_portrait_image(image_data, portrait_id):
     except Exception as e:
         print(f"Error saving portrait: {e}")
         return False
+
 
 def get_portrait_filepath(portrait_id):
     """
