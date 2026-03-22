@@ -3007,7 +3007,7 @@ canvas.addEventListener("mousemove", (e) => {
         const [x, y] = find.position;
         const sx = x * scale + offsetX;
         const sy = y * scale + offsetY;
-        const radius = (mapData.grid_settings.cell_size * scale) / 2;
+        const radius = (mapData.grid_settings.cell_size * scale) / 4;
 
         if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
             hovered = find;
