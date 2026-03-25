@@ -594,6 +594,7 @@ socket.on("map_updated", (data) => {
     const oldHasImage = mapData.has_image;
     const oldCharacters = mapData.characters || [];
 
+    invalidateZoneBlurCache();
     Object.assign(mapData, {
         tokens: data.tokens || [],
         zones: data.zones || [],
@@ -1158,69 +1159,101 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     ctx.stroke();
 }
 
+// ─── Кеш блюра зон ──────────────────────────────────────────────────────────
+// Блюр вычисляется ОДИН РАЗ на зону при загрузке карты/изменении зоны.
+// При каждом кадре — только дешёвый drawImage(cached, ...).
+const _zoneBlurCache = new Map(); // id → { canvas, worldX, worldY, worldW, worldH, mapSrc, hash }
+
+function invalidateZoneBlurCache() { _zoneBlurCache.clear(); }
+
+function _zoneKey(zone) { return zone.id || JSON.stringify(zone.vertices); }
+function _zoneHash(zone) { return JSON.stringify(zone.vertices); }
+
+function _buildZoneBlur(zone) {
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return null;
+
+    // Bounding box в координатах карты
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of zone.vertices) {
+        if (x < minX) minX = x; if (y < minY) minY = y;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    }
+
+    // Отступ для плавного размытия по краям
+    const pad = Math.max(mapImage.naturalWidth, mapImage.naturalHeight) * 0.06;
+    const wx  = Math.max(0, minX - pad);
+    const wy  = Math.max(0, minY - pad);
+    const wx2 = Math.min(mapImage.naturalWidth,  maxX + pad);
+    const wy2 = Math.min(mapImage.naturalHeight, maxY + pad);
+    const ww  = wx2 - wx;
+    const wh  = wy2 - wy;
+    if (ww <= 0 || wh <= 0) return null;
+
+    // Рендерим в ограниченном разрешении (не больше 512px по длинной стороне)
+    const MAX_DIM = 512;
+    const rs = Math.min(1, MAX_DIM / Math.max(ww, wh));
+    const cw = Math.max(1, Math.round(ww * rs));
+    const ch = Math.max(1, Math.round(wh * rs));
+
+    // Шаг 1: вырезаем нужный кусок карты
+    const src = document.createElement('canvas');
+    src.width = cw; src.height = ch;
+    const srcCtx = src.getContext('2d');
+    srcCtx.drawImage(mapImage, wx, wy, ww, wh, 0, 0, cw, ch);
+
+    // Шаг 2: применяем blur на отдельный холст (нельзя in-place)
+    const dst = document.createElement('canvas');
+    dst.width = cw; dst.height = ch;
+    const dstCtx = dst.getContext('2d');
+    const blurPx = Math.max(6, cw * 0.07);
+    dstCtx.filter = `blur(${blurPx}px)`;
+    dstCtx.drawImage(src, 0, 0);
+    dstCtx.filter = 'none';
+
+    return { canvas: dst, worldX: wx, worldY: wy, worldW: ww, worldH: wh,
+             mapSrc: mapImage.src, hash: _zoneHash(zone) };
+}
+
+function _getCachedZoneBlur(zone) {
+    const key  = _zoneKey(zone);
+    const hash = _zoneHash(zone);
+    const c    = _zoneBlurCache.get(key);
+    if (c && c.hash === hash && c.mapSrc === mapImage.src) return c;
+    const built = _buildZoneBlur(zone);
+    if (built) _zoneBlurCache.set(key, built);
+    return built;
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 function drawBlurredZone(zone, offsetX, offsetY, scale) {
     if (!zone.vertices || zone.vertices.length < 2) return;
 
+    const cached = _getCachedZoneBlur(zone);
     const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
 
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(transformed[0][0], transformed[0][1]);
-    for (let i = 1; i < transformed.length; i++) {
-        ctx.lineTo(transformed[i][0], transformed[i][1]);
-    }
+    for (let i = 1; i < transformed.length; i++) ctx.lineTo(transformed[i][0], transformed[i][1]);
     ctx.closePath();
     ctx.clip();
 
-    const mapScreenWidth = mapImage.width * scale;
-    const mapScreenHeight = mapImage.height * scale;
-    const blurSize = Math.max(40, mapScreenWidth * 0.08);
-
-    // Создаем расширенную карту с отражением
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = mapScreenWidth * 3;
-    tempCanvas.height = mapScreenHeight * 3;
-    const tempCtx = tempCanvas.getContext('2d');
-
-    // Рисуем карту 3x3 с отражениями
-    for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 3; col++) {
-            const x = col * mapScreenWidth;
-            const y = row * mapScreenHeight;
-
-            tempCtx.save();
-
-            // Определяем нужно ли отражать
-            if (col !== 1) {
-                tempCtx.translate(x + mapScreenWidth, 0);
-                tempCtx.scale(-1, 1);
-                tempCtx.translate(-x, 0);
-            }
-            if (row !== 1) {
-                tempCtx.translate(0, y + mapScreenHeight);
-                tempCtx.scale(1, -1);
-                tempCtx.translate(0, -y);
-            }
-
-            tempCtx.drawImage(mapImage, x, y, mapScreenWidth, mapScreenHeight);
-            tempCtx.restore();
-        }
+    if (cached) {
+        // Мгновенный drawImage из кеша — без пересчёта blur каждый кадр
+        ctx.drawImage(
+            cached.canvas,
+            cached.worldX * scale + offsetX,
+            cached.worldY * scale + offsetY,
+            cached.worldW * scale,
+            cached.worldH * scale
+        );
+    } else {
+        // Fallback пока mapImage не готов
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fill();
     }
 
-    // Применяем размытие
-    tempCtx.filter = `blur(${blurSize}px)`;
-    tempCtx.drawImage(tempCanvas, 0, 0);
-    tempCtx.filter = 'none';
-
-    // Рисуем центральную часть (оригинальную карту)
-    ctx.drawImage(
-        tempCanvas,
-        mapScreenWidth, mapScreenHeight, mapScreenWidth, mapScreenHeight,
-        offsetX, offsetY, mapScreenWidth, mapScreenHeight
-    );
-
     ctx.restore();
-
 }
 
 socket.on("map_visibility_change", (data) => {
@@ -1320,7 +1353,7 @@ socket.on("map_image_updated_to_player", (data) => {
         mapImageCache.delete(mapId);
         dndCache.fetch(imageUrl).then(src => {
             const img = new Image();
-            img.onload = () => { mapImage = img; mapImageCache.set(mapId, img); requestRender(); };
+            img.onload = () => { mapImage = img; mapImageCache.set(mapId, img); invalidateZoneBlurCache(); requestRender(); };
             img.src = src || imageUrl;
         });
     }
@@ -1337,6 +1370,7 @@ socket.on("force_image_reload", (data) => {
                 mapImage = img;
                 mapImageCache.set(mapId, img);
                 if (mapData) mapData.has_image = true;
+                invalidateZoneBlurCache();
                 requestRender();
             };
             img.src = src || imageUrl;

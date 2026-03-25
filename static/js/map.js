@@ -1,6 +1,92 @@
 // static/js/map.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
+
+// ─── RAF-планировщик ────────────────────────────────────────────────────────
+let _rafPending = false;
+function scheduleRender() {
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => {
+        _rafPending = false;
+        render();
+    });
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// ─── Offscreen-кеш фона (карта + сетка) ─────────────────────────────────────
+// Фон перерисовывается только при изменении: зум/пан/карта/сетка.
+// При движении токена/линейки используем готовый bgCanvas без перерасчёта.
+let _bgCanvas = null;
+let _bgCtx = null;
+let _bgDirty = true;   // нужно ли перерисовать фон
+let _bgKey = '';       // строка-ключ: если изменилась — фон устарел
+
+function invalidateBg() { _bgDirty = true; }
+
+function _getBgKey() {
+    if (!mapImage || !mapData) return '';
+    return `${currentMapId}|${zoomLevel}|${panX}|${panY}|` +
+           `${canvas.width}|${canvas.height}|` +
+           `${mapData.grid_settings.visible}|${mapData.grid_settings.cell_size}|` +
+           `${mapData.grid_settings.color}`;
+}
+
+function _renderBg(offsetX, offsetY, scale) {
+    if (!_bgCanvas || _bgCanvas.width !== canvas.width || _bgCanvas.height !== canvas.height) {
+        _bgCanvas = document.createElement('canvas');
+        _bgCanvas.width = canvas.width;
+        _bgCanvas.height = canvas.height;
+        _bgCtx = _bgCanvas.getContext('2d');
+        _bgDirty = true;
+    }
+
+    const key = _getBgKey();
+    if (!_bgDirty && key === _bgKey) return; // кеш актуален
+    _bgDirty = false;
+    _bgKey = key;
+
+    _bgCtx.clearRect(0, 0, _bgCanvas.width, _bgCanvas.height);
+
+    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
+        _bgCtx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
+    }
+
+    if (mapData && mapData.grid_settings && mapData.grid_settings.visible && mapImage) {
+        _drawGridToCtx(_bgCtx, offsetX, offsetY, scale);
+    }
+}
+
+// Рисует сетку в произвольный 2d-контекст (используется offscreen и основной)
+function _drawGridToCtx(c, offsetX, offsetY, scale) {
+    const cell = mapData.grid_settings.cell_size;
+    const clipX1 = Math.max(0, offsetX);
+    const clipY1 = Math.max(0, offsetY);
+    const clipX2 = Math.min(c.canvas.width, offsetX + mapImage.width * scale);
+    const clipY2 = Math.min(c.canvas.height, offsetY + mapImage.height * scale);
+
+    c.save();
+    c.strokeStyle = mapData.grid_settings.color;
+    c.lineWidth = 1;
+    c.beginPath();
+
+    for (let x = 0; x <= mapImage.width; x += cell) {
+        const sx = offsetX + x * scale;
+        if (sx < 0 || sx > c.canvas.width) continue;
+        c.moveTo(sx, clipY1);
+        c.lineTo(sx, clipY2);
+    }
+    for (let y = 0; y <= mapImage.height; y += cell) {
+        const sy = offsetY + y * scale;
+        if (sy < 0 || sy > c.canvas.height) continue;
+        c.moveTo(clipX1, sy);
+        c.lineTo(clipX2, sy);
+    }
+
+    c.stroke();
+    c.restore();
+}
+// ────────────────────────────────────────────────────────────────────────────
 const sidebar = document.getElementById("sidebar");
 const rightSidebar = document.getElementById("right-sidebar");
 const playerRulerToggle = document.getElementById("playerRulerToggle");
@@ -1387,6 +1473,7 @@ function switchMap(mapId) {
                 dndCache.fetch(imageUrl).then(src => {
                     mapImage = new Image();
                     mapImage.onload = () => {
+                        invalidateBg();
                         updateGridFromImage();
                         render();
                         isSwitchingMap = false;
@@ -1724,7 +1811,7 @@ function fetchMap() {
                     const imageUrl = mapData.image_url || `/api/map/image/${currentMapId}`;
                     dndCache.fetch(imageUrl).then(src => {
                         mapImage = new Image();
-                        mapImage.onload = () => render();
+                        mapImage.onload = () => { invalidateBg(); render(); };
                         mapImage.onerror = () => render();
                         mapImage.src = src || imageUrl;
                     }).catch(() => render());
@@ -1770,14 +1857,16 @@ function render() {
     }
 
     const { scale, offsetX, offsetY } = getTransform();
-    const newWidth = mapImage.width * scale;
-    const newHeight = mapImage.height * scale;
 
-    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
-        ctx.drawImage(mapImage, offsetX, offsetY, newWidth, newHeight);
-    }
+    // Фон (карта + сетка) — рисуем из кеша, пересчитываем только при необходимости
+    _renderBg(offsetX, offsetY, scale);
+    ctx.drawImage(_bgCanvas, 0, 0);
 
-    drawLayers(offsetX, offsetY, scale);
+    // Динамические слои (меняются чаще: зоны, рисунки, токены, находки)
+    mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
+    drawAllStrokes(offsetX, offsetY, scale);
+    mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
+    mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 
     if (drawingZone && currentZoneVertices.length > 0) {
         drawTempZone(offsetX, offsetY, scale);
@@ -1786,8 +1875,6 @@ function render() {
     if (isRulerMode && rulerStart) {
         drawRuler(offsetX, offsetY, scale);
     }
-
-    // Рисуем рамку выделения, если активна
 }
 function drawTempZone(offsetX, offsetY, scale) {
     if (currentZoneVertices.length === 0) return;
@@ -1848,34 +1935,7 @@ function drawLayers(offsetX, offsetY, scale) {
 }
 
 function drawGrid(offsetX, offsetY, scale) {
-    const cell = mapData.grid_settings.cell_size;
-    ctx.strokeStyle = mapData.grid_settings.color;
-    ctx.lineWidth = 1;
-
-    // Рисуем сетку в координатах карты (world‑space),
-    // чтобы она была «приклеена» к картинке и не съезжала при зуме.
-
-    // Вертикальные линии
-    for (let x = 0; x <= mapImage.width; x += cell) {
-        const sx = offsetX + x * scale; // экранная координата
-        if (sx < 0 || sx > canvas.width) continue;
-
-        ctx.beginPath();
-        ctx.moveTo(sx, Math.max(0, offsetY));
-        ctx.lineTo(sx, Math.min(canvas.height, offsetY + mapImage.height * scale));
-        ctx.stroke();
-    }
-
-    // Горизонтальные линии
-    for (let y = 0; y <= mapImage.height; y += cell) {
-        const sy = offsetY + y * scale;
-        if (sy < 0 || sy > canvas.height) continue;
-
-        ctx.beginPath();
-        ctx.moveTo(Math.max(0, offsetX), sy);
-        ctx.lineTo(Math.min(canvas.width, offsetX + mapImage.width * scale), sy);
-        ctx.stroke();
-    }
+    _drawGridToCtx(ctx, offsetX, offsetY, scale);
 }
 
 function isPointInHiddenZone(point, zones) {
@@ -2559,6 +2619,7 @@ function onGridSizeChange(value) {
     document.getElementById("gridSlider").value = newSize;
     document.getElementById("gridInput").value = newSize; document.getElementById("gridInput").value = newSize;
     mapData.grid_settings.cell_size = newSize;
+    invalidateBg();
     render();
 
     saveMapData();
@@ -2874,7 +2935,7 @@ canvas.addEventListener("mousemove", (e) => {
         }
 
         hoveredSnapVertex = found;
-        render();
+        scheduleRender();
         return;
     }
 
@@ -2884,7 +2945,8 @@ canvas.addEventListener("mousemove", (e) => {
     if (isPanning) {
         panX = panStartPanX + (e.clientX - panStartMouseX);
         panY = panStartPanY + (e.clientY - panStartMouseY);
-        render();
+        invalidateBg();
+        scheduleRender();
 
         clearTimeout(zoomSyncTimeout);
         zoomSyncTimeout = setTimeout(() => {
@@ -2914,7 +2976,7 @@ canvas.addEventListener("mousemove", (e) => {
         drawingStroke.points.push([x, y]);
         lastDrawPoint = [x, y];
 
-        render();
+        scheduleRender();
 
         // Отправляем с throttle для плавности
         if (!drawThrottle) {
@@ -2938,7 +3000,7 @@ canvas.addEventListener("mousemove", (e) => {
         mapData.ruler_start = rulerStart;
         mapData.ruler_end = rulerEnd;
 
-        render();
+        scheduleRender();
 
         if (!window.rulerThrottle) {
             window.rulerThrottle = setTimeout(() => {
@@ -2988,7 +3050,7 @@ canvas.addEventListener("mousemove", (e) => {
             }, 16);
         }
 
-        render();
+        scheduleRender();
         return;
     }
 
@@ -3015,7 +3077,7 @@ canvas.addEventListener("mousemove", (e) => {
         }
 
         if (draggingFind) draggingFind.position = [newX, newY];
-        render();
+        scheduleRender();
         return;
     }
 
@@ -3511,7 +3573,8 @@ canvas.addEventListener("wheel", (e) => {
     panX = mouseX - worldX * newScale;
     panY = mouseY - worldY * newScale;
 
-    render();
+    invalidateBg();
+    scheduleRender();
 
     clearTimeout(zoomSyncTimeout);
     zoomSyncTimeout = setTimeout(() => {
@@ -4215,6 +4278,7 @@ window.onload = () => {
     gridToggle.addEventListener("click", () => {
         gridToggle.classList.toggle("active");
         mapData.grid_settings.visible = gridToggle.classList.contains("active");
+        invalidateBg();
         render();
         saveMapData();
     });
@@ -4327,7 +4391,7 @@ socket.on("map_image_updated", (data) => {
 
         dndCache.fetch(data.new_image_url).then(src => {
             mapImage = new Image();
-            mapImage.onload = () => render();
+            mapImage.onload = () => { invalidateBg(); render(); };
             mapImage.src = src || data.new_image_url;
         });
     }
@@ -7385,6 +7449,7 @@ function applyCrop() {
 
 function updateGridFromImage() {
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return;
+    invalidateBg();
 
     const gridSettings = mapData.grid_settings;
 
