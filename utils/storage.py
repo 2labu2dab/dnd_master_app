@@ -516,8 +516,6 @@ def save_map_image(image_data, map_id):
 
         if os.path.exists(img_path):
             print(f"✓ Map image saved: {img_path}")
-            # Сразу создаём сжатую версию для игроков
-            create_player_image(map_id)
             return True
         else:
             print(f"✗ File not found after save: {img_path}")

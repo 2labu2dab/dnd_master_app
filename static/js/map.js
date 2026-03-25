@@ -4042,17 +4042,23 @@ window.onload = () => {
         indicator.textContent = 'Загрузка карт...';
         document.body.appendChild(indicator);
 
+        const hideIndicator = () => {
+            indicator.textContent = 'Карты загружены ✓';
+            setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
+            setTimeout(() => { indicator.remove(); }, 2000);
+        };
+
         dndCache.preloadAll({
             master: true,
             onProgress(loaded, total) {
-                if (total === 0) return;
+                if (total === 0) { hideIndicator(); return; }
                 indicator.textContent = `Загрузка карт: ${loaded}/${total}`;
-                if (loaded >= total) {
-                    indicator.textContent = 'Карты загружены ✓';
-                    setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
-                    setTimeout(() => { indicator.remove(); }, 2000);
-                }
+                if (loaded >= total) hideIndicator();
             }
+        }).then(() => {
+            // На случай если onProgress не дошёл до total (все из кеша)
+            const ind = document.getElementById('master-cache-indicator');
+            if (ind) hideIndicator();
         }).catch(() => { indicator.remove(); });
     });
 
