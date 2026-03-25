@@ -15,7 +15,7 @@ from flask import (
     send_file,
     session,
 )
-from flask_socketio import SocketIO, disconnect, emit
+from flask_socketio import SocketIO, disconnect, emit, join_room, leave_room
 from PIL import Image
 
 from utils.character_bank import (
@@ -75,6 +75,75 @@ TOKEN_SIZES = {
 # Кэш для throttle
 last_ruler_updates = {}
 
+# Роли подключений Socket.IO (sid -> "master"|"player"|None)
+client_roles = {}
+# Tracks which map_id each socket is viewing (sid -> map_id)
+client_map_rooms = {}
+
+
+def versioned_url(base_url, filepath):
+    """Return base_url with &v=<mtime> or ?v=<mtime> appended."""
+    try:
+        v = int(os.path.getmtime(filepath))
+    except Exception:
+        v = int(time.time())
+    sep = "&" if "?" in base_url else "?"
+    return f"{base_url}{sep}v={v}"
+
+
+def _prepare_player_tokens(tokens):
+    """Return a copy of token list with versioned avatar URLs, no avatar_data."""
+    from utils.storage import get_token_avatar_filepath, get_token_avatar_url
+
+    result = []
+    for t in tokens:
+        tc = t.copy()
+        if tc.get("has_avatar"):
+            base = get_token_avatar_url(tc["id"])
+            path = get_token_avatar_filepath(tc["id"])
+            tc["avatar_url"] = versioned_url(base, path)
+        tc.pop("avatar_data", None)
+        result.append(tc)
+    return result
+
+
+def _prepare_player_characters(characters):
+    """Return a copy of character list with versioned portrait URLs."""
+    from utils.storage import get_portrait_filepath, get_portrait_url
+
+    result = []
+    for c in characters:
+        cc = c.copy()
+        if cc.get("has_avatar"):
+            base = get_portrait_url(cc["id"])
+            path = get_portrait_filepath(cc["id"])
+            cc["portrait_url"] = versioned_url(base, path)
+        cc.pop("avatar_data", None)
+        result.append(cc)
+    return result
+
+
+def _build_player_data(map_id, data):
+    """Build the standard player_data dict from map data."""
+    from utils.storage import get_image_filepath
+
+    pd = {
+        "map_id": map_id,
+        "tokens": _prepare_player_tokens(data.get("tokens", [])),
+        "characters": _prepare_player_characters(data.get("characters", [])),
+        "zones": data.get("zones", []),
+        "finds": data.get("finds", []),
+        "grid_settings": data.get("grid_settings", {}),
+        "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
+        "player_map_enabled": data.get("player_map_enabled", True),
+        "has_image": data.get("has_image", False),
+    }
+    if data.get("has_image"):
+        image_path = get_image_filepath(map_id)
+        pd["image_url"] = versioned_url(f"/api/map/image/{map_id}", image_path)
+    return pd
+
+
 import os
 
 # Создаем папки и проверяем права
@@ -132,11 +201,10 @@ def handle_drawings_updated(data):
     if map_id and layer_id:
         save_drawings_layer(map_id, layer_id, strokes)
 
-    # ВАЖНО: Всегда отправляем всем игрокам, но не мастеру
     emit(
         "drawings_updated",
         {"map_id": map_id, "strokes": strokes, "layer_id": layer_id},
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
 
@@ -202,6 +270,11 @@ def get_map(map_id):
     if data is None:
         return jsonify({"error": "Map not found"}), 404
 
+    # Игрокам не отправляем картинку в base64 (слишком тяжело по сети).
+    # Мастер по-прежнему может получать base64 (используется в мастер-интерфейсе).
+    client_type = request.args.get("for") or request.headers.get("X-DND-Client")
+    is_player_client = str(client_type).lower() in ("player", "p", "1", "true", "yes")
+
     # Конвертируем старые данные сетки в новый формат
     if "grid_settings" in data:
         # Если есть cell_size, но нет cell_count, конвертируем
@@ -225,21 +298,41 @@ def get_map(map_id):
             elif data["grid_settings"]["cell_count"] > 150:
                 data["grid_settings"]["cell_count"] = 150
 
-    # Добавляем изображение отдельно, если оно есть
-    image_base64 = load_map_image(map_id)
-    if image_base64:
-        data["map_image_base64"] = image_base64
+    from utils.storage import get_image_filepath
+
+    image_path = get_image_filepath(map_id)
+    if os.path.exists(image_path):
+        try:
+            version = int(os.path.getmtime(image_path))
+        except Exception:
+            version = int(time.time())
+        data["has_image"] = True
+        data["image_url"] = f"/api/map/image/{map_id}?v={version}"
+    else:
+        data["has_image"] = False
+
+    # base64 только если явно запрошено (?include_image=1) — тяжело, не для обычной загрузки
+    if request.args.get("include_image") == "1":
+        image_base64 = load_map_image(map_id)
+        if image_base64:
+            data["map_image_base64"] = image_base64
 
     # Добавляем URL портретов для персонажей
     if "characters" in data:
         for character in data["characters"]:
             if character.get("has_avatar"):
-                from utils.storage import get_portrait_url
+                from utils.storage import get_portrait_filepath, get_portrait_url
 
-                character["portrait_url"] = get_portrait_url(character["id"])
-                print(
-                    f"Character {character['id']} portrait URL: {character['portrait_url']}"
-                )
+                portrait_path = get_portrait_filepath(character["id"])
+                portrait_url = get_portrait_url(character["id"])
+                if os.path.exists(portrait_path):
+                    try:
+                        pv = int(os.path.getmtime(portrait_path))
+                    except Exception:
+                        pv = int(time.time())
+                    character["portrait_url"] = f"{portrait_url}?v={pv}"
+                else:
+                    character["portrait_url"] = portrait_url
             # Удаляем старые данные аватара если они есть
             character.pop("avatar_data", None)
 
@@ -247,44 +340,40 @@ def get_map(map_id):
     if "tokens" in data:
         for token in data["tokens"]:
             if token.get("has_avatar"):
-                from utils.storage import get_token_avatar_url
+                from utils.storage import (
+                    get_token_avatar_filepath,
+                    get_token_avatar_url,
+                )
 
-                token["avatar_url"] = get_token_avatar_url(token["id"])
-                print(f"Token {token['id']} avatar URL: {token['avatar_url']}")
+                avatar_path = get_token_avatar_filepath(token["id"])
+                avatar_url = get_token_avatar_url(token["id"])
+                if os.path.exists(avatar_path):
+                    try:
+                        av = int(os.path.getmtime(avatar_path))
+                    except Exception:
+                        av = int(time.time())
+                    token["avatar_url"] = f"{avatar_url}?v={av}"
+                else:
+                    token["avatar_url"] = avatar_url
             token.pop("avatar_data", None)
-
-    old_map_id = session.get("current_map_id")
-    session["current_map_id"] = map_id
-
-    # Если карта действительно сменилась (не та же самая)
-    if old_map_id and old_map_id != map_id:
-        # Уведомляем всех о смене карты
-        socketio.emit("master_switched_map", {"map_id": map_id})
-        print(f"Map switched from {old_map_id} to {map_id}")
 
     return jsonify(data)
 
 
 @app.route("/api/map/image/<map_id>")
 def get_map_image(map_id):
-    """Получить изображение карты как файл без изменений"""
+    """Получить изображение карты (оригинальное качество)."""
     from utils.storage import get_image_filepath
 
     image_path = get_image_filepath(map_id)
-    print(f"Getting map image: {image_path}")
-    print(f"File exists: {os.path.exists(image_path)}")
-
     if os.path.exists(image_path):
-        # Определяем MIME тип по расширению
-        if image_path.endswith(".png"):
-            mimetype = "image/png"
-        else:
-            mimetype = "image/jpeg"
+        mimetype = "image/png" if image_path.endswith(".png") else "image/jpeg"
+        resp = send_file(image_path, mimetype=mimetype, conditional=True)
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 31536000
+        resp.cache_control.immutable = True
+        return resp
 
-        # Отправляем файл без изменений
-        return send_file(image_path, mimetype=mimetype)
-
-    print(f"Image not found: {image_path}")
     return "", 404
 
 
@@ -299,11 +388,11 @@ def handle_characters_updated(data):
     if not characters:
         return
 
-    # Отправляем всем, кроме отправителя
+    prepared = _prepare_player_characters(characters)
     emit(
         "characters_updated",
-        {"map_id": map_id, "characters": characters},
-        broadcast=True,
+        {"map_id": map_id, "characters": prepared},
+        to=f"map_{map_id}",
         include_self=False,
     )
 
@@ -312,77 +401,21 @@ def handle_characters_updated(data):
 def save_map():
     """Сохранить текущую карту"""
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
 
-    # Берем ID из данных, а не из сессии!
     map_id = data.get("map_id")
-
     if not map_id:
-        # Если нет в данных, пробуем из сессии (для обратной совместимости)
-        map_id = session.get("current_map_id")
-        if not map_id:
-            return jsonify({"error": "No map ID provided"}), 400
-        print(
-            f"Warning: Saving without map_id in body, using session: {map_id}"
-        )
-    else:
-        # Если ID передан, обновляем сессию
-        session["current_map_id"] = map_id
+        return jsonify({"error": "No map ID provided"}), 400
 
-    # Убеждаемся, что visible_to_players есть в grid_settings
     if "grid_settings" in data:
         if "visible_to_players" not in data["grid_settings"]:
             data["grid_settings"]["visible_to_players"] = True
 
-    # Сохраняем данные
     save_map_data(data, map_id)
 
-    # Подготавливаем данные для игроков с актуальными URL аватаров
-    tokens_for_players = []
-    for token in data.get("tokens", []):
-        token_copy = token.copy()
-        if token_copy.get("has_avatar"):
-            from utils.storage import get_token_avatar_url
-
-            base_url = get_token_avatar_url(token_copy["id"])
-            token_copy["avatar_url"] = f"{base_url}?t={int(time.time())}"
-        token_copy.pop("avatar_data", None)
-        tokens_for_players.append(token_copy)
-
-    # Подготавливаем данные персонажей для игроков (если нужно)
-    characters_for_players = []
-    for character in data.get("characters", []):
-        character_copy = character.copy()
-        if character_copy.get("has_avatar"):
-            from utils.storage import get_portrait_url
-
-            base_url = get_portrait_url(character_copy["id"])
-            character_copy["portrait_url"] = f"{base_url}?t={int(time.time())}"
-        character_copy.pop("avatar_data", None)
-        characters_for_players.append(character_copy)
-
-    player_data = {
-        "map_id": map_id,
-        "tokens": tokens_for_players,
-        "characters": characters_for_players,
-        "zones": data.get("zones", []),
-        "finds": data.get("finds", []),
-        "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
-        "ruler_start": data.get("ruler_start"),
-        "ruler_end": data.get("ruler_end"),
-        "player_map_enabled": data.get("player_map_enabled", True),
-        "has_image": data.get("has_image", False),
-    }
-
-    # Если есть изображение, добавляем URL для загрузки
-    if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
-
-    socketio.emit("map_updated", player_data)
+    player_data = _build_player_data(map_id, data)
+    socketio.emit("map_updated", player_data, room=f"map_{map_id}")
     return jsonify({"status": "ok"})
 
 
@@ -395,6 +428,12 @@ def new_map():
     # Создаем новую карту
     map_id = create_new_map(name)
 
+    # По требованию: при добавлении карты она всегда скрыта для игроков
+    new_map_data = load_map_data(map_id) or {}
+    new_map_data["player_map_enabled"] = False
+    new_map_data.setdefault("tokens", [])
+    save_map_data(new_map_data, map_id)
+
     # Получаем всех героев (токены-игроки) с других карт
     from utils.storage import get_all_heroes_from_maps
 
@@ -404,7 +443,9 @@ def new_map():
         print(f"Found {len(all_heroes)} heroes from other maps")
 
         # Загружаем данные новой карты
-        new_map_data = load_map_data(map_id)
+        new_map_data = load_map_data(map_id) or {}
+        # Гарантируем скрытие для игроков
+        new_map_data["player_map_enabled"] = False
 
         # Инициализируем массив tokens если его нет
         if "tokens" not in new_map_data:
@@ -483,14 +524,9 @@ def new_map():
 def delete_map_route(map_id):
     """Удалить карту"""
     if delete_map(map_id):
-        # Если удалили текущую карту
-        if session.get("current_map_id") == map_id:
-            maps = list_maps()
-            if maps:
-                session["current_map_id"] = maps[0]["id"]
-            else:
-                session["current_map_id"] = None
-        return jsonify({"status": "ok", "maps": list_maps()})
+        maps = list_maps()
+        socketio.emit("map_deleted", {"map_id": map_id, "maps": maps})
+        return jsonify({"status": "ok", "maps": maps})
     return jsonify({"status": "error"}), 404
 
 
@@ -530,12 +566,13 @@ def get_token_avatar(token_id):
     from utils.storage import get_token_avatar_filepath
 
     image_path = get_token_avatar_filepath(token_id)
-    print(f"Looking for token avatar at: {image_path}")
-    print(f"File exists: {os.path.exists(image_path)}")
 
     if os.path.exists(image_path):
-        print(f"File size: {os.path.getsize(image_path)} bytes")
-        return send_file(image_path, mimetype="image/png")
+        resp = send_file(image_path, mimetype="image/png", conditional=True)
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 31536000
+        resp.cache_control.immutable = True
+        return resp
 
     # Если файл не найден, создаем заглушку на лету
     return create_default_avatar()
@@ -559,41 +596,10 @@ def sync_token_across_maps(token_id):
 
         updated_maps = sync_storage(token_id, data)
 
-        # Отправляем обновления игрокам на всех картах
         for map_id in updated_maps:
             map_data = load_map_data(map_id)
             if map_data:
-                tokens_for_players = []
-                for t in map_data.get("tokens", []):
-                    token_copy = t.copy()
-                    if token_copy.get("has_avatar"):
-                        from utils.storage import get_token_avatar_url
-
-                        token_copy["avatar_url"] = (
-                            get_token_avatar_url(token_copy["id"])
-                            + f"?t={int(time.time())}"
-                        )
-                    token_copy.pop("avatar_data", None)
-                    tokens_for_players.append(token_copy)
-
-                player_data = {
-                    "map_id": map_id,
-                    "tokens": tokens_for_players,
-                    "zones": map_data.get("zones", []),
-                    "finds": map_data.get("finds", []),
-                    "grid_settings": map_data.get("grid_settings", {}),
-                    "player_map_enabled": map_data.get(
-                        "player_map_enabled", True
-                    ),
-                    "has_image": map_data.get("has_image", False),
-                }
-
-                if map_data.get("has_image"):
-                    player_data["image_url"] = (
-                        f"/api/map/image/{map_id}?t={int(time.time())}"
-                    )
-
-                socketio.emit("map_updated", player_data)
+                socketio.emit("map_updated", _build_player_data(map_id, map_data), room=f"map_{map_id}")
 
         if updated_maps:
             socketio.emit(
@@ -603,7 +609,6 @@ def sync_token_across_maps(token_id):
                     "updated_data": data,
                     "updated_maps": updated_maps,
                 },
-                broadcast=True,
             )
 
         print(f"Token {token_id} updated on {len(updated_maps)} maps")
@@ -676,95 +681,46 @@ def get_finds():
 
 @app.route("/api/token", methods=["POST"])
 def add_token():
-    print("\n" + "=" * 50)
-    print("TOKEN API CALLED")
-    print("=" * 50)
-
     try:
         token = request.get_json()
-        print(f"Received JSON data: {token}")
     except Exception as e:
-        print(f"Error parsing JSON: {e}")
         return jsonify({"error": "Invalid JSON"}), 400
 
-    avatar_data = token.pop("avatar_data", None) if token else None
+    if not token:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    avatar_data = token.pop("avatar_data", None)
     token_size = token.get("size", "medium")
 
-    print(f"Token data: {token}")
-    print(f"Avatar data present: {bool(avatar_data)}")
-    print(f"Avatar data length: {len(avatar_data) if avatar_data else 0}")
-    print(f"Token size: {token_size}")
-
-    map_id = session.get("current_map_id")
+    map_id = token.pop("map_id", None) or session.get("current_map_id")
     if not map_id:
-        print("No map selected")
         return jsonify({"error": "No map selected"}), 400
 
     data = load_map_data(map_id)
     if not data:
-        print(f"Map {map_id} not found")
         return jsonify({"error": "Map not found"}), 404
 
-    # Сохраняем аватар как файл, если он есть
     avatar_url = None
     if avatar_data:
-        print(f"\n=== Calling save_token_avatar for token {token['id']} ===")
+        from utils.storage import get_token_avatar_filepath
         success = save_token_avatar(avatar_data, token["id"])
         if success:
             token["has_avatar"] = True
-            timestamp = int(time.time())
-            avatar_url = f"/api/token/avatar/{token['id']}?t={timestamp}"
+            base = f"/api/token/avatar/{token['id']}"
+            path = get_token_avatar_filepath(token["id"])
+            avatar_url = versioned_url(base, path)
             token["avatar_url"] = avatar_url
-            print(f"✓ Avatar saved successfully, URL: {avatar_url}")
         else:
             token["has_avatar"] = False
-            print(f"✗ Failed to save avatar")
     else:
         token["has_avatar"] = False
-        print("No avatar data provided")
 
     token["size"] = token_size
-
-    # Добавляем токен в данные
     data.setdefault("tokens", []).append(token)
-    print(f"Tokens count after adding: {len(data['tokens'])}")
-
-    # Сохраняем данные
     save_map_data(data, map_id)
-    print(f"Map data saved for map {map_id}")
 
-    # Подготавливаем данные для игроков
-    tokens_for_players = []
-    for t in data.get("tokens", []):
-        token_copy = t.copy()
-        if token_copy.get("has_avatar"):
-            from utils.storage import get_token_avatar_url
-
-            token_copy["avatar_url"] = get_token_avatar_url(token_copy["id"])
-        token_copy.pop("avatar_data", None)
-        tokens_for_players.append(token_copy)
-
-    # Отправляем обновление всем игрокам
-    player_data = {
-        "map_id": map_id,
-        "tokens": tokens_for_players,
-        "zones": data.get("zones", []),
-        "finds": data.get("finds", []),
-        "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
-        "player_map_enabled": data.get("player_map_enabled", True),
-        "has_image": data.get("has_image", False),
-    }
-
-    if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
-
-    socketio.emit("map_updated", player_data)
-    print("Map updated event sent to players")
+    player_data = _build_player_data(map_id, data)
+    socketio.emit("map_updated", player_data, room=f"map_{map_id}")
 
     return jsonify(
         {
@@ -800,7 +756,10 @@ def player_view():
 @app.route("/api/zone", methods=["POST"])
 def add_zone():
     zone = request.get_json()
-    map_id = session.get("current_map_id")
+    if not zone:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    map_id = zone.pop("map_id", None) or session.get("current_map_id")
     if not map_id:
         return jsonify({"error": "No map selected"}), 400
 
@@ -811,33 +770,17 @@ def add_zone():
     data.setdefault("zones", []).append(zone)
     save_map_data(data, map_id)
 
-    # Отправляем обновление всем игрокам
-    player_data = {
-        "map_id": map_id,
-        "tokens": data.get("tokens", []),
-        "zones": data.get("zones", []),
-        "finds": data.get("finds", []),
-        "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
-        "player_map_enabled": data.get("player_map_enabled", True),
-        "has_image": data.get("has_image", False),
-    }
-
-    if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
-
-    socketio.emit("map_updated", player_data)
+    socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
     return jsonify({"status": "zone added"})
 
 
 @app.route("/api/find", methods=["POST"])
 def add_find():
     find = request.get_json()
-    map_id = session.get("current_map_id")
+    if not find:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    map_id = find.pop("map_id", None) or session.get("current_map_id")
     if not map_id:
         return jsonify({"error": "No map selected"}), 400
 
@@ -848,26 +791,7 @@ def add_find():
     data.setdefault("finds", []).append(find)
     save_map_data(data, map_id)
 
-    # Отправляем обновление всем игрокам
-    player_data = {
-        "map_id": map_id,
-        "tokens": data.get("tokens", []),
-        "zones": data.get("zones", []),
-        "finds": data.get("finds", []),
-        "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
-        "player_map_enabled": data.get("player_map_enabled", True),
-        "has_image": data.get("has_image", False),
-    }
-
-    if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
-
-    socketio.emit("map_updated", player_data)
+    socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
     return jsonify({"status": "find added"})
 
 
@@ -881,10 +805,9 @@ def upload_map():
     if file.filename == "":
         return "No selected file", 400
 
-    map_id = session.get("current_map_id")
+    map_id = request.form.get("map_id") or session.get("current_map_id")
     if not map_id:
         map_id = create_new_map("Новая карта")
-        session["current_map_id"] = map_id
 
     print(f"Uploading map image for {map_id}, filename: {file.filename}")
 
@@ -897,6 +820,8 @@ def upload_map():
         # Обновляем данные карты
         data = load_map_data(map_id)
         data["has_image"] = True
+        # По требованию: при добавлении карты она всегда скрыта для игроков
+        data["player_map_enabled"] = False
 
         # Сохраняем информацию о формате
         if file.filename.lower().endswith(".png"):
@@ -906,79 +831,57 @@ def upload_map():
 
         save_map_data(data, map_id)
 
-        # Получаем изображение в base64 для мастера
-        image_base64 = load_map_image(map_id)
-
-        # Отправляем обновление мастеру
-        socketio.emit(
-            "map_image_updated",
-            {
-                "map_id": map_id,
-                "map_image_base64": image_base64,
-                "has_image": True,
-            },
-            room=request.sid,
+        # Send base64 to the master only (for the canvas preview)
+        current_master = get_current_master()
+        master_socket_id = (
+            current_master.get("socket_id") if current_master else None
         )
+        if master_socket_id:
+            from utils.storage import get_image_filepath
+            img_path = get_image_filepath(map_id)
+            new_image_url = versioned_url(f"/api/map/image/{map_id}", img_path)
+            socketio.emit(
+                "map_image_updated",
+                {"map_id": map_id, "has_image": True, "new_image_url": new_image_url},
+                room=master_socket_id,
+            )
 
-        # Подготавливаем данные для игроков
-        player_data = {
-            "map_id": map_id,
-            "tokens": data.get("tokens", []),
-            "zones": data.get("zones", []),
-            "finds": data.get("finds", []),
-            "grid_settings": data.get("grid_settings", {}),
-            "ruler_visible_to_players": data.get(
-                "ruler_visible_to_players", False
-            ),
-            "player_map_enabled": data.get("player_map_enabled", True),
-            "has_image": True,
-            "image_url": f"/api/map/image/{map_id}?t={int(time.time())}",
-        }
+        # Notify players in this map's room
+        socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
 
-        # Отправляем ВСЕМ игрокам
-        socketio.emit("map_updated", player_data, broadcast=True)
-
-        # Отправляем специальное событие для принудительной перезагрузки
-        socketio.emit(
-            "force_image_reload",
-            {
-                "map_id": map_id,
-                "image_url": f"/api/map/image/{map_id}?t={int(time.time())}",
-            },
-            broadcast=True,
-        )
-
-        print(f"✓ Map image uploaded and processed successfully")
         return jsonify({"status": "ok", "map_id": map_id})
 
     print(f"✗ Failed to save map image")
     return "Failed to save image", 500
 
 
-@socketio.on("notify_image_loaded")
-def handle_notify_image_loaded(data):
-    """Обработчик уведомления о загрузке изображения мастером"""
-    map_id = data.get("map_id")
-    image_url = data.get("image_url")
-
-    if map_id and image_url:
-        # Отправляем всем игрокам
-        emit(
-            "force_image_reload",
-            {"map_id": map_id, "image_url": image_url},
-            broadcast=True,
-            include_self=False,
-        )
-
-
 @socketio.on("connect")
-def handle_connect():
+def handle_connect(auth=None):
     print(f"Client connected: {request.sid}")
 
-    # Проверяем, является ли подключившийся мастером
-    session_id = session.get("session_id")
-    if session_id and request.path == "/socket.io/":  # Это мастер
-        success, lock = acquire_master_lock(session_id, request.sid)
+    role = None
+    try:
+        if isinstance(auth, dict):
+            role = auth.get("role")
+    except Exception:
+        role = None
+
+    if not role:
+        role = request.args.get("role")
+
+    role = (role or "").lower().strip() or None
+    client_roles[request.sid] = role
+
+    if role == "master":
+        join_room("master")
+        session_id = session.get("session_id")
+        if not session_id:
+            print("Master connect without session_id; disconnecting.")
+            emit("master_status", {"active": False, "is_current": False})
+            disconnect()
+            return
+
+        success, _lock = acquire_master_lock(session_id, request.sid)
         if success:
             print(f"Master lock acquired for session {session_id}")
             emit("master_status", {"active": True, "is_current": True})
@@ -986,20 +889,70 @@ def handle_connect():
             print(f"Failed to acquire master lock for session {session_id}")
             emit("master_status", {"active": False, "is_current": False})
             disconnect()
-    else:
-        # Это игрок - уведомляем мастера
-        print(f"Player connected: {request.sid}")
-        # Можно отправить событие мастеру, но это опционально
+        return
+
+    # Player role
+    join_room("players")
+
+    # If auth carries a map_id, auto-join that map room
+    initial_map = None
+    try:
+        if isinstance(auth, dict):
+            initial_map = auth.get("map_id")
+    except Exception:
+        pass
+    if not initial_map:
+        initial_map = request.args.get("map_id")
+    if initial_map:
+        room_name = f"map_{initial_map}"
+        join_room(room_name)
+        client_map_rooms[request.sid] = room_name
+        print(f"Player {request.sid} auto-joined room {room_name}")
+
+    print(f"Player connected: {request.sid} (role={role})")
+
+
+@socketio.on("join_map")
+def handle_join_map(data):
+    """Player/client joins a map-specific room for targeted updates."""
+    map_id = data.get("map_id") if data else None
+    if not map_id:
+        return
+
+    new_room = f"map_{map_id}"
+    old_room = client_map_rooms.get(request.sid)
+
+    if old_room and old_room != new_room:
+        leave_room(old_room)
+
+    join_room(new_room)
+    client_map_rooms[request.sid] = new_room
+
+    role = client_roles.get(request.sid)
+    if role == "player":
+        map_data = load_map_data(map_id)
+        if map_data:
+            player_data = _build_player_data(map_id, map_data)
+            emit("map_updated", player_data)
 
 
 @socketio.on("disconnect")
 def handle_disconnect():
     print(f"Client disconnected: {request.sid}")
 
-    # Освобождаем блокировку если это был мастер
-    session_id = session.get("session_id")
-    if session_id:
-        release_master_lock(session_id)
+    # Clean up room tracking
+    client_map_rooms.pop(request.sid, None)
+
+    try:
+        role = client_roles.pop(request.sid, None)
+        if role == "master":
+            current = get_current_master()
+            if current and current.get("socket_id") == request.sid:
+                session_id = current.get("session_id")
+                if session_id:
+                    release_master_lock(session_id)
+    except Exception as e:
+        print(f"Error during disconnect cleanup: {e}")
 
 
 @socketio.on("ruler_update")
@@ -1021,8 +974,6 @@ def handle_ruler_update(data):
 
     last_ruler_updates[client_id] = current_time
 
-    # Больше не сохраняем линейку в JSON — только рассылаем событие
-    # Отправляем всем, кроме отправителя
     emit(
         "ruler_update",
         {
@@ -1030,20 +981,15 @@ def handle_ruler_update(data):
             "ruler_start": data.get("ruler_start"),
             "ruler_end": data.get("ruler_end"),
         },
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
 
 
 @socketio.on("zoom_update")
 def handle_zoom_update(data):
-    print("Received zoom_update:", data)
     map_id = data.get("map_id")
     if not map_id:
-        map_id = session.get("current_map_id")
-
-    if not map_id:
-        print("No map_id in zoom_update")
         return
 
     map_data = load_map_data(map_id)
@@ -1063,7 +1009,6 @@ def handle_zoom_update(data):
 
     save_map_data(map_data, map_id)
 
-    # Отправляем всем, кроме отправителя
     emit(
         "zoom_update",
         {
@@ -1074,37 +1019,30 @@ def handle_zoom_update(data):
             "canvas_width": map_data["master_canvas_width"],
             "canvas_height": map_data["master_canvas_height"],
         },
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
-    print(f"Sent zoom_update to others for map {map_id}")
 
 
 @socketio.on("switch_map")
 def handle_switch_map(data):
     """Обработчик смены карты мастером"""
     map_id = data.get("map_id")
-    print(
-        f"Received switch_map event for map: {map_id} from client {request.sid}"
-    )
 
-    # Отправляем всем КРОМЕ отправителя, что карта сменилась
-    emit(
-        "master_switched_map",
-        {"map_id": map_id},
-        broadcast=True,
-        include_self=False,
-    )
-    print(f"Notified players about map switch to {map_id}")
+    payload = {"map_id": map_id}
+    if map_id:
+        from utils.storage import get_image_filepath
+        image_path = get_image_filepath(map_id)
+        if os.path.exists(image_path):
+            payload["image_url"] = versioned_url(f"/api/map/image/{map_id}", image_path)
+
+    emit("master_switched_map", payload, to="players")
 
 
 @socketio.on("request_map_sync")
 def handle_map_sync(data):
     """Обработчик запроса синхронизации карты от клиента"""
-    map_id = data.get("map_id")
-    if not map_id:
-        map_id = session.get("current_map_id")
-
+    map_id = data.get("map_id") if data else None
     if map_id:
         map_data = load_map_data(map_id)
         if map_data:
@@ -1118,6 +1056,134 @@ def handle_map_sync(data):
                     "pan_y": map_data.get("pan_y", 0),
                 },
             )
+
+
+@socketio.on("request_map_data")
+def handle_request_map_data(data):
+    """Send lightweight map data to a single player client.
+
+    This is a socket-based fallback for cases where HTTP /api/map fetch fails
+    on some client networks (Error: Failed to fetch).
+    """
+    map_id = data.get("map_id") if data else None
+    if not map_id:
+        emit("map_updated", {"map_id": None, "error": "No map_id"}, room=request.sid)
+        return
+
+    map_data = load_map_data(map_id)
+    if not map_data:
+        emit("map_updated", {"map_id": map_id, "error": "Map not found"}, room=request.sid)
+        return
+
+    # Normalize grid settings to match logic of HTTP /api/map/<map_id>.
+    # This prevents grid mismatch when older saved maps have `cell_size` but no `cell_count`.
+    if "grid_settings" in map_data and isinstance(map_data["grid_settings"], dict):
+        grid_settings = map_data["grid_settings"]
+        if "cell_size" in grid_settings and "cell_count" not in grid_settings:
+            grid_settings["cell_count"] = 20
+
+        if "cell_count" not in grid_settings:
+            grid_settings["cell_count"] = 20
+        else:
+            try:
+                if grid_settings["cell_count"] < 5:
+                    grid_settings["cell_count"] = 5
+                elif grid_settings["cell_count"] > 150:
+                    grid_settings["cell_count"] = 150
+            except Exception:
+                grid_settings["cell_count"] = 20
+
+        # Ensure player visibility flag exists.
+        if "visible_to_players" not in grid_settings:
+            grid_settings["visible_to_players"] = True
+    # Debug (help track fallback behavior on problematic clients).
+    try:
+        gs = map_data.get("grid_settings", {}) if map_data else {}
+        print(
+            f"request_map_data: map={map_id} sid={request.sid} "
+            f"cell_count={gs.get('cell_count')} cell_size={gs.get('cell_size')} "
+            f"visible_to_players={gs.get('visible_to_players')}"
+        )
+    except Exception:
+        pass
+
+    from utils.storage import (
+        get_image_filepath,
+        get_token_avatar_filepath,
+        get_token_avatar_url,
+        get_portrait_filepath,
+        get_portrait_url,
+    )
+
+    image_path = get_image_filepath(map_id)
+    if os.path.exists(image_path):
+        has_image = True
+        try:
+            mv = int(os.path.getmtime(image_path))
+        except Exception:
+            mv = int(time.time())
+        image_url = f"/api/map/image/{map_id}?v={mv}"
+    else:
+        has_image = False
+        image_url = None
+
+    # Build player token/character data with versioned avatar URLs.
+    tokens_for_players = []
+    for token in map_data.get("tokens", []):
+        token_copy = token.copy()
+        if token_copy.get("has_avatar"):
+            avatar_path = get_token_avatar_filepath(token_copy["id"])
+            base_avatar_url = get_token_avatar_url(token_copy["id"])
+            if os.path.exists(avatar_path):
+                try:
+                    av = int(os.path.getmtime(avatar_path))
+                except Exception:
+                    av = int(time.time())
+                token_copy["avatar_url"] = f"{base_avatar_url}?v={av}"
+            else:
+                token_copy["avatar_url"] = base_avatar_url
+        token_copy.pop("avatar_data", None)
+        tokens_for_players.append(token_copy)
+
+    characters_for_players = []
+    for character in map_data.get("characters", []):
+        character_copy = character.copy()
+        if character_copy.get("has_avatar"):
+            portrait_path = get_portrait_filepath(character_copy["id"])
+            base_portrait_url = get_portrait_url(character_copy["id"])
+            if os.path.exists(portrait_path):
+                try:
+                    pv = int(os.path.getmtime(portrait_path))
+                except Exception:
+                    pv = int(time.time())
+                character_copy["portrait_url"] = f"{base_portrait_url}?v={pv}"
+            else:
+                character_copy["portrait_url"] = base_portrait_url
+        character_copy.pop("avatar_data", None)
+        characters_for_players.append(character_copy)
+
+    player_data = {
+        "map_id": map_id,
+        "tokens": tokens_for_players,
+        "characters": characters_for_players,
+        "zones": map_data.get("zones", []),
+        "finds": map_data.get("finds", []),
+        "grid_settings": map_data.get("grid_settings", {}),
+        "ruler_visible_to_players": map_data.get("ruler_visible_to_players", False),
+        "ruler_start": map_data.get("ruler_start"),
+        "ruler_end": map_data.get("ruler_end"),
+        "player_map_enabled": map_data.get("player_map_enabled", True),
+        "has_image": has_image,
+        "image_url": image_url,
+        # These are used by the player renderer.
+        "master_canvas_width": map_data.get("master_canvas_width", 1380),
+        "master_canvas_height": map_data.get("master_canvas_height", 1080),
+        "zoom_level": map_data.get("zoom_level", 1),
+        "pan_x": map_data.get("pan_x", 0),
+        "pan_y": map_data.get("pan_y", 0),
+    }
+
+    emit("map_updated", player_data, room=request.sid)
 
 
 @socketio.on("player_visibility_change")
@@ -1140,123 +1206,59 @@ def handle_player_visibility_change(data):
         map_data["player_map_enabled"] = data.get("player_map_enabled", True)
         save_map_data(map_data, map_id)
 
-    # Подготавливаем данные для отправки
+    # Версия изображения для кэшируемого URL
+    image_url_v = None
+    if has_image:
+        try:
+            from utils.storage import get_image_filepath
+
+            image_path = get_image_filepath(map_id)
+            mv = (
+                int(os.path.getmtime(image_path))
+                if os.path.exists(image_path)
+                else int(time.time())
+            )
+            image_url_v = f"/api/map/image/{map_id}?v={mv}"
+        except Exception:
+            image_url_v = f"/api/map/image/{map_id}"
+
+    # Подготавливаем данные для отправки (только легковесное событие)
     visibility_data = {
         "map_id": map_id,
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": has_image,
     }
 
-    # Если карта стала видимой и есть изображение, добавляем URL
-    if data.get("player_map_enabled", True) and has_image:
-        visibility_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
+    # Если карта стала видимой и есть изображение, добавляем URL (v для кэша)
+    if data.get("player_map_enabled", True) and has_image and image_url_v:
+        visibility_data["image_url"] = image_url_v
 
-    # Отправляем всем игрокам
     emit(
         "map_visibility_change",
         visibility_data,
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
-
-    # Если карта стала видимой, также отправляем полные данные
-    if data.get("player_map_enabled", True) and map_data:
-        # Подготавливаем полные данные карты для игроков
-        tokens_for_players = []
-        for token in map_data.get("tokens", []):
-            token_copy = token.copy()
-            if token_copy.get("has_avatar"):
-                from utils.storage import get_token_avatar_url
-
-                token_copy["avatar_url"] = get_token_avatar_url(
-                    token_copy["id"]
-                )
-            token_copy.pop("avatar_data", None)
-            tokens_for_players.append(token_copy)
-
-        full_update = {
-            "map_id": map_id,
-            "tokens": tokens_for_players,
-            "zones": map_data.get("zones", []),
-            "finds": map_data.get("finds", []),
-            "grid_settings": map_data.get("grid_settings", {}),
-            "ruler_visible_to_players": map_data.get(
-                "ruler_visible_to_players", False
-            ),
-            "ruler_start": map_data.get("ruler_start"),
-            "ruler_end": map_data.get("ruler_end"),
-            "player_map_enabled": True,
-            "has_image": has_image,
-        }
-
-        if has_image:
-            full_update["image_url"] = (
-                f"/api/map/image/{map_id}?t={int(time.time())}"
-            )
-
-        # Небольшая задержка перед отправкой полных данных
-        socketio.sleep(0.1)
-        emit("map_updated", full_update, broadcast=True, include_self=False)
-
-
-@socketio.on("force_map_update")
-def handle_force_map_update(data):
-    """Принудительное обновление карты для игроков"""
-    map_id = data.get("map_id")
-    if not map_id:
-        return
-
-    print(f"Forcing map update for map {map_id}")
-
-    # Отправляем всем игрокам
-    emit("map_updated", data, broadcast=True, include_self=False)
-
-    # Также отправляем событие о видимости для надёжности
-    emit(
-        "map_visibility_change",
-        {
-            "map_id": map_id,
-            "player_map_enabled": True,
-            "has_image": data.get("has_image", False),
-            "image_url": data.get("image_url"),
-        },
-        broadcast=True,
-        include_self=False,
-    )
+    # ВАЖНО: раньше при включении дополнительно отправлялся огромный map_updated.
+    # Это сильно тормозило toggle. Теперь полные данные догружаются обычными
+    # map_updated при изменениях токенов/зон/настроек, поэтому здесь достаточно
+    # лёгкого события map_visibility_change.
 
 
 @socketio.on("request_map_image")
 def handle_request_map_image(data):
-    """Обработчик запроса изображения карты"""
+    """Обработчик запроса изображения карты — возвращает URL, не base64."""
     map_id = data.get("map_id")
     if map_id:
-        image_base64 = load_map_image(map_id)
-        if image_base64:
+        from utils.storage import get_image_filepath
+        img_path = get_image_filepath(map_id)
+        if os.path.exists(img_path):
             emit(
                 "map_image_updated",
-                {
-                    "map_id": map_id,
-                    "map_image_base64": image_base64,
-                    "has_image": True,
-                },
+                {"map_id": map_id, "has_image": True,
+                 "new_image_url": versioned_url(f"/api/map/image/{map_id}", img_path)},
                 room=request.sid,
             )
-
-
-@socketio.on("map_image_updated_to_player")
-def handle_map_image_updated_to_player(data):
-    """Обработчик уведомления об обновлении изображения карты"""
-    map_id = data.get("map_id")
-    if map_id:
-        # Передаем всем игрокам
-        emit(
-            "map_image_updated_to_player",
-            {"map_id": map_id, "has_image": data.get("has_image", True)},
-            broadcast=True,
-            include_self=False,
-        )
 
 
 @socketio.on("ruler_visibility_change")
@@ -1278,7 +1280,6 @@ def handle_ruler_visibility_change(data):
         )
         save_map_data(map_data, map_id)
 
-    # Отправляем всем игрокам
     emit(
         "ruler_visibility_change",
         {
@@ -1287,7 +1288,7 @@ def handle_ruler_visibility_change(data):
                 "ruler_visible_to_players", False
             ),
         },
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
 
@@ -1295,26 +1296,23 @@ def handle_ruler_visibility_change(data):
 @app.route("/api/token/<token_id>", methods=["PUT"])
 def update_token(token_id):
     """Обновить существующий токен с сохранением качества аватара"""
-    print(f"\n=== Updating token {token_id} ===")
-
     try:
         token = request.get_json()
-        print(f"Received token data: {token}")
     except Exception as e:
-        print(f"Error parsing JSON: {e}")
         return jsonify({"error": "Invalid JSON"}), 400
 
-    avatar_data = token.pop("avatar_data", None) if token else None
+    if not token:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    avatar_data = token.pop("avatar_data", None)
     token_size = token.get("size", "medium")
 
-    map_id = session.get("current_map_id")
+    map_id = token.pop("map_id", None) or session.get("current_map_id")
     if not map_id:
-        print("No map selected")
         return jsonify({"error": "No map selected"}), 400
 
     data = load_map_data(map_id)
     if not data:
-        print(f"Map {map_id} not found")
         return jsonify({"error": "Map not found"}), 404
 
     token_found = False
@@ -1328,7 +1326,6 @@ def update_token(token_id):
             if old_has_avatar and not avatar_data:
                 token["has_avatar"] = True
                 token["avatar_url"] = old_avatar_url
-                print(f"Keeping existing avatar for token {token_id}")
 
             token["id"] = token_id
             token["size"] = token_size
@@ -1339,19 +1336,16 @@ def update_token(token_id):
             token_found = True
 
             if avatar_data:
-                print(f"Saving new avatar for token {token_id}")
+                from utils.storage import get_token_avatar_filepath
                 success = save_token_avatar(avatar_data, token_id)
                 if success:
                     token["has_avatar"] = True
-                    timestamp = int(time.time())
-                    token["avatar_url"] = (
-                        f"/api/token/avatar/{token_id}?t={timestamp}"
-                    )
-                    print(f"✓ Avatar updated successfully")
+                    base = f"/api/token/avatar/{token_id}"
+                    path = get_token_avatar_filepath(token_id)
+                    token["avatar_url"] = versioned_url(base, path)
                     avatar_changed = True
                 else:
                     token["has_avatar"] = False
-                    print(f"✗ Failed to save avatar")
 
             break
 
@@ -1360,93 +1354,38 @@ def update_token(token_id):
 
     save_map_data(data, map_id)
 
-    # Синхронизация на других картах
     try:
         sync_data = {
-            "name": token["name"],
-            "armor_class": token["armor_class"],
-            "health_points": token["health_points"],
-            "max_health_points": token["max_health_points"],
-            "is_player": token["is_player"],
-            "is_npc": token["is_npc"],
-            "is_dead": token["is_dead"],
-            "has_avatar": token["has_avatar"],
+            "name": token.get("name", ""),
+            "armor_class": token.get("armor_class", 10),
+            "health_points": token.get("health_points", 10),
+            "max_health_points": token.get("max_health_points", 10),
+            "is_player": token.get("is_player", False),
+            "is_npc": token.get("is_npc", False),
+            "is_dead": token.get("is_dead", False),
+            "has_avatar": token.get("has_avatar", False),
             "size": token_size,
         }
-
         if avatar_changed:
-            sync_data["avatar_url"] = token["avatar_url"]
+            sync_data["avatar_url"] = token.get("avatar_url")
 
         from utils.storage import sync_token_across_maps
-
         updated_maps = sync_token_across_maps(token_id, sync_data)
-        print(f"Token {token_id} synced on {len(updated_maps)} maps")
-
     except Exception as e:
         print(f"Error during cross-map sync: {e}")
-        import traceback
 
-        traceback.print_exc()
-
-    # Подготавливаем данные для игроков
-    tokens_for_players = []
-    for t in data.get("tokens", []):
-        token_copy = t.copy()
-        if token_copy.get("has_avatar"):
-            timestamp = int(time.time())
-            token_copy["avatar_url"] = (
-                f"/api/token/avatar/{token_copy['id']}?t={timestamp}"
-            )
-        token_copy.pop("avatar_data", None)
-        tokens_for_players.append(token_copy)
-
-    # Отправляем обновление игрокам
-    player_data = {
-        "map_id": map_id,
-        "tokens": tokens_for_players,
-        "zones": data.get("zones", []),
-        "finds": data.get("finds", []),
-        "grid_settings": data.get("grid_settings", {}),
-        "ruler_visible_to_players": data.get(
-            "ruler_visible_to_players", False
-        ),
-        "player_map_enabled": data.get("player_map_enabled", True),
-        "has_image": data.get("has_image", False),
-    }
-
-    if data.get("has_image"):
-        player_data["image_url"] = (
-            f"/api/map/image/{map_id}?t={int(time.time())}"
-        )
-
-    socketio.emit("map_updated", player_data)
+    socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
 
     if avatar_changed:
-        timestamp = int(time.time())
+        from utils.storage import get_token_avatar_filepath
+        base = f"/api/token/avatar/{token_id}"
+        path = get_token_avatar_filepath(token_id)
         socketio.emit(
             "token_avatar_updated",
-            {
-                "map_id": map_id,
-                "token_id": token_id,
-                "avatar_url": f"/api/token/avatar/{token_id}?t={timestamp}",
-            },
+            {"map_id": map_id, "token_id": token_id, "avatar_url": versioned_url(base, path)},
         )
-        print(f"Sent token_avatar_updated event for token {token_id}")
 
     return jsonify({"status": "token updated"})
-
-
-@socketio.on("force_avatar_reload")
-def handle_force_avatar_reload(data):
-    """Принудительная перезагрузка аватаров для всех игроков"""
-    map_id = data.get("map_id")
-    if map_id:
-        emit(
-            "force_avatar_reload",
-            {"map_id": map_id},
-            broadcast=True,
-            include_self=False,
-        )
 
 
 @app.route("/api/bank/avatar/<character_id>")
@@ -1457,7 +1396,11 @@ def get_bank_avatar(character_id):
     image_path = get_bank_avatar_filepath(character_id)
 
     if os.path.exists(image_path):
-        return send_file(image_path, mimetype="image/png")
+        resp = send_file(image_path, mimetype="image/png", conditional=True)
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 31536000
+        resp.cache_control.immutable = True
+        return resp
 
     # Возвращаем 404 если аватар не найден
     return "", 404
@@ -1505,7 +1448,7 @@ def create_default_avatar():
 @app.route("/api/token/<token_id>", methods=["DELETE"])
 def delete_token(token_id):
     """Удалить токен и его аватар (только если не используется на других картах)"""
-    map_id = session.get("current_map_id")
+    map_id = request.args.get("map_id") or session.get("current_map_id")
     if not map_id:
         return jsonify({"error": "No map selected"}), 400
 
@@ -1550,20 +1493,7 @@ def delete_token(token_id):
     else:
         print(f"→ Token {token_id} used on other maps, keeping avatar")
 
-    # Отправляем обновление игрокам
-    socketio.emit(
-        "map_updated",
-        {
-            "map_id": map_id,
-            "tokens": data.get("tokens", []),
-            "zones": data.get("zones", []),
-            "finds": data.get("finds", []),
-            "grid_settings": data.get("grid_settings", {}),
-            "player_map_enabled": data.get("player_map_enabled", True),
-            "has_image": data.get("has_image", False),
-        },
-    )
-
+    socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
     return jsonify({"status": "token deleted"})
 
 
@@ -1607,12 +1537,13 @@ def get_portrait(portrait_id):
     from utils.storage import get_portrait_filepath
 
     image_path = get_portrait_filepath(portrait_id)
-    print(f"Looking for portrait at: {image_path}")
-    print(f"File exists: {os.path.exists(image_path)}")
 
     if os.path.exists(image_path):
-        print(f"File size: {os.path.getsize(image_path)} bytes")
-        return send_file(image_path, mimetype="image/png")
+        resp = send_file(image_path, mimetype="image/png", conditional=True)
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 31536000
+        resp.cache_control.immutable = True
+        return resp
 
     return "", 404
 
@@ -1680,7 +1611,6 @@ def handle_token_move(data):
     if not token_id or not position:
         return
 
-    # Отправляем всем, кроме отправителя
     emit(
         "token_move",
         {
@@ -1690,7 +1620,7 @@ def handle_token_move(data):
             "is_visible": data.get("is_visible", True),
             "is_dead": data.get("is_dead", False),
         },
-        broadcast=True,
+        to=f"map_{map_id}",
         include_self=False,
     )
 
@@ -1715,11 +1645,10 @@ def handle_characters_reordered(data):
         map_data["characters"] = characters
         save_map_data(map_data, map_id)
 
-        # Отправляем всем, кроме отправителя
         emit(
             "characters_reordered",
             {"map_id": map_id, "characters": characters},
-            broadcast=True,
+            to=f"map_{map_id}",
             include_self=False,
         )
 
@@ -1729,16 +1658,12 @@ def get_bank_characters():
     """Получить всех персонажей из банка"""
     characters = get_all_bank_characters()
 
-    # Добавляем URL аватаров из банка, а не из токенов!
+    from utils.bank_storage import get_bank_avatar_filepath
     for char in characters:
         if char.get("has_avatar"):
-            # ИСПРАВЛЕНО: используем URL для банка, а не для токенов
-            char["avatar_url"] = (
-                f"/api/bank/avatar/{char['id']}?t={int(time.time())}"
-            )
-            print(
-                f"Bank character {char['name']} avatar URL: {char['avatar_url']}"
-            )
+            base = f"/api/bank/avatar/{char['id']}"
+            path = get_bank_avatar_filepath(char["id"])
+            char["avatar_url"] = versioned_url(base, path)
 
     return jsonify(characters)
 
@@ -1897,68 +1822,30 @@ def spawn_bank_character(char_id):
             "is_visible": True,
         }
 
-        # Копируем аватар из банка с максимальным качеством
         if bank_char.get("has_avatar"):
-            from utils.storage import save_token_avatar
+            from utils.storage import save_token_avatar, get_token_avatar_filepath
             from utils.bank_storage import get_bank_avatar_filepath
 
             bank_avatar_path = get_bank_avatar_filepath(char_id)
             if os.path.exists(bank_avatar_path):
                 with open(bank_avatar_path, "rb") as f:
                     avatar_data = f.read()
-
-                # Сохраняем для токена
                 save_token_avatar(avatar_data, token_id)
                 token["has_avatar"] = True
-                token["avatar_url"] = (
-                    f"/api/token/avatar/{token_id}?t={int(time.time())}"
-                )
-                print(f"✓ Avatar copied from bank to token {token_id}")
+                base = f"/api/token/avatar/{token_id}"
+                path = get_token_avatar_filepath(token_id)
+                token["avatar_url"] = versioned_url(base, path)
 
-        # Добавляем токен на карту
         map_data.setdefault("tokens", []).append(token)
         save_map_data(map_data, map_id)
 
-        # Подготавливаем данные для игроков
-        tokens_for_players = []
-        for t in map_data.get("tokens", []):
-            token_copy = t.copy()
-            if token_copy.get("has_avatar"):
-                token_copy["avatar_url"] = (
-                    f"/api/token/avatar/{token_copy['id']}?t={int(time.time())}"
-                )
-            token_copy.pop("avatar_data", None)
-            tokens_for_players.append(token_copy)
-
-        # Отправляем обновление
-        player_data = {
-            "map_id": map_id,
-            "tokens": tokens_for_players,
-            "zones": map_data.get("zones", []),
-            "finds": map_data.get("finds", []),
-            "grid_settings": map_data.get("grid_settings", {}),
-            "player_map_enabled": map_data.get("player_map_enabled", True),
-            "has_image": map_data.get("has_image", False),
-        }
-
-        if map_data.get("has_image"):
-            player_data["image_url"] = (
-                f"/api/map/image/{map_id}?t={int(time.time())}"
-            )
-
-        socketio.emit("map_updated", player_data)
+        socketio.emit("map_updated", _build_player_data(map_id, map_data), room=f"map_{map_id}")
 
         return jsonify({"status": "ok", "token": token})
 
     except Exception as e:
         print(f"Error spawning character: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-@socketio.on("maps_list_updated")
-def handle_maps_list_updated(data):
-    """Обработчик обновления списка карт"""
-    emit("maps_list_updated", data, broadcast=True, include_self=False)
 
 
 @app.route("/api/map/update/<map_id>", methods=["POST"])
@@ -2000,22 +1887,8 @@ def update_map(map_id):
         # Сохраняем данные
         save_map_data(map_data, map_id)
 
-        # Обновляем список карт для всех
         socketio.emit("maps_list_updated", {"maps": list_maps()})
-
-        # Если это текущая карта, отправляем обновление игрокам
-        if map_id == session.get("current_map_id"):
-            player_data = {
-                "map_id": map_id,
-                "tokens": map_data.get("tokens", []),
-                "zones": map_data.get("zones", []),
-                "finds": map_data.get("finds", []),
-                "grid_settings": map_data.get("grid_settings", {}),
-                "player_map_enabled": map_data.get("player_map_enabled", True),
-                "has_image": map_data.get("has_image", False),
-                "image_url": f"/api/map/image/{map_id}?t={int(time.time())}",
-            }
-            socketio.emit("map_updated", player_data, broadcast=True)
+        socketio.emit("map_updated", _build_player_data(map_id, map_data), room=f"map_{map_id}")
 
         return jsonify({"status": "ok", "map_id": map_id})
 
@@ -2198,18 +2071,15 @@ def release_master():
 
 
 if __name__ == "__main__":
-    # Создаем необходимые директории
     os.makedirs("data", exist_ok=True)
     os.makedirs("data/maps", exist_ok=True)
     os.makedirs("data/images", exist_ok=True)
     os.makedirs("data/token_avatars", exist_ok=True)
 
-    # Запускаем приложение
-    os.makedirs("data", exist_ok=True)
     socketio.run(
         app,
-        host="192.168.0.163",  # ВАЖНО
+        host="192.168.0.163",
         port=5000,
-        debug=True,
+        debug=False,
         allow_unsafe_werkzeug=True,
     )

@@ -3,7 +3,7 @@ import os
 from datetime import datetime, time
 import uuid
 import base64
-from PIL import Image
+from PIL import Image, ImageFile
 import io
 from utils.character_bank import (
     init_db,
@@ -14,6 +14,11 @@ from utils.character_bank import (
     get_bank_character,
     save_bank_character_avatar,
 )
+
+# Иногда приходят "truncated" PNG/JPG (например, сеть/браузер/кэш).
+# Чтобы приложение не падало на upload/сохранении, разрешаем загрузку
+# таких изображений и дальше делаем lossless-сохранение на нашей стороне.
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 DATA_DIR = "data"
 MAPS_DIR = os.path.join(DATA_DIR, "maps")
@@ -70,11 +75,14 @@ def save_bank_avatar(image_data, character_id):
             rgba.paste(img, (0, 0))
             img = rgba
 
-        # Сохраняем как PNG БЕЗ ОПТИМИЗАЦИИ
+        # PNG сжимается без потери качества — уменьшаем размер файлов для сети
         img_path = get_bank_avatar_filepath(character_id)
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
 
-        img.save(img_path, "PNG", optimize=False, compress_level=0)
+        try:
+            img.save(img_path, "PNG", optimize=True, compress_level=6)
+        except OSError:
+            img.save(img_path, "PNG", optimize=True, compress_level=0)
         print(
             f"Bank avatar saved with original size: {img.width}x{img.height}"
         )
@@ -250,8 +258,13 @@ def save_token_avatar(image_data, token_id):
         img_path = get_token_avatar_filepath(token_id)
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
         
-        # Сохраняем как PNG без потерь
-        img.save(img_path, "PNG", optimize=False, compress_level=0)
+        # Lossless PNG сжатие (уменьшаем размер для сети).
+        # Если PIL не смог прогрузить "truncated" картинку при save,
+        # падаем на менее требовательные настройки.
+        try:
+            img.save(img_path, "PNG", optimize=True, compress_level=6)
+        except OSError:
+            img.save(img_path, "PNG", optimize=True, compress_level=0)
         
         saved_size = os.path.getsize(img_path)
         print(f"Avatar saved: {img_path}")
@@ -382,18 +395,58 @@ def get_map_filepath(map_id):
 
 def get_image_filepath(map_id):
     """Получить путь к файлу изображения карты"""
-    # Сначала проверяем PNG
     png_path = os.path.join(IMAGES_DIR, f"{map_id}.png")
     if os.path.exists(png_path):
         return png_path
-
-    # Если нет PNG, проверяем JPEG
     jpg_path = os.path.join(IMAGES_DIR, f"{map_id}.jpg")
     if os.path.exists(jpg_path):
         return jpg_path
-
-    # По умолчанию возвращаем PNG (будет создан)
     return os.path.join(IMAGES_DIR, f"{map_id}.png")
+
+
+def get_player_image_filepath(map_id):
+    """Путь к сжатой версии изображения для игроков (JPEG)"""
+    return os.path.join(IMAGES_DIR, f"{map_id}_player.jpg")
+
+
+def create_player_image(map_id):
+    """Создать/обновить сжатую версию изображения для игроков.
+
+    Максимум 1920×1080, JPEG качество 80. Если оригинал меньше —
+    размер не увеличивается, но всё равно конвертируется в JPEG.
+    Возвращает True при успехе.
+    """
+    src_path = get_image_filepath(map_id)
+    if not os.path.exists(src_path):
+        return False
+    dst_path = get_player_image_filepath(map_id)
+    try:
+        img = Image.open(src_path)
+        # Конвертируем в RGB (JPEG не поддерживает alpha)
+        if img.mode in ("RGBA", "LA", "P"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "RGBA":
+                background.paste(img, mask=img.split()[3])
+            else:
+                background.paste(img.convert("RGBA"), mask=img.convert("RGBA").split()[3])
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Уменьшаем если больше 1920×1080
+        max_w, max_h = 1920, 1080
+        if img.width > max_w or img.height > max_h:
+            img.thumbnail((max_w, max_h), Image.LANCZOS)
+
+        img.save(dst_path, "JPEG", quality=80, optimize=True)
+        print(
+            f"Player image created: {dst_path} "
+            f"({img.width}x{img.height}, {os.path.getsize(dst_path)} bytes)"
+        )
+        return True
+    except Exception as e:
+        print(f"Error creating player image for {map_id}: {e}")
+        return False
 
 
 def save_map_image(image_data, map_id):
@@ -428,8 +481,17 @@ def save_map_image(image_data, map_id):
 
         # Сохраняем в оригинальном формате с максимальным качеством
         if original_format == "PNG" or img.mode == "RGBA":
-            # Для PNG сохраняем как PNG без потерь
-            img.save(img_path, "PNG", optimize=False, compress_level=0)
+            # Для PNG сохраняем как PNG без потерь, но с нормальным lossless-сжатием
+            try:
+                img.save(img_path, "PNG", optimize=True, compress_level=6)
+            except OSError:
+                try:
+                    img.save(img_path, "PNG", optimize=True, compress_level=0)
+                except OSError:
+                    # Если даже fallback не сработал — перезапишем "как есть"
+                    # (это не ухудшает качество относительно загруженного файла).
+                    with open(img_path, "wb") as f:
+                        f.write(image_bytes)
             print(
                 f"Saved as PNG (lossless), size: {os.path.getsize(img_path)} bytes"
             )
@@ -452,9 +514,10 @@ def save_map_image(image_data, map_id):
                 f"Saved as JPEG (quality=100), size: {os.path.getsize(img_path)} bytes"
             )
 
-        # Проверяем, что файл сохранился
         if os.path.exists(img_path):
-            print(f"✓ Map image saved successfully: {img_path}")
+            print(f"✓ Map image saved: {img_path}")
+            # Сразу создаём сжатую версию для игроков
+            create_player_image(map_id)
             return True
         else:
             print(f"✗ File not found after save: {img_path}")
@@ -463,7 +526,6 @@ def save_map_image(image_data, map_id):
     except Exception as e:
         print(f"Error saving map image: {e}")
         import traceback
-
         traceback.print_exc()
         return False
 
@@ -511,22 +573,32 @@ def list_maps():
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Проверяем, есть ли изображение
                 has_image = os.path.exists(get_image_filepath(map_id))
 
-                maps.append(
-                    {
-                        "id": map_id,
-                        "name": data.get("name", "Безымянная карта"),
-                        "created": datetime.fromtimestamp(
-                            os.path.getctime(filepath)
-                        ).isoformat(),
-                        "modified": datetime.fromtimestamp(
-                            os.path.getmtime(filepath)
-                        ).isoformat(),
-                        "has_image": has_image,
-                    }
-                )
+                entry = {
+                    "id": map_id,
+                    "name": data.get("name", "Безымянная карта"),
+                    "created": datetime.fromtimestamp(
+                        os.path.getctime(filepath)
+                    ).isoformat(),
+                    "modified": datetime.fromtimestamp(
+                        os.path.getmtime(filepath)
+                    ).isoformat(),
+                    "has_image": has_image,
+                }
+
+                # Версионированный URL изображения для предзагрузки
+                if has_image:
+                    orig_path = get_image_filepath(map_id)
+                    try:
+                        import time as _time
+                        v = int(os.path.getmtime(orig_path))
+                    except Exception:
+                        import time as _time
+                        v = int(_time.time())
+                    entry["image_url"] = f"/api/map/image/{map_id}?v={v}"
+
+                maps.append(entry)
             except Exception as e:
                 print(f"Error loading map {map_id}: {e}")
                 continue
@@ -754,8 +826,11 @@ def save_portrait_image(image_data, portrait_id):
             rgba.paste(img, (0, 0))
             img = rgba
 
-        # Сохраняем БЕЗ ОПТИМИЗАЦИИ
-        img.save(filepath, "PNG", optimize=False, compress_level=0)
+        # PNG сжимается без потери качества — уменьшаем размер для сети
+        try:
+            img.save(filepath, "PNG", optimize=True, compress_level=6)
+        except OSError:
+            img.save(filepath, "PNG", optimize=True, compress_level=0)
         print(f"Portrait saved with original size: {img.width}x{img.height}")
 
         return True

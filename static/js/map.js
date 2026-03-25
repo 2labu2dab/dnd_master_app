@@ -36,12 +36,7 @@ let multiDragOffsets = new Map(); // Смещения для каждого то
 let multiDragStartPositions = new Map(); // Начальные позиции для группового перетаскивания
 const playerChannel = new BroadcastChannel('dnd_map_channel');
 let zoomLevel = 1;
-const socket = io({
-    reconnection: true,
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000
-});
+const socket = window.createDndSocket({ auth: { role: 'master' } });
 socket.on('disconnect', () => {
     console.log('Socket disconnected');
     if (masterPingInterval) {
@@ -53,8 +48,10 @@ socket.on('connect_error', (error) => {
     console.log('Socket connection error:', error);
 });
 
-socket.on('reconnect', (attemptNumber) => {
-    console.log('Socket reconnected after', attemptNumber, 'attempts');
+socket.on('reconnect', () => {
+    if (currentMapId) {
+        socket.emit('join_map', { map_id: currentMapId });
+    }
 });
 let panX = 0;
 let panY = 0;
@@ -140,7 +137,8 @@ function createCharacterListItem(character, index) {
     if (character.has_avatar) {
         // Защита от undefined portrait_url
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-        img.src = `${portraitUrl}?t=${Date.now()}`;
+        // URL уже может содержать версию (?v=...), не ломаем кэш лишним Date.now().
+        img.src = portraitUrl;
     } else {
         // Плейсхолдер для персонажей без аватара
         img.style.display = 'none';
@@ -238,8 +236,11 @@ socket.on('connect', () => {
         socket.emit('master_ping');
     }, 10000); // Пинг каждые 10 секунд
 
-    // Проверяем статус мастера
     socket.emit('check_master_status');
+
+    if (currentMapId) {
+        socket.emit('join_map', { map_id: currentMapId });
+    }
 });
 
 socket.on('master_status', (data) => {
@@ -272,7 +273,39 @@ socket.on("master_switched_map", (data) => {
         return;
     }
 
-    // Здесь можно обновить интерфейс если нужно
+});
+
+socket.on("player_visibility_change", (data) => {
+    if (data && data.map_id === currentMapId && mapData) {
+        mapData.player_map_enabled = data.player_map_enabled;
+        if (window.updateMiniToggleIcon) window.updateMiniToggleIcon();
+    }
+});
+
+socket.on("map_deleted", (data) => {
+    if (!data) return;
+    if (data.maps) {
+        const select = document.getElementById("mapSelect");
+        if (select) {
+            select.innerHTML = "";
+            data.maps.forEach(m => {
+                const opt = document.createElement("option");
+                opt.value = m.id;
+                opt.textContent = m.name;
+                select.appendChild(opt);
+            });
+        }
+    }
+    if (data.map_id === currentMapId) {
+        const maps = data.maps || [];
+        if (maps.length > 0) {
+            switchMap(maps[0].id);
+        } else {
+            currentMapId = null;
+            mapData = null;
+            render();
+        }
+    }
 });
 
 function syncGridInputs(value) {
@@ -325,11 +358,7 @@ function updateWithValue(num) {
     render();
     updateSliderVisual();
 
-    fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
-    });
+    saveMapData();
 }
 
 let editingTokenId = null;
@@ -396,7 +425,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
             console.log("Avatar cache cleared for token:", editingTokenId);
         }
 
-        token.avatar_url = `/api/token/avatar/${editingTokenId}?t=${Date.now()}`;
+        token.avatar_url = `/api/token/avatar/${editingTokenId}`;
     } else {
         token.has_avatar = oldHasAvatar;
         token.avatar_url = oldAvatar;
@@ -414,10 +443,11 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
         is_player: token.is_player,
         is_npc: token.is_npc,
         position: token.position,
-        size: token.size,  // ВАЖНО: передаём размер на сервер
+        size: token.size,
         is_dead: token.is_dead,
         is_visible: token.is_visible,
-        has_avatar: token.has_avatar
+        has_avatar: token.has_avatar,
+        map_id: currentMapId
     };
 
     if (avatarChangedNow) {
@@ -452,13 +482,8 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
 
             closeTokenModal();
 
-            // Обновляем только те данные, которые нужны
             render();
             updateSidebar();
-
-            socket.emit("force_avatar_reload", {
-                map_id: currentMapId
-            });
         })
         .catch(error => {
             console.error('Error updating token:', error);
@@ -486,7 +511,7 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
     const tokenId = `token_${Date.now()}`;
 
     // Получаем выбранный размер
-    const avatarUrl = avatarData ? `/api/token/avatar/${tokenId}?t=${Date.now()}` : null;
+    const avatarUrl = avatarData ? `/api/token/avatar/${tokenId}` : null;
 
     const token = {
         id: tokenId,
@@ -513,7 +538,8 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
 
     const requestBody = {
         ...token,
-        avatar_data: avatarData
+        avatar_data: avatarData,
+        map_id: currentMapId
     };
 
     if (addToBank) {
@@ -656,6 +682,18 @@ function autoUploadMap(input) {
             .then(res => res.json())
             .then(maps => {
                 const select = document.getElementById('mapSelect');
+                if (!select) {
+                    console.warn("mapSelect element not found; switching map without select update");
+                    if (maps && maps.length > 0) {
+                        if (currentMapId !== maps[0].id) {
+                            switchMap(maps[0].id);
+                        } else {
+                            fetchMap();
+                        }
+                    }
+                    return;
+                }
+
                 select.innerHTML = '';
                 maps.forEach(map => {
                     const option = document.createElement('option');
@@ -1252,13 +1290,7 @@ function switchMap(mapId) {
 
     avatarCache.clear();
 
-    // Очищаем кэш аватаров
-    for (let key in avatarCache) {
-        delete avatarCache[key];
-    }
-
     if (isSwitchingMap) {
-        console.log("Already switching map, ignoring");
         return;
     }
 
@@ -1293,9 +1325,7 @@ function switchMap(mapId) {
 
     fetch(`/api/map/${mapId}`)
         .then(res => {
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             return res.json();
         })
         .then(data => {
@@ -1305,6 +1335,8 @@ function switchMap(mapId) {
                 return;
             }
 
+            // base64 больше не приходит — убеждаемся что не осталось в старых данных
+            delete data.map_image_base64;
             mapData = data;
             currentMapId = mapId;
 
@@ -1349,40 +1381,36 @@ function switchMap(mapId) {
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-            // Загружаем изображение карты
             if (mapData.has_image) {
-                // Добавляем timestamp для сброса кэша
-                const timestamp = Date.now();
-                const imageUrl = `/api/map/image/${mapId}?t=${timestamp}`;
-
-                mapImage = new Image();
-                mapImage.onload = () => {
-                    console.log("Map image loaded, updating grid...");
-                    updateGridFromImage(); // Обновляем сетку после загрузки изображения
-                    render();
-                };
-                mapImage.onerror = () => {
-                    console.error("Failed to load map image");
-                    render();
-                };
-                mapImage.src = imageUrl;
+                const imageUrl = mapData.image_url || `/api/map/image/${mapId}`;
+                // Берём из dndCache — мгновенно если уже загружено, иначе скачиваем
+                dndCache.fetch(imageUrl).then(src => {
+                    mapImage = new Image();
+                    mapImage.onload = () => {
+                        updateGridFromImage();
+                        render();
+                        isSwitchingMap = false;
+                    };
+                    mapImage.onerror = () => { render(); isSwitchingMap = false; };
+                    mapImage.src = src || imageUrl;
+                }).catch(() => { render(); isSwitchingMap = false; });
             } else {
-                // ВАЖНО: сбрасываем изображение, если у карты нет картинки
-                mapImage = new Image(); // пустое изображение
+                mapImage = new Image();
                 render();
-            }
-
-            const playerFrame = document.getElementById('playerMini');
-            if (playerFrame) {
-                playerFrame.src = `/player?map_id=${mapId}`;
+                isSwitchingMap = false;
             }
 
             socket.emit("switch_map", { map_id: mapId });
+            socket.emit("join_map", { map_id: mapId });
             loadDrawingsForMap(mapId);
 
-            setTimeout(() => {
-                isSwitchingMap = false;
-            }, 500);
+            const toggleBtn = document.getElementById("togglePlayerMini");
+            if (toggleBtn) {
+                toggleBtn.innerHTML =
+                    mapData.player_map_enabled !== false
+                        ? getOpenEyeSVG()
+                        : getClosedEyeSVG();
+            }
         })
         .catch(err => {
             console.error("Error switching map:", err);
@@ -1411,14 +1439,18 @@ function submitNewMap() {
             closeNewMapModal();
 
             const select = document.getElementById('mapSelect');
-            select.innerHTML = '';
-            data.maps.forEach(map => {
-                const option = document.createElement('option');
-                option.value = map.id;
-                option.textContent = map.name;
-                if (map.id === data.map_id) option.selected = true;
-                select.appendChild(option);
-            });
+            if (select) {
+                select.innerHTML = '';
+                data.maps.forEach(map => {
+                    const option = document.createElement('option');
+                    option.value = map.id;
+                    option.textContent = map.name;
+                    if (map.id === data.map_id) option.selected = true;
+                    select.appendChild(option);
+                });
+            } else {
+                console.warn("mapSelect element not found; skipping option update");
+            }
 
             // СОХРАНЯЕМ ID НОВОЙ КАРТЫ
             saveCurrentMapToStorage(data.map_id);
@@ -1439,7 +1471,11 @@ function deleteCurrentMap() {
         .then(data => {
             if (data.status === 'ok') {
                 const select = document.getElementById('mapSelect');
-                select.innerHTML = '';
+                if (!select) {
+                    console.warn("mapSelect element not found; skipping delete select update");
+                } else {
+                    select.innerHTML = '';
+                }
 
                 if (data.maps.length > 0) {
                     data.maps.forEach(map => {
@@ -1447,7 +1483,7 @@ function deleteCurrentMap() {
                         option.value = map.id;
                         option.textContent = map.name;
                         if (map.id === data.maps[0].id) option.selected = true;
-                        select.appendChild(option);
+                        if (select) select.appendChild(option);
                     });
 
                     // СОХРАНЯЕМ ID ПЕРВОЙ КАРТЫ
@@ -1456,7 +1492,7 @@ function deleteCurrentMap() {
                     switchMap(data.maps[0].id);
                 } else {
                     // Нет карт
-                    select.innerHTML = '<option value="">Нет карт</option>';
+                    if (select) select.innerHTML = '<option value="">Нет карт</option>';
 
                     // ОЧИЩАЕМ STORAGE
                     localStorage.removeItem('dnd_last_map_id');
@@ -1467,12 +1503,30 @@ function deleteCurrentMap() {
         });
 }
 
+let _debouncedSaveTimer = null;
+function debouncedSave(delay = 500) {
+    clearTimeout(_debouncedSaveTimer);
+    _debouncedSaveTimer = setTimeout(() => saveMapData(), delay);
+}
+
 function saveMapData() {
-    // Явно добавляем map_id в сохраняемые данные
+    const { map_image_base64, ...rest } = mapData;
     const dataToSave = {
-        ...mapData,
-        map_id: currentMapId  // ВАЖНО: передаем ID текущей карты
+        ...rest,
+        map_id: currentMapId
     };
+    if (dataToSave.tokens) {
+        dataToSave.tokens = dataToSave.tokens.map(t => {
+            const { avatar_data, ...clean } = t;
+            return clean;
+        });
+    }
+    if (dataToSave.characters) {
+        dataToSave.characters = dataToSave.characters.map(c => {
+            const { avatar_data, ...clean } = c;
+            return clean;
+        });
+    }
 
     return fetch("/api/map", {
         method: "POST",
@@ -1575,18 +1629,12 @@ function zonesIntersect(verticesA, verticesB) {
 
 function fetchMap() {
     if (!currentMapId) {
-        console.log("No current map ID");
         return Promise.reject("No map ID");
     }
 
-    console.log("Fetching map data for ID:", currentMapId);
     avatarCache.clear();
 
-    for (let key in avatarCache) {
-        delete avatarCache[key];
-    }
-
-    return fetch(`/api/map/${currentMapId}?ts=${Date.now()}`)
+    return fetch(`/api/map/${currentMapId}`)
         .then(res => {
             if (!res.ok) {
                 throw new Error(`HTTP error! status: ${res.status}`);
@@ -1604,7 +1652,7 @@ function fetchMap() {
             const currentPanX = panX;
             const currentPanY = panY;
             const select = document.getElementById('mapSelect');
-            const currentOption = select.querySelector(`option[value="${currentMapId}"]`);
+            const currentOption = select ? select.querySelector(`option[value="${currentMapId}"]`) : null;
 
             mapData = data;
 
@@ -1650,7 +1698,7 @@ function fetchMap() {
             // Обновляем интерфейс
             updateSidebar();
 
-            const gridSize = mapData.grid_settings.cell_size || 20;
+            const gridSize = mapData.grid_settings.cell_count || mapData.grid_settings.cell_size || 20;
             document.getElementById("gridSlider").value = gridSize;
             document.getElementById("gridInput").value = gridSize;
 
@@ -1669,32 +1717,21 @@ function fetchMap() {
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
-            // Загружаем изображение карты только если оно изменилось
             if (mapData.has_image) {
-                const timestamp = Date.now();
-                const imageUrl = `/api/map/image/${currentMapId}?t=${timestamp}`;
+                const shouldReload = !mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image;
 
-                if (!mapImage.src || !mapImage.src.includes(currentMapId) || oldHasImage !== mapData.has_image) {
-                    console.log("Loading map image from:", imageUrl);
-                    mapImage = new Image();
-                    mapImage.onload = () => {
-                        console.log("Map image loaded successfully");
-                        render();
-                        socket.emit("notify_image_loaded", {
-                            map_id: currentMapId,
-                            image_url: imageUrl
-                        });
-                    };
-                    mapImage.onerror = (err) => {
-                        console.error("Failed to load map image:", err);
-                        render();
-                    };
-                    mapImage.src = imageUrl;
+                if (shouldReload) {
+                    const imageUrl = mapData.image_url || `/api/map/image/${currentMapId}`;
+                    dndCache.fetch(imageUrl).then(src => {
+                        mapImage = new Image();
+                        mapImage.onload = () => render();
+                        mapImage.onerror = () => render();
+                        mapImage.src = src || imageUrl;
+                    }).catch(() => render());
                 } else {
                     render();
                 }
             } else {
-                console.log("Map has no image");
                 mapImage = new Image();
                 render();
             }
@@ -1948,7 +1985,7 @@ function drawToken(token, offsetX, offsetY, scale) {
                     avatarCache.set(token.id, null);
                     render();
                 };
-                img.src = avatarSrc.includes('?') ? avatarSrc : `${avatarSrc}?t=${Date.now()}`;
+                img.src = avatarSrc;
             }
 
             ctx.fillStyle = token.is_dead
@@ -2009,12 +2046,7 @@ function reloadTokenAvatar(tokenId) {
     // Находим токен
     const token = mapData.tokens.find(t => t.id === tokenId);
     if (token && token.avatar_url) {
-        // Добавляем timestamp для сброса кэша
-        const newUrl = token.avatar_url.includes('?')
-            ? token.avatar_url.split('?')[0] + '?t=' + Date.now()
-            : token.avatar_url + '?t=' + Date.now();
-
-        token.avatar_url = newUrl;
+        const url = token.avatar_url;
 
         // Загружаем заново
         const img = new Image();
@@ -2028,7 +2060,7 @@ function reloadTokenAvatar(tokenId) {
             avatarCache.set(tokenId, null);
             render();
         };
-        img.src = newUrl;
+        img.src = url;
     }
 }
 
@@ -2040,7 +2072,7 @@ function onAvatarUploaded(tokenId) {
     socket.emit("token_avatar_updated", {
         map_id: currentMapId,
         token_id: tokenId,
-        avatar_url: `/api/token/avatar/${tokenId}?t=${Date.now()}`
+        avatar_url: `/api/token/avatar/${tokenId}`
     });
 }
 
@@ -2100,7 +2132,7 @@ function openEditCharacterModal(character) {
 
     // Загружаем существующий аватар
     if (character.has_avatar) {
-        const portraitUrl = character.portrait_url || `/api/portrait/${character.id}?t=${Date.now()}`;
+        const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
         preview.src = portraitUrl;
         preview.style.display = "block";
         preview.dataset.portraitId = character.id; // Сохраняем ID для обновления
@@ -2162,43 +2194,33 @@ function createNewCharacter(name, avatarData) {
     if (!mapData.characters) mapData.characters = [];
     mapData.characters.push(character);
 
-    // Сохраняем данные карты
-    saveMapData()
-        .then(() => {
-            console.log("Map data saved, uploading portrait...");
+    const formData = new FormData();
+    const blob = dataURLtoBlob(avatarData);
+    formData.append("portrait", blob, `${characterId}.png`);
+    formData.append("character_id", characterId);
 
-            // Загружаем портрет
-            const formData = new FormData();
-            const blob = dataURLtoBlob(avatarData);
-            formData.append("portrait", blob, `${characterId}.png`);
-            formData.append("character_id", characterId);
-
-            return fetch("/api/portrait/upload", {
-                method: "POST",
-                body: formData
-            });
-        })
+    fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+    })
         .then(response => {
             if (!response.ok) throw new Error("Failed to upload portrait");
             return response.json();
         })
         .then(data => {
-            console.log("Portrait uploaded successfully:", data);
-
-            const character = mapData.characters.find(c => c.id === characterId);
-            if (character && data.portrait_url) {
-                character.portrait_url = data.portrait_url;
+            const ch = mapData.characters.find(c => c.id === characterId);
+            if (ch && data.portrait_url) {
+                ch.portrait_url = data.portrait_url;
             }
 
             window.editingCharacterId = null;
             closeCharacterModal();
-
-            // Обновляем интерфейс
             updateSidebar();
             refreshPortraits();
             initCharacterDragAndDrop();
 
-            // Уведомляем игроков
+            saveMapData();
+
             socket.emit("characters_updated", {
                 map_id: currentMapId,
                 characters: mapData.characters
@@ -2260,7 +2282,7 @@ function editCharacter(characterId, name, avatarData) {
             // Очищаем кэш если есть
             const imgElements = document.querySelectorAll(`img[src*="/api/portrait/${characterId}"]`);
             imgElements.forEach(img => {
-                img.src = `${data.portrait_url}?t=${Date.now()}`;
+                img.src = data.portrait_url;
             });
 
             finishEdit();
@@ -2539,11 +2561,7 @@ function onGridSizeChange(value) {
     mapData.grid_settings.cell_size = newSize;
     render();
 
-    fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mapData),
-    });
+    saveMapData();
 }
 
 function handleAvatarUpload(event) {
@@ -3361,11 +3379,7 @@ canvas.addEventListener("mouseup", () => {
             });
         }
 
-        fetch("/api/map", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(mapData),
-        });
+        debouncedSave(300);
     }
 
     if (drawingStroke) {
@@ -3772,8 +3786,7 @@ document.addEventListener("keydown", (e) => {
 
             // Для каждого токена отправляем запрос на удаление на сервер
             tokensToDelete.forEach(tokenId => {
-                // Отправляем запрос на удаление токена
-                fetch(`/api/token/${tokenId}`, {
+                fetch(`/api/token/${tokenId}?map_id=${currentMapId}`, {
                     method: 'DELETE'
                 })
                     .then(response => response.json())
@@ -3799,8 +3812,7 @@ document.addEventListener("keydown", (e) => {
                 return;
             }
 
-            // Отправляем запрос на удаление токена
-            fetch(`/api/token/${selectedTokenId}`, {
+            fetch(`/api/token/${selectedTokenId}?map_id=${currentMapId}`, {
                 method: 'DELETE'
             })
                 .then(response => response.json())
@@ -3851,9 +3863,7 @@ document.addEventListener("keydown", (e) => {
 
         if (changed) {
             render();
-            saveMapData().then(() => {
-                socket.emit("force_avatar_reload", { map_id: currentMapId });
-            });
+            saveMapData();
             updateSidebar();
         }
     }
@@ -3990,7 +4000,8 @@ function submitFind() {
             description,
             position: [centerX, centerY],
             size: mapData.grid_settings.cell_size / 4,
-            status: false
+            status: false,
+            map_id: currentMapId
         };
 
         fetch("/api/find", {
@@ -4018,7 +4029,33 @@ socket.on("maps_list_updated", (data) => {
 });
 
 window.onload = () => {
-    // Загружаем список карт для новой панели
+    // Инициализируем кеш и предзагружаем все ассеты пачками по 4
+    dndCache.init().then(() => {
+        const indicator = document.createElement('div');
+        indicator.id = 'master-cache-indicator';
+        indicator.style.cssText = `
+            position:fixed;bottom:16px;right:16px;
+            background:rgba(0,0,0,.75);color:#fff;
+            font-size:12px;padding:6px 12px;border-radius:8px;
+            z-index:9999;pointer-events:none;transition:opacity .4s;
+        `;
+        indicator.textContent = 'Загрузка карт...';
+        document.body.appendChild(indicator);
+
+        dndCache.preloadAll({
+            master: true,
+            onProgress(loaded, total) {
+                if (total === 0) return;
+                indicator.textContent = `Загрузка карт: ${loaded}/${total}`;
+                if (loaded >= total) {
+                    indicator.textContent = 'Карты загружены ✓';
+                    setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
+                    setTimeout(() => { indicator.remove(); }, 2000);
+                }
+            }
+        }).catch(() => { indicator.remove(); });
+    });
+
     loadMapsList();
 
     // ===== ИСПРАВЛЕННЫЙ КОД: загружаем сохраненную карту =====
@@ -4065,36 +4102,36 @@ window.onload = () => {
     const toggleBtn = document.getElementById("togglePlayerMini");
 
     function updateMiniToggleIcon() {
-        toggleBtn.innerHTML = mapData.player_map_enabled !== false ? getOpenEyeSVG() : getClosedEyeSVG();
+        const btn = document.getElementById("togglePlayerMini");
+        if (btn) btn.innerHTML = mapData && mapData.player_map_enabled !== false ? getOpenEyeSVG() : getClosedEyeSVG();
     }
+    window.updateMiniToggleIcon = updateMiniToggleIcon;
 
     toggleBtn.addEventListener("click", () => {
+        const mapIdToUse =
+            currentMapId ||
+            document.getElementById("mapSelect")?.value ||
+            null;
+
+        if (!mapIdToUse) {
+            console.warn("togglePlayerMini: missing map_id (currentMapId is null)");
+            return;
+        }
+
+        if (!mapData) mapData = {};
+        if (mapData.player_map_enabled === undefined) mapData.player_map_enabled = true;
+
         const enabled = mapData.player_map_enabled !== false;
         mapData.player_map_enabled = !enabled;
 
         updateMiniToggleIcon();
 
-        // Сохраняем на сервере
-        saveMapData();
-
-        // Отправляем через сокет
+        // Сохраняем на сервере/рассылаем через сокет (это быстрее, чем POST на /api/map
+        // с полным содержимым карты).
         socket.emit("player_visibility_change", {
-            map_id: currentMapId,
-            player_map_enabled: mapData.player_map_enabled
+            map_id: mapIdToUse,
+            player_map_enabled: mapData.player_map_enabled,
         });
-
-        playerChannel.postMessage({
-            type: 'reload_player',
-            map_id: currentMapId,
-            enabled: mapData.player_map_enabled
-        });
-    });
-
-    socket.on("player_visibility_change", (data) => {
-        if (data.map_id === currentMapId) {
-            mapData.player_map_enabled = data.player_map_enabled;
-            updateMiniToggleIcon();
-        }
     });
 
     updateMiniToggleIcon();
@@ -4151,11 +4188,12 @@ window.onload = () => {
             mapData.ruler_end = null;
 
             socket.emit("ruler_update", {
+                map_id: currentMapId,
                 ruler_start: null,
                 ruler_end: null
             });
 
-            saveMapData();
+            debouncedSave(300);
         } else {
             rulerStart = null;
         }
@@ -4242,49 +4280,57 @@ socket.on("map_created", (data) => {
 
     // Обновляем селект карт
     const select = document.getElementById('mapSelect');
-    select.innerHTML = '';
+    if (!select) {
+        console.warn("mapSelect element not found; skipping select update");
+    } else {
+        select.innerHTML = '';
+    }
 
-    data.maps.forEach(map => {
-        const option = document.createElement('option');
-        option.value = map.id;
-        option.textContent = map.name;
-        if (map.id === data.current_map) option.selected = true;
-        select.appendChild(option);
-    });
+    if (select) {
+        data.maps.forEach(map => {
+            const option = document.createElement('option');
+            option.value = map.id;
+            option.textContent = map.name;
+            if (map.id === data.current_map) option.selected = true;
+            select.appendChild(option);
+        });
+    }
 
-    // Устанавливаем currentMapId
     currentMapId = data.current_map;
 
-    // Загружаем данные карты (токены уже будут там, созданные на сервере)
-    fetchMap();
+    mapData = {
+        tokens: [], finds: [], zones: [], characters: [],
+        grid_settings: { cell_count: 20, cell_size: 20, color: "#888888", visible: false, visible_to_players: true },
+        player_map_enabled: false, has_image: false
+    };
+    mapImage = new Image();
+    render();
 
-    // Обновляем iframe игрока
-    const playerFrame = document.getElementById('playerMini');
-    if (playerFrame) {
-        playerFrame.src = `/player?map_id=${data.current_map}`;
-    }
+    socket.emit("join_map", { map_id: currentMapId });
+
+    fetchMap().then(() => {
+        if (window.updateMiniToggleIcon) window.updateMiniToggleIcon();
+    });
 });
 socket.on("map_image_updated", (data) => {
+    if (data.map_id === currentMapId && data.new_image_url) {
+        // Инвалидируем старый URL, загружаем новый через кеш
+        if (mapData?.image_url) dndCache.invalidate(mapData.image_url);
+        mapData.image_url = data.new_image_url;
+        mapData.has_image = true;
 
-    if (data.map_id === currentMapId) {
-        // Обновляем изображение карты
-        if (data.map_image_base64) {
+        dndCache.fetch(data.new_image_url).then(src => {
             mapImage = new Image();
-            mapImage.onload = () => {
-                render();
-            };
-            mapImage.src = data.map_image_base64;
-
-            // Обновляем mapData
-            mapData.has_image = true;
-        }
+            mapImage.onload = () => render();
+            mapImage.src = src || data.new_image_url;
+        });
     }
 });
 
 socket.on("request_image_reload", (data) => {
     if (data.map_id === currentMapId) {
         // Перезагружаем изображение
-        const imageUrl = `/api/map/image/${currentMapId}?t=${Date.now()}`;
+        const imageUrl = mapData?.image_url || `/api/map/image/${currentMapId}`;
         mapImage = new Image();
         mapImage.onload = () => {
             render();
@@ -4697,8 +4743,7 @@ document.getElementById("contextDuplicateToken").addEventListener("click", funct
 
 document.getElementById("contextDeleteToken").addEventListener("click", function () {
     if (currentContextToken && confirm(`Удалить токен "${currentContextToken.name}"?`)) {
-        // Отправляем запрос на удаление токена
-        fetch(`/api/token/${currentContextToken.id}`, {
+        fetch(`/api/token/${currentContextToken.id}?map_id=${currentMapId}`, {
             method: 'DELETE'
         })
             .then(response => response.json())
@@ -4847,7 +4892,7 @@ function clearAvatarCacheForToken(tokenId) {
 
     // Также очищаем кэш браузера для этого URL
     const img = new Image();
-    img.src = `/api/token/avatar/${tokenId}?t=${Date.now()}&cache=false`;
+    img.src = `/api/token/avatar/${tokenId}`;
 }
 
 function loadTokenAvatarInModal(token, forceReload = false) {
@@ -4875,12 +4920,7 @@ function loadTokenAvatarInModal(token, forceReload = false) {
         const abortController = new AbortController();
         preview._abortController = abortController;
 
-        const timestamp = Date.now();
-        const baseAvatarUrl = token.avatar_url
-            ? token.avatar_url.split('?')[0]
-            : `/api/token/avatar/${token.id}`;
-
-        const avatarUrl = baseAvatarUrl + '?t=' + timestamp;
+        const avatarUrl = token.avatar_url || `/api/token/avatar/${token.id}`;
 
         console.log("Loading avatar from:", avatarUrl);
 
@@ -4949,7 +4989,7 @@ function fetchAvatarFromServer(tokenId) {
     const mask = document.getElementById("avatarMask");
     const editIcon = document.getElementById("editIcon");
 
-    fetch(`/api/token/avatar/${tokenId}?t=${Date.now()}`)
+    fetch(`/api/token/avatar/${tokenId}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error('Avatar not found');
@@ -5005,7 +5045,7 @@ function checkAvatarExists(tokenId) {
         const img = new Image();
         img.onload = () => resolve(true);
         img.onerror = () => resolve(false);
-        img.src = `/api/token/avatar/${tokenId}?t=${Date.now()}`;
+        img.src = `/api/token/avatar/${tokenId}`;
     });
 }
 
@@ -5096,10 +5136,10 @@ function pasteToken() {
     };
 
 
-    // Отправляем на сервер вместе с avatar_data если есть
     const requestBody = {
         ...newToken,
-        avatar_data: copiedToken.avatar_data || null
+        avatar_data: copiedToken.avatar_data || null,
+        map_id: currentMapId
     };
 
     fetch("/api/token", {
@@ -5114,7 +5154,6 @@ function pasteToken() {
             return response.json();
         })
         .then(data => {
-            // Обновляем URL из ответа
             if (data.avatar_url) {
                 newToken.avatar_url = data.avatar_url;
             }
@@ -5204,7 +5243,8 @@ function duplicateToken(sourceToken) {
 
     const requestBody = {
         ...newToken,
-        avatar_data: avatarDataToSend
+        avatar_data: avatarDataToSend,
+        map_id: currentMapId
     };
 
     fetch("/api/token", {
@@ -5955,14 +5995,16 @@ function createBankCharacterItem(character) {
 }
 
 function spawnBankCharacter(character) {
-    if (!spawnPosition) return;
+    const centerX = mapImage && mapImage.width ? mapImage.width / 2 : 500;
+    const centerY = mapImage && mapImage.height ? mapImage.height / 2 : 500;
+    const pos = spawnPosition || [centerX, centerY];
 
     fetch(`/api/bank/character/${character.id}/spawn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             map_id: currentMapId,
-            position: spawnPosition
+            position: pos
         })
     })
         .then(res => res.json())
@@ -6234,7 +6276,8 @@ function spawnImportedToken(sourceToken) {
         const createToken = (avatarData = null) => {
             const requestBody = {
                 ...targetToken,
-                avatar_data: avatarData
+                avatar_data: avatarData,
+                map_id: currentMapId
             };
 
             return fetch("/api/token", {
@@ -6491,7 +6534,7 @@ function renderMapsList(maps) {
             <div class="map-card ${isActive ? 'active' : ''}" data-map-id="${map.id}" onclick="selectMap('${map.id}')">
                 <div class="map-thumbnail">
                     ${map.has_image
-                ? `<img src="/api/map/thumbnail/${map.id}?t=${Date.now()}" alt="${map.name}" loading="lazy">`
+                ? `<img src="/api/map/thumbnail/${map.id}" alt="${map.name}" loading="lazy">`
                 : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
                             <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -6547,7 +6590,7 @@ function openEditMapModal(mapId) {
 
     if (map.has_image) {
         // ИСПРАВЛЕНО: используем полноразмерное изображение вместо миниатюры
-        preview.src = `/api/map/image/${mapId}?t=${Date.now()}`;
+        preview.src = map.image_url || `/api/map/image/${mapId}`;
         preview.style.display = "block";
 
         // Добавляем обработчик для правильного масштабирования изображения в модальном окне
@@ -6688,9 +6731,7 @@ function submitMap() {
                         mapImage.crossOrigin = "Anonymous"; // Добавляем для работы с кэшем
                     }
 
-                    // Перезагружаем карту с новым параметром timestamp
-                    const timestamp = Date.now();
-                    const imageUrl = `/api/map/image/${currentMapId}?t=${timestamp}`;
+                    const imageUrl = data.image_url || mapData?.image_url || `/api/map/image/${currentMapId}`;
 
                     mapImage.onload = () => {
                         console.log("New map image loaded after edit");
@@ -6701,11 +6742,6 @@ function submitMap() {
                         mapData.pan_x = panX;
                         mapData.pan_y = panY;
 
-                        // Отправляем всем игрокам принудительную перезагрузку
-                        socket.emit("notify_image_loaded", {
-                            map_id: currentMapId,
-                            image_url: imageUrl
-                        });
                     };
 
                     mapImage.src = imageUrl;
@@ -7168,7 +7204,7 @@ function openEditBankCharacterModal(character) {
     const editIcon = document.getElementById("bankEditIcon");
 
     if (character.has_avatar && character.avatar_url) {
-        preview.src = `${character.avatar_url}?t=${Date.now()}`;
+        preview.src = character.avatar_url;
         preview.style.display = "block";
         overlay.style.display = "none";
         editIcon.style.display = "block";

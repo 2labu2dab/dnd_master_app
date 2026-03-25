@@ -147,6 +147,26 @@
     // Устанавливаем MAP_ID из атрибута data-map-id
     window.MAP_ID = document.body.getAttribute('data-map-id') || "{{ map_id }}";
   </script>
+  <!-- Загрузочный экран (скрыт в режиме мини-карты через JS) -->
+  <div id="dnd-loading-overlay" style="
+      display:none;
+      position:fixed;inset:0;
+      background:#020617;
+      z-index:9999;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      font-family:'Inter',sans-serif;
+      color:#e2e8f0;
+      gap:24px;
+  ">
+    <div style="font-size:22px;font-weight:600;letter-spacing:.5px;">Загрузка карт…</div>
+    <div style="width:280px;height:6px;background:#1e293b;border-radius:3px;overflow:hidden;">
+      <div id="dnd-loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#818cf8);border-radius:3px;transition:width .2s ease;"></div>
+    </div>
+    <div id="dnd-loading-text" style="font-size:13px;color:#94a3b8;">Подготовка…</div>
+  </div>
+
   <div id="main">
     <div id="map-container">
       <section id="map">
@@ -159,6 +179,8 @@
     </div>
   </div>
   <script src="{{ url_for('static', filename='js/socket.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/realtime_client.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dnd_cache.js') }}"></script>
   <script src="{{ url_for('static', filename='js/player.js') }}"></script>
 </body>
 

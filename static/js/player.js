@@ -18,7 +18,102 @@ const playerChannel = new BroadcastChannel('dnd_map_channel');
 
 let mapImage = new Image();
 const avatarCache = new Map();
+const portraitImageCache = new Map();
+// mapId → HTMLImageElement загруженный из кеша (для немедленной отрисовки)
+const mapImageCache = new Map();
 let renderRequested = false;
+
+// ---- Загрузочный экран (только для полноэкранного режима) ----
+const _loadingOverlay = document.getElementById('dnd-loading-overlay');
+const _loadingBar = document.getElementById('dnd-loading-bar');
+const _loadingText = document.getElementById('dnd-loading-text');
+
+function showLoadingOverlay() {
+    if (isMiniMap || !_loadingOverlay) return;
+    _loadingOverlay.style.display = 'flex';
+}
+function hideLoadingOverlay() {
+    if (!_loadingOverlay) return;
+    _loadingOverlay.style.display = 'none';
+}
+function updateLoadingProgress(loaded, total) {
+    if (isMiniMap || !_loadingBar || !_loadingText) return;
+    const pct = total > 0 ? Math.round(loaded / total * 100) : 100;
+    _loadingBar.style.width = pct + '%';
+    _loadingText.textContent = total > 0
+        ? `Загружено ${loaded} из ${total} ресурсов`
+        : 'Всё загружено';
+}
+
+// Помещаем blob-URL из dndCache в mapImageCache (HTMLImageElement)
+function _storeInMapImageCache(mapId, blobUrl) {
+    if (!blobUrl || mapImageCache.has(mapId)) return;
+    const img = new Image();
+    img.onload = () => mapImageCache.set(mapId, img);
+    img.src = blobUrl;
+}
+
+// Предзагружаем все карты через dndCache и показываем прогресс
+async function preloadAllAssets() {
+    if (isMiniMap) return; // в мини-карте не нужно
+    showLoadingOverlay();
+    updateLoadingProgress(0, 1);
+
+    await dndCache.init();
+
+    // Загружаем список карт
+    let maps = [];
+    try {
+        const r = await fetch('/api/maps');
+        maps = await r.json();
+    } catch (e) {
+        hideLoadingOverlay();
+        return;
+    }
+
+    const mapsWithImages = maps.filter(m => m.has_image);
+    const total = mapsWithImages.length;
+    let loaded = 0;
+    updateLoadingProgress(0, total);
+
+    // Параллельная загрузка изображений (батчами по 3)
+    const BATCH = 3;
+    for (let i = 0; i < mapsWithImages.length; i += BATCH) {
+        const batch = mapsWithImages.slice(i, i + BATCH);
+        await Promise.all(batch.map(async (map) => {
+            const url = map.image_url || `/api/map/image/${map.id}`;
+            const blobUrl = await dndCache.fetch(url);
+            _storeInMapImageCache(map.id, blobUrl);
+            loaded++;
+            updateLoadingProgress(loaded, total);
+        }));
+    }
+
+    hideLoadingOverlay();
+
+    // Подгружаем портреты и токены в фоне (не блокируем UI)
+    maps.forEach(map => {
+        fetch(`/api/map/${map.id}?for=player`)
+            .then(r => r.json())
+            .then(data => {
+                (data.tokens || []).forEach(t => { if (t.avatar_url) dndCache.fetch(t.avatar_url); });
+                (data.characters || []).forEach(c => { if (c.portrait_url) dndCache.fetch(c.portrait_url); });
+            })
+            .catch(() => {});
+    });
+}
+
+function preloadPortraits(characters) {
+    if (!characters) return;
+    characters.forEach(c => {
+        const url = c.portrait_url || (c.has_avatar ? `/api/portrait/${c.id}` : null);
+        if (url && !portraitImageCache.has(c.id)) {
+            const img = new Image();
+            img.src = url;
+            portraitImageCache.set(c.id, img);
+        }
+    });
+}
 
 // ========== ПОРТРЕТЫ ДЛЯ ИГРОКОВ ==========
 let portraitsContainer = document.getElementById('portrait-list');
@@ -131,13 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-const socket = io({
-    reconnection: true,
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    transports: ['websocket']
-});
+const socket = window.createDndSocket({ auth: { role: 'player' } });
+let fetchGeneration = 0;
 
 function performUpdatePortraits() {
     if (!mapData || !portraitsContainer || !portraitSidebar) {
@@ -184,14 +274,10 @@ function renderPortraits(characters) {
         return;
     }
 
-    console.log(`Rendering ${count} portraits, sidebar: ${sidebarWidth}x${sidebarHeight}, isMiniMap: ${isMiniMap}`);
-
     // Определяем конфигурацию сетки
     const gridConfig = getGridConfig(count);
     const cols = gridConfig.cols;
     const rows = gridConfig.rows;
-
-    console.log(`Grid: ${cols} columns, ${rows} rows`);
 
     // Зарезервированная высота для заголовка (минимум)
     const headerHeight = isMiniMap ? 20 : 40;
@@ -267,8 +353,6 @@ function renderPortraits(characters) {
         }
     }
 
-    console.log(`Portrait size: ${finalPortraitSize}px, Column width: ${columnWidth}px, Available width: ${availableWidth}px`);
-
     // Очищаем контейнер
     portraitsContainer.innerHTML = '';
 
@@ -316,14 +400,19 @@ function renderPortraits(characters) {
         avatar.style.display = 'block';
 
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-        avatar.src = `${portraitUrl}?t=${Date.now()}`;
-
-        avatar.onload = () => {
+        const cached = portraitImageCache.get(character.id);
+        if (cached && cached.complete && cached.naturalWidth > 0) {
+            avatar.src = cached.src;
             avatar.style.opacity = '1';
-        };
-
-        avatar.style.opacity = '0';
-        avatar.style.transition = 'opacity 0.3s ease';
+        } else {
+            avatar.src = portraitUrl;
+            avatar.style.opacity = '0';
+            avatar.style.transition = 'opacity 0.3s ease';
+            avatar.onload = () => {
+                avatar.style.opacity = '1';
+                portraitImageCache.set(character.id, avatar);
+            };
+        }
 
         avatar.onerror = () => {
             avatar.style.display = 'none';
@@ -390,6 +479,17 @@ function requestRender() {
 // Получаем map_id
 let mapId = window.MAP_ID || null;
 
+// Иногда шаблон рендерит строкой "None"/"null". Нормализуем в null,
+// чтобы не делать запрос /api/map/None.
+if (
+    mapId === "None" ||
+    mapId === "null" ||
+    mapId === "undefined" ||
+    mapId === ""
+) {
+    mapId = null;
+}
+
 
 
 if (!mapId) {
@@ -403,37 +503,41 @@ if (!mapId && window.parent && window.parent.currentMapId) {
 
 }
 
-socket.on('connect', () => {
-    console.log('Player socket connected');
-    if (mapId) {
-        console.log('📤 Requesting drawings on connect');
-        socket.emit('request_drawings', { map_id: mapId });
+if (
+    mapId === "None" ||
+    mapId === "null" ||
+    mapId === "undefined" ||
+    mapId === ""
+) {
+    mapId = null;
+}
 
-        // ДОБАВЬТЕ ЭТО: запрашиваем синхронизацию позиции
-        console.log('📤 Requesting map sync on connect');
+socket.on('connect', () => {
+    if (mapId) {
+        socket.emit('join_map', { map_id: mapId });
+        socket.emit('request_drawings', { map_id: mapId });
         socket.emit('request_map_sync', { map_id: mapId });
     }
 });
 
-// Сохраняем размеры канваса мастера (будут обновляться при получении данных)
 let masterCanvasWidth = 1380;
 let masterCanvasHeight = 1080;
 
 window.playerMapId = mapId;
 
+// Запускаем предзагрузку ВСЕХ ассетов с прогрессом
+// (для мини-карты только инициализируем кеш без UI)
+if (isMiniMap) {
+    // В мини-карте (iframe) только тихо инициализируем кеш
+    dndCache.init();
+} else {
+    // В полноэкранном режиме — загрузочный экран + предзагрузка всего
+    preloadAllAssets();
+}
+
 if (mapId) {
     mapImage = new Image();
     fetchMap();
-
-    if (socket) {
-        socket.on('connect', () => {
-            console.log('Player socket connected');
-            if (mapId) {
-                console.log('📤 Requesting drawings on connect');
-                socket.emit('request_drawings', { map_id: mapId });
-            }
-        });
-    }
 } else {
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -441,6 +545,26 @@ if (mapId) {
     ctx.fillStyle = "#666";
     ctx.textAlign = "center";
     ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
+
+    // Если mapId не передали (или в шаблоне пришло None),
+    // пробуем взять первую доступную карту.
+    fetch("/api/maps")
+        .then(res => res.json())
+        .then(maps => {
+            if (!maps || maps.length === 0) return;
+            mapId = maps[0].id;
+            window.playerMapId = mapId;
+
+            // Синхронизация сразу, если сокет уже подключен.
+            if (socket && socket.connected) {
+                socket.emit("request_drawings", { map_id: mapId });
+                socket.emit("request_map_sync", { map_id: mapId });
+            }
+            fetchMap();
+        })
+        .catch(() => {
+            // Оставляем "Карта не выбрана"
+        });
 }
 
 function resizeCanvasToDisplaySize() {
@@ -462,15 +586,6 @@ window.addEventListener("resize", () => {
 
 socket.on("map_updated", (data) => {
     if (!data || data.map_id !== mapId) return;
-
-    console.log("map_updated received:", {
-        has_tokens: data.tokens?.length,
-        has_zones: data.zones?.length,
-        has_characters: data.characters?.length,
-        player_map_enabled: data.player_map_enabled
-    });
-
-    const wasEnabled = mapData?.player_map_enabled;
 
     if (!mapData) {
         mapData = {};
@@ -494,6 +609,8 @@ socket.on("map_updated", (data) => {
         master_canvas_height: data.master_canvas_height
     });
 
+    preloadPortraits(mapData.characters);
+
     if (data.master_canvas_width) {
         masterCanvasWidth = data.master_canvas_width;
     }
@@ -512,19 +629,33 @@ socket.on("map_updated", (data) => {
         canvas.style.display = "block";
     }
 
-    // Загружаем изображение если нужно
-    if (mapData.has_image && (!oldHasImage || !mapImage.src)) {
-        const imageUrl = data.image_url || `/api/map/image/${mapId}?t=${Date.now()}`;
-        const newImage = new Image();
-        newImage.onload = () => {
-            mapImage = newImage;
-            requestRender();
-        };
-        newImage.onerror = (err) => {
-            console.error("Failed to load map image:", err);
-        };
-        newImage.src = imageUrl;
-    } else if (!mapData.has_image) {
+    if (mapData.has_image) {
+        const imageUrl = data.image_url || `/api/map/image/${mapId}`;
+        const currentSrc = mapImage ? mapImage.src : "";
+        const needsReload = !oldHasImage || !currentSrc || !currentSrc.includes(mapId);
+        if (needsReload) {
+            const memCached = mapImageCache.get(mapId);
+            if (memCached && memCached.complete && memCached.naturalWidth > 0) {
+                mapImage = memCached;
+                requestRender();
+            } else {
+                // Пробуем dndCache (Cache API + memory)
+                const blobUrl = dndCache.get(imageUrl);
+                if (blobUrl) {
+                    const img = new Image();
+                    img.onload = () => { mapImage = img; mapImageCache.set(mapId, img); requestRender(); };
+                    img.src = blobUrl;
+                } else {
+                    // Загружаем через dndCache (скачает и закеширует)
+                    dndCache.fetch(imageUrl).then(src => {
+                        const img = new Image();
+                        img.onload = () => { mapImage = img; mapImageCache.set(mapId, img); requestRender(); };
+                        img.src = src || imageUrl;
+                    });
+                }
+            }
+        }
+    } else {
         mapImage = new Image();
         requestRender();
     }
@@ -563,8 +694,6 @@ socket.on("ruler_visibility_change", (data) => {
 });
 
 socket.on("zoom_update", (data) => {
-    console.log("PLAYER: Received zoom_update:", data);  // Добавьте для отладки
-
     if (data.map_id === mapId && mapData) {
         zoomLevel = data.zoom_level || 1;
         panX = data.pan_x ?? 0;
@@ -583,7 +712,6 @@ socket.on("zoom_update", (data) => {
             mapData.master_canvas_height = data.canvas_height;
         }
 
-        console.log(`PLAYER: Updated position: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
         requestRender();
     }
 });
@@ -591,7 +719,15 @@ socket.on("zoom_update", (data) => {
 socket.on("map_created", (data) => {
     if (data.map_id) {
         mapId = data.map_id;
-        fetchMap();
+        window.playerMapId = mapId;
+        if (socket && socket.connected) {
+            socket.emit("join_map", { map_id: mapId });
+            socket.emit("request_map_data", { map_id: mapId });
+            socket.emit("request_drawings", { map_id: mapId });
+            socket.emit("request_map_sync", { map_id: mapId });
+        } else {
+            fetchMap();
+        }
     }
 });
 
@@ -600,11 +736,27 @@ socket.on("master_switched_map", (data) => {
         mapId = data.map_id;
         window.playerMapId = data.map_id;
 
+        // Если карта уже в кеше — берём сразу, иначе начинаем загрузку
+        if (!mapImageCache.has(mapId) && data.image_url) {
+            dndCache.fetch(data.image_url).then(blobUrl => {
+                _storeInMapImageCache(mapId, blobUrl);
+            });
+        }
+
+        mapImage = new Image();
+
         const url = new URL(window.location);
         url.searchParams.set('map_id', data.map_id);
         window.history.replaceState({}, '', url);
 
-        fetchMap();
+        if (socket && socket.connected) {
+            socket.emit("join_map", { map_id: mapId });
+            socket.emit("request_map_data", { map_id: mapId });
+            socket.emit("request_drawings", { map_id: mapId });
+            socket.emit("request_map_sync", { map_id: mapId });
+        } else {
+            fetchMap();
+        }
     } else if (!data.map_id) {
         mapId = null;
         window.playerMapId = null;
@@ -662,7 +814,7 @@ function render() {
 
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
         if (!mapImage.src || !mapImage.src.includes(mapId)) {
-            const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+            const imageUrl = `/api/map/image/${mapId}`;
             mapImage = new Image();
             mapImage.onload = () => requestRender();
             mapImage.src = imageUrl;
@@ -706,8 +858,6 @@ function render() {
     }
 }
 socket.on("map_sync", (data) => {
-    console.log("PLAYER: Received map_sync:", data);
-
     if (!data || data.map_id !== mapId) {
         return;
     }
@@ -715,28 +865,22 @@ socket.on("map_sync", (data) => {
     // Обновляем параметры отображения
     if (data.zoom_level !== undefined) {
         zoomLevel = data.zoom_level;
-        console.log(`PLAYER: Zoom updated to ${zoomLevel}`);
     }
     if (data.pan_x !== undefined) {
         panX = data.pan_x;
-        console.log(`PLAYER: PanX updated to ${panX}`);
     }
     if (data.pan_y !== undefined) {
         panY = data.pan_y;
-        console.log(`PLAYER: PanY updated to ${panY}`);
     }
 
     // Сохраняем размеры канваса мастера
     if (data.canvas_width) {
         masterCanvasWidth = data.canvas_width;
-        console.log(`PLAYER: Master canvas width updated to ${masterCanvasWidth}`);
     }
     if (data.canvas_height) {
         masterCanvasHeight = data.canvas_height;
-        console.log(`PLAYER: Master canvas height updated to ${masterCanvasHeight}`);
     }
 
-    console.log(`PLAYER: Final position after sync: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
     requestRender();
 });
 function drawLayers(offsetX, offsetY, scale) {
@@ -907,7 +1051,8 @@ function drawToken(token, offsetX, offsetY, scale) {
                     avatarCache.set(token.id, null);
                     requestRender();
                 };
-                img.src = avatarSrc.includes('?') ? avatarSrc : `${avatarSrc}?t=${Date.now()}`;
+                // URL уже может содержать версию (?v=...), не добавляем Date.now().
+                img.src = avatarSrc;
             }
 
             ctx.fillStyle = token.is_dead
@@ -1079,6 +1224,15 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
 }
 
 socket.on("map_visibility_change", (data) => {
+    if (!data) return;
+
+    // Если событие прилетело раньше, чем mapId нормализовался/подставился,
+    // подхватываем mapId и применяем видимость сразу.
+    if (!mapId && data.map_id) {
+        mapId = data.map_id;
+        window.playerMapId = mapId;
+    }
+
     if (data.map_id === mapId) {
         if (!mapData) mapData = {};
 
@@ -1096,7 +1250,7 @@ socket.on("map_visibility_change", (data) => {
         if (mapData.player_map_enabled) {
             canvas.style.display = "block";
             if (mapData.has_image && (!mapImage || !mapImage.complete)) {
-                const imageUrl = data.image_url || `/api/map/image/${mapId}?t=${Date.now()}`;
+                const imageUrl = data.image_url || `/api/map/image/${mapId}`;
                 const newImage = new Image();
                 newImage.onload = () => {
                     mapImage = newImage;
@@ -1115,17 +1269,26 @@ socket.on("map_visibility_change", (data) => {
 });
 
 socket.on("force_map_update", (data) => {
-
+    if (!data) return;
     if (data.map_id === mapId) {
+        if (!mapData) mapData = {};
         Object.assign(mapData, data);
 
         if (data.has_image && data.image_url) {
-            const newImage = new Image();
-            newImage.onload = () => {
-                mapImage = newImage;
+            const cid = data.map_id || mapId;
+            const cached = mapImageCache.get(cid);
+            if (cached && cached.complete && cached.naturalWidth > 0) {
+                mapImage = cached;
                 requestRender();
-            };
-            newImage.src = data.image_url;
+            } else {
+                const newImage = new Image();
+                newImage.onload = () => {
+                    mapImage = newImage;
+                    mapImageCache.set(cid, newImage);
+                    requestRender();
+                };
+                newImage.src = data.image_url;
+            }
         } else {
             requestRender();
         }
@@ -1138,7 +1301,7 @@ socket.on("force_map_update", (data) => {
 socket.on("map_image_updated", (data) => {
     if (data.map_id === mapId) {
         if (mapData && mapData.player_map_enabled !== false) {
-            const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
+            const imageUrl = `/api/map/image/${mapId}`;
             const newImage = new Image();
             newImage.onload = () => {
                 mapImage = newImage;
@@ -1151,58 +1314,49 @@ socket.on("map_image_updated", (data) => {
 
 socket.on("map_image_updated_to_player", (data) => {
     if (data.map_id === mapId && mapData) {
-        const imageUrl = `/api/map/image/${mapId}?t=${Date.now()}`;
-        mapImage = new Image();
-        mapImage.onload = () => {
-            requestRender();
-        };
-        mapImage.src = imageUrl;
+        const imageUrl = data.image_url || `/api/map/image/${mapId}`;
+        // Инвалидируем все кеши — новое изображение
+        dndCache.invalidate(imageUrl);
+        mapImageCache.delete(mapId);
+        dndCache.fetch(imageUrl).then(src => {
+            const img = new Image();
+            img.onload = () => { mapImage = img; mapImageCache.set(mapId, img); requestRender(); };
+            img.src = src || imageUrl;
+        });
     }
 });
 
 socket.on("force_image_reload", (data) => {
-
-
     if (data.map_id === mapId) {
-        const newImage = new Image();
-        newImage.onload = () => {
-            mapImage = newImage;
-
-            if (mapData) {
-                mapData.has_image = true;
-            }
-
-            requestRender();
-        };
-        newImage.src = data.image_url;
+        const imageUrl = data.image_url || `/api/map/image/${mapId}`;
+        dndCache.invalidate(imageUrl);
+        mapImageCache.delete(mapId);
+        dndCache.fetch(imageUrl).then(src => {
+            const img = new Image();
+            img.onload = () => {
+                mapImage = img;
+                mapImageCache.set(mapId, img);
+                if (mapData) mapData.has_image = true;
+                requestRender();
+            };
+            img.src = src || imageUrl;
+        });
     }
 });
 window.addEventListener('load', () => {
-    console.log('Player page loaded, mapId:', mapId);
-
-    if (mapId) {
-        setTimeout(() => {
-            if (socket && socket.connected) {
-                socket.emit("request_map_sync", { map_id: mapId });
-                console.log('📤 Requesting drawings on page load');
-                socket.emit('request_drawings', { map_id: mapId });
+    if (!mapId && window.parent) {
+        try {
+            if (window.parent.currentMapId) {
+                mapId = window.parent.currentMapId;
+                window.playerMapId = mapId;
+                if (socket && socket.connected) {
+                    socket.emit("join_map", { map_id: mapId });
+                    socket.emit('request_drawings', { map_id: mapId });
+                }
+                fetchMap();
             }
-            fetchMap();
-        }, 1000);
-    } else {
-        if (window.parent && window.parent.currentMapId) {
-            mapId = window.parent.currentMapId;
-            window.playerMapId = mapId;
-            console.log('📤 Requesting drawings from parent');
-            if (socket && socket.connected) {
-                socket.emit('request_drawings', { map_id: mapId });
-            }
-            fetchMap();
-        } else {
-            console.error('No mapId available');
-        }
+        } catch (e) { /* cross-origin */ }
     }
-
     setTimeout(updatePortraits, 500);
 });
 
@@ -1283,82 +1437,20 @@ socket.on("token_avatar_updated", (data) => {
 });
 
 socket.on("force_avatar_reload", (data) => {
-
-
     if (data.map_id === mapId) {
         avatarCache.clear();
-
-        fetchMap();
+        requestRender();
     }
 });
 
 // Функция для отладки портретов
 window.debugPortraits = function () {
     if (!mapData || !portraitSidebar) {
-        console.log('No map data or sidebar');
         return;
     }
 
     const visibleChars = mapData.characters.filter(c => c.visible_to_players !== false);
-    console.log('=== DEBUG PORTRAITS ===');
-    console.log('Count:', visibleChars.length);
-
-    // Получаем все стили сайдбара
-    const sidebarStyles = window.getComputedStyle(portraitSidebar);
-    console.log('Sidebar dimensions:', {
-        height: portraitSidebar.clientHeight,
-        width: portraitSidebar.clientWidth,
-        paddingLeft: sidebarStyles.paddingLeft,
-        paddingRight: sidebarStyles.paddingRight,
-        paddingTop: sidebarStyles.paddingTop,
-        paddingBottom: sidebarStyles.paddingBottom
-    });
-
-    // Принудительно перерендерим с логами
-    console.log('Forcing re-render...');
     renderPortraits(visibleChars);
-
-    // Покажем информацию о сетке после рендера
-    setTimeout(() => {
-        const grid = document.querySelector('.portrait-grid');
-        if (grid) {
-            const gridStyle = window.getComputedStyle(grid);
-            console.log('Grid styles:', {
-                gap: gridStyle.gap,
-                columnGap: gridStyle.columnGap,
-                rowGap: gridStyle.rowGap,
-                gridTemplateColumns: gridStyle.gridTemplateColumns
-            });
-
-            // Проверяем первый портрет
-            const firstItem = grid.querySelector('.portrait-item');
-            if (firstItem) {
-                const itemStyle = window.getComputedStyle(firstItem);
-                console.log('Portrait item styles:', {
-                    margin: itemStyle.margin,
-                    padding: itemStyle.padding
-                });
-
-                const avatarContainer = firstItem.querySelector('div');
-                if (avatarContainer) {
-                    console.log('Avatar container size:', avatarContainer.style.width);
-                    console.log('Avatar container margin:', window.getComputedStyle(avatarContainer).margin);
-                }
-            }
-
-            // Считаем реальную ширину колонок
-            const gridWidth = grid.clientWidth;
-            const computedGap = parseInt(gridStyle.columnGap) || 0;
-            const columns = gridStyle.gridTemplateColumns.split(' ').length;
-            console.log('Grid actual width:', gridWidth);
-            console.log('Computed gap:', computedGap);
-            console.log('Number of columns:', columns);
-
-            // Теоретическая ширина колонки
-            const theoreticalColumnWidth = (gridWidth - (computedGap * (columns - 1))) / columns;
-            console.log('Theoretical column width:', theoreticalColumnWidth);
-        }
-    }, 100);
 };
 
 function getAvailableWidth() {
@@ -1374,14 +1466,10 @@ function getAvailableWidth() {
     return portraitSidebar.clientWidth - totalPadding;
 }
 
-// И используйте её в renderPortraits:
-// Замените строку с расчетом availableWidth на:
-const availableWidth = getAvailableWidth();
-
 socket.on("characters_updated", (data) => {
     if (data && data.map_id === mapId && mapData) {
-        console.log("characters_updated received, count:", data.characters?.length);
         mapData.characters = data.characters || [];
+        preloadPortraits(mapData.characters);
         updatePortraits();
         requestRender();
     }
@@ -1389,7 +1477,6 @@ socket.on("characters_updated", (data) => {
 
 socket.on("characters_reordered", (data) => {
     if (data && data.map_id === mapId && mapData) {
-        console.log("characters_reordered received, count:", data.characters?.length);
         mapData.characters = data.characters || [];
         updatePortraits();
         requestRender();
@@ -1397,9 +1484,9 @@ socket.on("characters_reordered", (data) => {
 });
 
 function fetchMap(retryCount = 0, maxRetries = 3) {
-    console.log("fetchMap called with mapId:", mapId);
-    console.log("Current location:", window.location.href);
-    console.log("Socket connection status:", socket?.connected);
+    const thisGeneration = ++fetchGeneration;
+
+    if (!canvas || !ctx) return Promise.resolve(null);
 
     resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1409,20 +1496,15 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
     ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
 
     if (!mapId) {
-        console.error("No map ID provided");
         try {
             if (window.parent && window.parent.currentMapId) {
                 mapId = window.parent.currentMapId;
                 window.playerMapId = mapId;
-                console.log("Got mapId from parent:", mapId);
             } else {
                 const urlParams = new URLSearchParams(window.location.search);
                 mapId = urlParams.get('map_id');
-                console.log("Got mapId from URL:", mapId);
             }
-        } catch (err) {
-            console.error("Error accessing parent window:", err);
-        }
+        } catch (err) { /* cross-origin */ }
 
         if (!mapId) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1434,44 +1516,34 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
         }
     }
 
-    // Формируем URL с абсолютным путем
-    const baseUrl = window.location.origin;
-    const fetchUrl = `${baseUrl}/api/map/${mapId}?ts=${Date.now()}`;
-    console.log("Fetching map from:", fetchUrl);
+    const fetchUrl = `/api/map/${mapId}?for=player`;
 
-    // Добавляем таймаут и обработку ошибок сети
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 секунд таймаут
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     return fetch(fetchUrl, {
         signal: controller.signal,
         method: 'GET',
-        headers: {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache'
-        }
+        headers: { 'Accept': 'application/json' }
     })
         .then(res => {
             clearTimeout(timeoutId);
-            console.log("Fetch response status:", res.status);
+            if (thisGeneration !== fetchGeneration) return null;
 
             if (!res.ok) {
-                console.error(`HTTP error! status: ${res.status}`);
                 if (res.status === 404) {
-                    console.log("Map not found, trying to get list of maps");
-                    return fetch(`${baseUrl}/api/maps`, {
-                        signal: AbortSignal.timeout(5000)
-                    })
+                    return fetch('/api/maps', { signal: AbortSignal.timeout(5000) })
                         .then(mapsRes => mapsRes.json())
                         .then(maps => {
-                            console.log("Available maps:", maps);
                             if (maps && maps.length > 0) {
                                 mapId = maps[0].id;
                                 window.playerMapId = mapId;
                                 const url = new URL(window.location);
                                 url.searchParams.set('map_id', mapId);
                                 window.history.replaceState({}, '', url);
-                                console.log("Switching to first map:", mapId);
+                                if (socket && socket.connected) {
+                                    socket.emit("join_map", { map_id: mapId });
+                                }
                                 return fetchMap(0);
                             }
                             throw new Error("No maps available");
@@ -1482,47 +1554,23 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             return res.json();
         })
         .then(data => {
-            if (data.error) {
-                console.error("API error:", data.error);
-                throw new Error(data.error);
-            }
+            if (!data || thisGeneration !== fetchGeneration) return;
+            if (data.error) throw new Error(data.error);
 
-            console.log("Map data loaded successfully");
-            console.log("Received data keys:", Object.keys(data));
-
-            // Сохраняем данные карты
             mapData = data;
 
-            // ===== ВАЖНО: ИНИЦИАЛИЗИРУЕМ ПАРАМЕТРЫ ОТОБРАЖЕНИЯ =====
-            // Получаем размеры канваса мастера из данных
-            if (data.master_canvas_width) {
-                masterCanvasWidth = data.master_canvas_width;
-                console.log("Master canvas width from data:", masterCanvasWidth);
-            }
-            if (data.master_canvas_height) {
-                masterCanvasHeight = data.master_canvas_height;
-                console.log("Master canvas height from data:", masterCanvasHeight);
-            }
+            if (data.master_canvas_width) masterCanvasWidth = data.master_canvas_width;
+            if (data.master_canvas_height) masterCanvasHeight = data.master_canvas_height;
 
-            // Загружаем сохраненный zoom и pan из данных карты
             zoomLevel = data.zoom_level || 1;
             panX = data.pan_x || 0;
             panY = data.pan_y || 0;
 
-            console.log(`PLAYER: Initial position from map data: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
-            console.log(`PLAYER: Master canvas size: ${masterCanvasWidth}x${masterCanvasHeight}`);
-
-            // Убеждаемся, что ruler_visible_to_players имеет значение по умолчанию
-            if (mapData.ruler_visible_to_players === undefined) {
+            if (mapData.ruler_visible_to_players === undefined)
                 mapData.ruler_visible_to_players = false;
-            }
+            if (!mapData.characters) mapData.characters = [];
+            preloadPortraits(mapData.characters);
 
-            // Инициализируем массив персонажей если его нет
-            if (!mapData.characters) {
-                mapData.characters = [];
-            }
-
-            // Обработка видимости карты
             const disabledImg = document.getElementById("mapDisabledImage");
             if (disabledImg) {
                 disabledImg.style.display = mapData.player_map_enabled ? "none" : "block";
@@ -1536,52 +1584,70 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                 canvas.style.display = "block";
             }
 
-            // Загрузка изображения карты
             if (mapData.has_image) {
-                const imageUrl = `${baseUrl}/api/map/image/${mapId}?t=${Date.now()}`;
-                console.log("Loading map image from:", imageUrl);
+                const imageUrl = mapData.image_url || `/api/map/image/${mapId}`;
+                const gen = thisGeneration;
 
-                const newImage = new Image();
-                newImage.onload = () => {
-                    console.log("Map image loaded successfully");
-                    mapImage = newImage;
+                const applyImage = (img) => {
+                    if (gen !== fetchGeneration) return;
+                    mapImage = img;
+                    mapImageCache.set(mapId, img);
                     requestRender();
                     updatePortraits();
                 };
-                newImage.onerror = (err) => {
-                    console.error("Error loading map image:", err);
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.font = "24px Inter";
-                    ctx.fillStyle = "#f44336";
-                    ctx.textAlign = "center";
-                    ctx.fillText("Ошибка загрузки изображения", canvas.width / 2, canvas.height / 2);
-                    if (socket && socket.connected) {
-                        socket.emit("request_map_image", { map_id: mapId });
-                    }
-                };
-                newImage.src = imageUrl;
+
+                const memCached = mapImageCache.get(mapId);
+                if (memCached && memCached.complete && memCached.naturalWidth > 0) {
+                    applyImage(memCached);
+                } else {
+                    // Используем dndCache — сначала из памяти, затем Cache API, затем сеть
+                    dndCache.fetch(imageUrl).then(src => {
+                        if (gen !== fetchGeneration) return;
+                        const img = new Image();
+                        img.onload = () => applyImage(img);
+                        img.onerror = () => {
+                            if (socket && socket.connected)
+                                socket.emit("request_map_image", { map_id: mapId });
+                        };
+                        img.src = src || imageUrl;
+                    });
+                }
             } else {
-                console.log("Map has no image");
                 mapImage = new Image();
                 requestRender();
                 updatePortraits();
             }
 
-            // Запрашиваем синхронизацию позиции после загрузки карты
             if (socket && socket.connected) {
-                console.log('📤 Requesting map sync after map load');
                 socket.emit('request_map_sync', { map_id: mapId });
-
-                // Также запрашиваем рисунки
-                console.log('📤 Requesting drawings after map load');
                 socket.emit('request_drawings', { map_id: mapId });
             }
         })
         .catch(err => {
             clearTimeout(timeoutId);
+            if (thisGeneration !== fetchGeneration) return;
+
+            const isFailedToFetch =
+                typeof err?.message === "string" &&
+                err.message.includes("Failed to fetch");
+            const isAbort = err && err.name === "AbortError";
+
+            if (retryCount === 0 && (isFailedToFetch || isAbort) && socket && mapId) {
+                try {
+                    socket.emit("request_map_data", { map_id: mapId });
+                    socket.emit("request_drawings", { map_id: mapId });
+                    socket.emit("request_map_sync", { map_id: mapId });
+                } catch (e) { /* silent */ }
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = "24px Inter";
+                ctx.fillStyle = "#666";
+                ctx.textAlign = "center";
+                ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
             console.error("Error fetching map:", err);
-            console.error("Error name:", err.name);
-            console.error("Error message:", err.message);
 
             // Проверяем тип ошибки
             if (err.name === 'AbortError') {
@@ -1632,53 +1698,38 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             };
             canvas.addEventListener('click', clickHandler);
 
-            throw err;
+            // Don't rethrow: fetchMap can be called from socket handlers without awaiting,
+            // and throwing causes "Uncaught (in promise)" errors.
+            return Promise.resolve(null);
         });
 }
 
 function requestDrawingsSync() {
     if (socket && socket.connected && mapId) {
-        console.log('📤 Explicitly requesting drawings sync');
         socket.emit('request_drawings', { map_id: mapId });
     }
 }
 
 function drawPlayerStrokes(offsetX, offsetY, scale) {
     if (!playerDrawings || playerDrawings.length === 0) {
-        console.log('No drawings to draw');
         return;
     }
-
-    console.log(`🎨 Drawing ${playerDrawings.length} strokes`);
-    console.log('First stroke sample:', playerDrawings[0]);
 
     ctx.save();
 
     for (let i = 0; i < playerDrawings.length; i++) {
         const stroke = playerDrawings[i];
 
-        console.log(`Stroke ${i}:`, {
-            hasPoints: !!stroke.points,
-            pointsLength: stroke.points?.length,
-            color: stroke.color,
-            width: stroke.width
-        });
-
         // Пропускаем штрихи с одной точкой
         if (!stroke || !stroke.points || !Array.isArray(stroke.points) || stroke.points.length < 2) {
-            console.log(`  ⚠️ Skipping stroke ${i} - insufficient points`);
             continue;
         }
 
         // Проверяем первую точку
         const firstPoint = stroke.points[0];
         if (!Array.isArray(firstPoint) || firstPoint.length < 2) {
-            console.log(`  ⚠️ Invalid first point for stroke ${i}:`, firstPoint);
             continue;
         }
-
-        console.log(`  ✅ Drawing stroke ${i} with ${stroke.points.length} points`);
-        console.log(`  First point: (${firstPoint[0]}, ${firstPoint[1]})`);
 
         ctx.beginPath();
         ctx.strokeStyle = stroke.color || 'rgba(255, 50, 50, 0.5)';
@@ -1695,37 +1746,25 @@ function drawPlayerStrokes(offsetX, offsetY, scale) {
         for (let j = 1; j < stroke.points.length; j++) {
             const point = stroke.points[j];
             if (!Array.isArray(point) || point.length < 2) {
-                console.log(`    ⚠️ Invalid point at index ${j}:`, point);
                 continue;
             }
 
             const x = point[0] * scale + offsetX;
             const y = point[1] * scale + offsetY;
             ctx.lineTo(x, y);
-
-            // Логируем каждую 10-ю точку для отладки
-            if (j % 10 === 0) {
-                console.log(`    Point ${j}: (${x}, ${y})`);
-            }
         }
 
         ctx.stroke();
-        console.log(`  ✅ Stroke ${i} drawn`);
     }
 
     ctx.restore();
-    console.log('Finished drawing all strokes');
 }
 socket.on('drawings_updated', (data) => {
-    console.log('RAW drawings data:', data);
-
     if (data.map_id === mapId) {
         // Фильтруем штрихи - оставляем только те, у которых >= 2 точек
         const filteredStrokes = (data.strokes || []).filter(stroke =>
             stroke && stroke.points && stroke.points.length >= 2
         );
-
-        console.log(`Filtered strokes: ${filteredStrokes.length} (removed ${(data.strokes || []).length - filteredStrokes.length} single-point strokes)`);
 
         playerDrawings = filteredStrokes;
         playerDrawingLayerId = data.layer_id;
@@ -1734,32 +1773,26 @@ socket.on('drawings_updated', (data) => {
 });
 
 socket.on('drawings_loaded', (data) => {
-    console.log('🎨 Player received drawings_loaded:', data);
-
     if (data.map_id === mapId) {
         // Фильтруем штрихи при загрузке
         const filteredStrokes = (data.strokes || []).filter(stroke =>
             stroke && stroke.points && stroke.points.length >= 2
         );
 
-        console.log(`📝 Loading player drawings, original: ${data.strokes?.length}, filtered: ${filteredStrokes.length}`);
-
         playerDrawings = filteredStrokes;
         playerDrawingLayerId = data.layer_id;
         lastDrawingsHash = JSON.stringify(filteredStrokes);
         drawingsLoaded = true;
 
-        console.log('🎯 Triggering render after drawings load');
         requestRender();
     }
 });
 
 socket.on('reconnect', () => {
-    console.log('🔄 Socket reconnected, requesting drawings...');
     if (mapId) {
-        setTimeout(() => {
-            console.log('📤 Requesting drawings after reconnect');
-            socket.emit('request_drawings', { map_id: mapId });
-        }, 1000);
+        socket.emit('join_map', { map_id: mapId });
+        socket.emit('request_drawings', { map_id: mapId });
+        socket.emit('request_map_sync', { map_id: mapId });
+        fetchMap();
     }
 });
