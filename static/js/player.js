@@ -927,9 +927,9 @@ function render() {
         return;
     }
 
-    // 5. Получаем размеры карты
-    const mapW = mapImage.width;
-    const mapH = mapImage.height;
+    // 5. Размеры карты в мировых координатах (как у вершин зон) — только natural*
+    const mapW = mapImage.naturalWidth || mapImage.width;
+    const mapH = mapImage.naturalHeight || mapImage.height;
 
     // 6. Вычисляем масштаб для игрока
     const playerBaseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
@@ -1112,8 +1112,10 @@ function drawGrid(offsetX, offsetY, scale) {
     ctx.strokeStyle = mapData.grid_settings.color || "#888";
     ctx.lineWidth = 1;
 
-    const mapScreenWidth = mapImage.width * scale;
-    const mapScreenHeight = mapImage.height * scale;
+    const mw = mapImage.naturalWidth || mapImage.width;
+    const mh = mapImage.naturalHeight || mapImage.height;
+    const mapScreenWidth = mw * scale;
+    const mapScreenHeight = mh * scale;
 
     const mapLeft = offsetX;
     const mapRight = offsetX + mapScreenWidth;
@@ -1325,7 +1327,10 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
 // ─── Кеш блюра зон ──────────────────────────────────────────────────────────
 // Блюр вычисляется ОДИН РАЗ на зону при загрузке карты/изменении зоны.
 // При каждом кадре — только дешёвый drawImage(cached, ...).
-const _zoneBlurCache = new Map(); // id → { canvas, worldX, worldY, worldW, worldH, mapSrc, hash }
+const _zoneBlurCache = new Map(); // id → { canvas, worldX, worldY, worldW, worldH, mapSrc, hash, cacheVersion }
+
+/** Смена версии сбрасывает кеш после правок алгоритма блюра */
+const ZONE_BLUR_CACHE_VERSION = 6;
 
 function invalidateZoneBlurCache() { _zoneBlurCache.clear(); }
 
@@ -1335,6 +1340,9 @@ function _zoneHash(zone) { return JSON.stringify(zone.vertices); }
 function _buildZoneBlur(zone) {
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return null;
 
+    const imgW = mapImage.naturalWidth;
+    const imgH = mapImage.naturalHeight;
+
     // Bounding box в координатах карты
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [x, y] of zone.vertices) {
@@ -1342,46 +1350,100 @@ function _buildZoneBlur(zone) {
         if (x > maxX) maxX = x; if (y > maxY) maxY = y;
     }
 
-    // Отступ для плавного размытия по краям
-    const pad = Math.max(mapImage.naturalWidth, mapImage.naturalHeight) * 0.06;
-    const wx  = Math.max(0, minX - pad);
-    const wy  = Math.max(0, minY - pad);
-    const wx2 = Math.min(mapImage.naturalWidth,  maxX + pad);
-    const wy2 = Math.min(mapImage.naturalHeight, maxY + pad);
-    const ww  = wx2 - wx;
-    const wh  = wy2 - wy;
-    if (ww <= 0 || wh <= 0) return null;
+    // Отступ в мировых пикселях: больше у края карты нужен «запас» под ядро blur,
+    // иначе у границы карты размытие слабеет (сэмплит прозрачность вместо соседних пикселей).
+    // Целевой радиус размытия в МИРОВЫХ пикселях карты (одинаковая «сила» по всей карте)
+    const BLUR_RADIUS_WORLD = 130;
+    const padFrac = Math.max(imgW, imgH) * 0.11;
+    const padMin = Math.max(140, Math.ceil(BLUR_RADIUS_WORLD * 4));
+    const pad = Math.max(padFrac, padMin);
 
-    // Рендерим в ограниченном разрешении (не больше 512px по длинной стороне)
-    const MAX_DIM = 512;
-    const rs = Math.min(1, MAX_DIM / Math.max(ww, wh));
-    const cw = Math.max(1, Math.round(ww * rs));
-    const ch = Math.max(1, Math.round(wh * rs));
+    const wx0 = minX - pad;
+    const wy0 = minY - pad;
+    const wx1 = maxX + pad;
+    const wy1 = maxY + pad;
+    const virtW = wx1 - wx0;
+    const virtH = wy1 - wy0;
+    if (virtW <= 0 || virtH <= 0) return null;
 
-    // Шаг 1: вырезаем нужный кусок карты
+    // Пересечение с картой (реальные пиксели)
+    const ix0 = Math.min(imgW, Math.max(0, wx0));
+    const iy0 = Math.min(imgH, Math.max(0, wy0));
+    const ix1 = Math.min(imgW, Math.max(0, wx1));
+    const iy1 = Math.min(imgH, Math.max(0, wy1));
+    if (ix1 <= ix0 || iy1 <= iy0) return null;
+
+    const MAX_DIM = 1280;
+    const rs = Math.min(1, MAX_DIM / Math.max(virtW, virtH));
+    const cw = Math.max(1, Math.round(virtW * rs));
+    const ch = Math.max(1, Math.round(virtH * rs));
+
+    const offX = Math.round((ix0 - wx0) * rs);
+    const offY = Math.round((iy0 - wy0) * rs);
+    const cropW = Math.max(1, Math.round((ix1 - ix0) * rs));
+    const cropH = Math.max(1, Math.round((iy1 - iy0) * rs));
+
     const src = document.createElement('canvas');
-    src.width = cw; src.height = ch;
+    src.width = cw;
+    src.height = ch;
     const srcCtx = src.getContext('2d');
-    srcCtx.drawImage(mapImage, wx, wy, ww, wh, 0, 0, cw, ch);
+    const sw = ix1 - ix0;
+    const sh = iy1 - iy0;
 
-    // Шаг 2: применяем blur на отдельный холст (нельзя in-place)
+    // Центр: фрагмент карты
+    srcCtx.drawImage(mapImage, ix0, iy0, sw, sh, offX, offY, cropW, cropH);
+
+    // Поля за пределами карты: растягиваем крайние ряды/колонки (blur видит «продолжение» картинки)
+    if (offY > 0) {
+        srcCtx.drawImage(mapImage, ix0, iy0, sw, 1, 0, 0, cw, offY);
+    }
+    if (offY + cropH < ch) {
+        const bh = ch - offY - cropH;
+        srcCtx.drawImage(mapImage, ix0, iy1 - 1, sw, 1, 0, offY + cropH, cw, bh);
+    }
+    if (offX > 0) {
+        srcCtx.drawImage(mapImage, ix0, iy0, 1, sh, 0, offY, offX, cropH);
+    }
+    if (offX + cropW < cw) {
+        const rw = cw - offX - cropW;
+        srcCtx.drawImage(mapImage, ix1 - 1, iy0, 1, sh, offX + cropW, offY, rw, cropH);
+    }
+
     const dst = document.createElement('canvas');
-    dst.width = cw; dst.height = ch;
+    dst.width = cw;
+    dst.height = ch;
     const dstCtx = dst.getContext('2d');
-    const blurPx = Math.max(6, cw * 0.07);
+    // В кэше масштаб rs: мир → пиксель кэша. Чтобы в мире было ~BLUR_RADIUS_WORLD px размытия:
+    // blurPx_cache ≈ BLUR_RADIUS_WORLD * rs
+    const blurPx = Math.max(8, BLUR_RADIUS_WORLD * rs);
     dstCtx.filter = `blur(${blurPx}px)`;
     dstCtx.drawImage(src, 0, 0);
     dstCtx.filter = 'none';
 
-    return { canvas: dst, worldX: wx, worldY: wy, worldW: ww, worldH: wh,
-             mapSrc: mapImage.src, hash: _zoneHash(zone) };
+    return {
+        canvas: dst,
+        worldX: wx0,
+        worldY: wy0,
+        worldW: virtW,
+        worldH: virtH,
+        mapSrc: mapImage.src,
+        hash: _zoneHash(zone),
+        cacheVersion: ZONE_BLUR_CACHE_VERSION
+    };
 }
 
 function _getCachedZoneBlur(zone) {
     const key  = _zoneKey(zone);
     const hash = _zoneHash(zone);
     const c    = _zoneBlurCache.get(key);
-    if (c && c.hash === hash && c.mapSrc === mapImage.src) return c;
+    if (
+        c &&
+        c.hash === hash &&
+        c.mapSrc === mapImage.src &&
+        c.cacheVersion === ZONE_BLUR_CACHE_VERSION
+    ) {
+        return c;
+    }
     const built = _buildZoneBlur(zone);
     if (built) _zoneBlurCache.set(key, built);
     return built;
