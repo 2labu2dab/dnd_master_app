@@ -995,25 +995,36 @@ function drawToken(token, offsetX, offsetY, scale) {
     const tokenSize = cellSize * sizeScale;
     const radius = tokenSize / 2;
 
+    const avatarSrc = token.avatar_url || token.avatar_data;
+    const cachedImg = avatarCache.get(token.id);
+
+    if (avatarSrc) {
+        if (cachedImg === 'loading') {
+            return;
+        }
+        if (!avatarCache.has(token.id)) {
+            avatarCache.set(token.id, 'loading');
+
+            const img = new Image();
+            img.onload = () => {
+                avatarCache.set(token.id, img);
+                requestRender();
+            };
+            img.onerror = () => {
+                avatarCache.set(token.id, null);
+                requestRender();
+            };
+            // URL уже может содержать версию (?v=...), не добавляем Date.now().
+            img.src = avatarSrc;
+            return;
+        }
+    }
+
     ctx.beginPath();
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
 
-    const avatarSrc = token.avatar_url || token.avatar_data;
-
     if (avatarSrc) {
-        let cachedImg = avatarCache.get(token.id);
-
-        if (cachedImg === 'loading') {
-            ctx.fillStyle = token.is_dead
-                ? "#616161"
-                : token.is_player
-                    ? "#4CAF50"
-                    : token.is_npc
-                        ? "#FFC107"
-                        : "#F44336";
-            ctx.fill();
-        }
-        else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+        if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
             ctx.save();
             ctx.clip();
 
@@ -1038,24 +1049,7 @@ function drawToken(token, offsetX, offsetY, scale) {
             }
 
             ctx.restore();
-        }
-        else {
-            if (!avatarCache.has(token.id) || avatarCache.get(token.id) === null) {
-                avatarCache.set(token.id, 'loading');
-
-                const img = new Image();
-                img.onload = () => {
-                    avatarCache.set(token.id, img);
-                    requestRender();
-                };
-                img.onerror = () => {
-                    avatarCache.set(token.id, null);
-                    requestRender();
-                };
-                // URL уже может содержать версию (?v=...), не добавляем Date.now().
-                img.src = avatarSrc;
-            }
-
+        } else {
             ctx.fillStyle = token.is_dead
                 ? "#616161"
                 : token.is_player

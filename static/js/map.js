@@ -2057,6 +2057,32 @@ function drawToken(token, offsetX, offsetY, scale) {
     const tokenSize = cellSize * sizeScale;
     const radius = tokenSize / 2;
 
+    const avatarSrc = token.avatar_url || token.avatar_data;
+    const cachedImg = avatarCache.get(token.id);
+
+    if (avatarSrc) {
+        if (cachedImg === 'loading') {
+            return;
+        }
+        if (!avatarCache.has(token.id)) {
+            avatarCache.set(token.id, 'loading');
+
+            const img = new Image();
+            img.onload = () => {
+                console.log(`Avatar loaded for token ${token.id}, size: ${img.naturalWidth}x${img.naturalHeight}`);
+                avatarCache.set(token.id, img);
+                render();
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load avatar for token ${token.name}, using placeholder`);
+                avatarCache.set(token.id, null);
+                render();
+            };
+            img.src = avatarSrc;
+            return;
+        }
+    }
+
     const isUnderHiddenZone = isPointInHiddenZone(token.position, mapData.zones);
     const isManuallyHidden = token.is_visible === false;
 
@@ -2069,22 +2095,8 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.beginPath();
     ctx.arc(sx, sy, radius, 0, 2 * Math.PI);
 
-    const avatarSrc = token.avatar_url || token.avatar_data;
-
     if (avatarSrc) {
-        let cachedImg = avatarCache.get(token.id);
-
-        if (cachedImg === 'loading') {
-            ctx.fillStyle = token.is_dead
-                ? "#616161"
-                : token.is_player
-                    ? "#4CAF50"
-                    : token.is_npc
-                        ? "#FFC107"
-                        : "#F44336";
-            ctx.fill();
-        }
-        else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+        if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
             ctx.save();
             ctx.clip();
 
@@ -2113,25 +2125,7 @@ function drawToken(token, offsetX, offsetY, scale) {
             }
 
             ctx.restore();
-        }
-        else {
-            if (!avatarCache.has(token.id) || avatarCache.get(token.id) === null) {
-                avatarCache.set(token.id, 'loading');
-
-                const img = new Image();
-                img.onload = () => {
-                    console.log(`Avatar loaded for token ${token.id}, size: ${img.naturalWidth}x${img.naturalHeight}`);
-                    avatarCache.set(token.id, img);
-                    render();
-                };
-                img.onerror = () => {
-                    console.warn(`Failed to load avatar for token ${token.name}, using placeholder`);
-                    avatarCache.set(token.id, null);
-                    render();
-                };
-                img.src = avatarSrc;
-            }
-
+        } else {
             ctx.fillStyle = token.is_dead
                 ? "#616161"
                 : token.is_player
@@ -2181,31 +2175,8 @@ function drawToken(token, offsetX, offsetY, scale) {
 
 function reloadTokenAvatar(tokenId) {
     if (!tokenId) return;
-
-    // Удаляем из кэша
-    if (avatarCache.has(tokenId)) {
-        avatarCache.delete(tokenId);
-    }
-
-    // Находим токен
-    const token = mapData.tokens.find(t => t.id === tokenId);
-    if (token && token.avatar_url) {
-        const url = token.avatar_url;
-
-        // Загружаем заново
-        const img = new Image();
-        img.onload = () => {
-            console.log(`Avatar reloaded for token ${tokenId}, size: ${img.naturalWidth}x${img.naturalHeight}`);
-            avatarCache.set(tokenId, img);
-            render();
-        };
-        img.onerror = () => {
-            console.warn(`Failed to reload avatar for token ${tokenId}`);
-            avatarCache.set(tokenId, null);
-            render();
-        };
-        img.src = url;
-    }
+    avatarCache.delete(tokenId);
+    render();
 }
 
 // Вызывайте эту функцию после загрузки аватара на сервер
