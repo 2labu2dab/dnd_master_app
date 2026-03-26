@@ -94,8 +94,9 @@ const rulerToggle = document.getElementById("rulerToggle");
 canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
 canvas.height = window.innerHeight;
 let mapsList = [];
-let drawingHistory = []; // История рисунков для отмены
-let drawingHistoryIndex = -1; // Текущий индекс в истории
+/** Единая история Ctrl+Z / Ctrl+Y: снимок рисунков + зон на каждом шаге */
+let masterUndoHistory = [];
+let masterUndoIndex = -1;
 const MAX_HISTORY_SIZE = 50;
 let editingMapId = null;
 let masterPingInterval = null;
@@ -168,6 +169,84 @@ let currentZoneVertices = [];
 let avatarImage = null;
 let avatarData = null;
 let selectedZoneId = null;
+let draggingVertexZoneId = null;  // id зоны, у которой тянем вершину
+let draggingVertexIndex  = -1;    // индекс тянущейся вершины
+let hoveredVertexZoneId  = null;  // для подсветки при hover
+let hoveredVertexIndex   = -1;
+let selectedVertexZoneId = null;  // вершина для Delete (клик по ручке)
+let selectedVertexIndex  = -1;
+
+function clearSelectedVertex() {
+    selectedVertexZoneId = null;
+    selectedVertexIndex  = -1;
+}
+
+const VERTEX_HIT_R = 10;          // радиус клика по вершине (пиксели экрана)
+const EDGE_INSERT_SCREEN_DIST = 16; // допуск к грани при двойном клике (экран, px)
+
+function closestPointOnSegmentWorld(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 <= 0) return { x: x1, y: y1, t: 0 };
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return { x: x1 + t * dx, y: y1 + t * dy, t };
+}
+
+/** Двойной клик по грани выделенной зоны — новая вершина на ребре */
+function tryInsertZoneVertexOnEdge(mouseX, mouseY) {
+    if (!selectedZoneId || !mapData?.zones || !mapImage?.width) return false;
+    const zone = mapData.zones.find(z => z.id === selectedZoneId);
+    if (!zone?.vertices || zone.vertices.length < 3) return false;
+
+    const { scale, offsetX, offsetY } = getTransform();
+    const wxClick = (mouseX - offsetX) / scale;
+    const wyClick = (mouseY - offsetY) / scale;
+
+    const n = zone.vertices.length;
+    let bestI = -1;
+    let bestWorld = null;
+    let bestScreenD = EDGE_INSERT_SCREEN_DIST + 1;
+
+    for (let i = 0; i < n; i++) {
+        const [x1, y1] = zone.vertices[i];
+        const [x2, y2] = zone.vertices[(i + 1) % n];
+        const sx1 = x1 * scale + offsetX;
+        const sy1 = y1 * scale + offsetY;
+        const sx2 = x2 * scale + offsetX;
+        const sy2 = y2 * scale + offsetY;
+        if (Math.hypot(mouseX - sx1, mouseY - sy1) <= VERTEX_HIT_R) continue;
+        if (Math.hypot(mouseX - sx2, mouseY - sy2) <= VERTEX_HIT_R) continue;
+
+        const cp = closestPointOnSegmentWorld(wxClick, wyClick, x1, y1, x2, y2);
+        if (cp.t <= 0.04 || cp.t >= 0.96) continue;
+
+        const scx = cp.x * scale + offsetX;
+        const scy = cp.y * scale + offsetY;
+        const d = Math.hypot(mouseX - scx, mouseY - scy);
+        if (d < bestScreenD) {
+            bestScreenD = d;
+            bestI = i;
+            bestWorld = { x: cp.x, y: cp.y };
+        }
+    }
+
+    if (bestI < 0 || bestScreenD > EDGE_INSERT_SCREEN_DIST || !bestWorld) return false;
+
+    const nx = Math.max(0, Math.min(bestWorld.x, mapImage.width));
+    const ny = Math.max(0, Math.min(bestWorld.y, mapImage.height));
+    zone.vertices.splice(bestI + 1, 0, [nx, ny]);
+
+    clearSelectedVertex();
+    saveDrawingStateToHistory();
+    debouncedSave(300);
+    invalidateBg();
+    render();
+    updateSidebar();
+    return true;
+}
+
 let isRulerMode = false;
 let rulerStart = null;
 let lastMouseX = 0;
@@ -283,6 +362,7 @@ function createCharacterListItem(character, index) {
             selectedTokenId = null;
             selectedFindId = null;
             selectedZoneId = null;
+            clearSelectedVertex();
             selectedTokens.clear();
             refreshPortraits();
             render();
@@ -878,6 +958,7 @@ function setupSidebarContextMenus() {
 
             if (zone) {
                 selectedZoneId = zone.id;
+                clearSelectedVertex();
                 showZoneContextMenu(zone, e.pageX, e.pageY);
             }
         });
@@ -1076,6 +1157,7 @@ function updateSidebar() {
             selectedTokenId = null;
             selectedFindId = null;
             selectedCharacterId = null;
+            clearSelectedVertex();
             selectedTokens.clear();
             updateSidebar();
             render();
@@ -1194,6 +1276,7 @@ function updateSidebar() {
             selectedZoneId = null;
             selectedFindId = null;
             selectedCharacterId = null;
+            clearSelectedVertex();
 
             updateSidebar();
             render();
@@ -1257,6 +1340,7 @@ function updateSidebar() {
             selectedTokenId = null;
             selectedZoneId = null;
             selectedCharacterId = null;
+            clearSelectedVertex();
             selectedTokens.clear();
             updateSidebar();
             render();
@@ -2490,6 +2574,24 @@ function drawZone(zone, offsetX, offsetY, scale) {
         ctx.strokeStyle = "#00FFFF";
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Вершины — перетаскиваемые ручки (выделенная — для Delete)
+        zone.vertices.forEach(([wx, wy], i) => {
+            const sx = wx * scale + offsetX;
+            const sy = wy * scale + offsetY;
+            const isHov  = hoveredVertexZoneId  === zone.id && hoveredVertexIndex  === i;
+            const isDrag = draggingVertexZoneId === zone.id && draggingVertexIndex === i;
+            const isSel  = selectedVertexZoneId === zone.id && selectedVertexIndex === i;
+            const r = isDrag || isHov ? 9 : isSel ? 8 : 7;
+
+            ctx.beginPath();
+            ctx.arc(sx, sy, r, 0, Math.PI * 2);
+            ctx.fillStyle = isDrag ? '#FFD700' : isHov ? '#FFFAAA' : '#FFFFFF';
+            ctx.fill();
+            ctx.strokeStyle = isSel ? '#E040FB' : isDrag ? '#FF8C00' : '#00FFFF';
+            ctx.lineWidth = isSel ? 3 : 2;
+            ctx.stroke();
+        });
     }
 
     // Отрисовываем подпись только если зона НЕ visible
@@ -2747,6 +2849,28 @@ canvas.addEventListener("mousedown", (e) => {
         return;
     }
 
+    // ── Высший приоритет: клик по вершине выделенной зоны ───────────────────
+    const _prevSelectedZoneId = selectedZoneId;
+    if (_prevSelectedZoneId && e.button === 0 && !drawingZone && !isRulerMode) {
+        const _zone = mapData.zones.find(z => z.id === _prevSelectedZoneId);
+        if (_zone) {
+            for (let _vi = 0; _vi < _zone.vertices.length; _vi++) {
+                const [wx, wy] = _zone.vertices[_vi];
+                if (Math.hypot(mouseX - (wx * scale + offsetX), mouseY - (wy * scale + offsetY)) <= VERTEX_HIT_R) {
+                    draggingVertexZoneId = _prevSelectedZoneId;
+                    draggingVertexIndex  = _vi;
+                    selectedVertexZoneId = _prevSelectedZoneId;
+                    selectedVertexIndex  = _vi;
+                    // Сохраняем выделение зоны — не даём сбросить ниже
+                    selectedZoneId = _prevSelectedZoneId;
+                    render();
+                    return; // всё остальное пропускаем
+                }
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Проверяем клик по токену
     let clickedToken = null;
     let clickedTokenId = null;
@@ -2769,6 +2893,7 @@ canvas.addEventListener("mousedown", (e) => {
     selectedTokenId = null;
     selectedFindId = null;
     selectedZoneId = null;
+    clearSelectedVertex();
     draggingToken = null;
     draggingFind = null;
     isDraggingMultiple = false;
@@ -2938,6 +3063,46 @@ canvas.addEventListener("mousemove", (e) => {
         scheduleRender();
         return;
     }
+
+    // ── Перетаскивание вершины зоны ──────────────────────────────────────────
+    if (draggingVertexZoneId !== null && draggingVertexIndex >= 0) {
+        const zone = mapData.zones.find(z => z.id === draggingVertexZoneId);
+        if (zone) {
+            const wx = (mouseX - offsetX) / scale;
+            const wy = (mouseY - offsetY) / scale;
+            zone.vertices[draggingVertexIndex] = [
+                Math.max(0, Math.min(wx, mapImage.width)),
+                Math.max(0, Math.min(wy, mapImage.height))
+            ];
+            scheduleRender();
+        }
+        return;
+    }
+
+    // ── Hover-подсветка вершин выделенной зоны ───────────────────────────────
+    if (selectedZoneId && !drawingZone && !isRulerMode) {
+        const zone = mapData.zones.find(z => z.id === selectedZoneId);
+        let foundVtx = -1;
+        if (zone) {
+            for (let i = 0; i < zone.vertices.length; i++) {
+                const [wx, wy] = zone.vertices[i];
+                if (Math.hypot(mouseX - (wx * scale + offsetX), mouseY - (wy * scale + offsetY)) <= VERTEX_HIT_R) {
+                    foundVtx = i;
+                    break;
+                }
+            }
+        }
+        if (hoveredVertexIndex !== foundVtx || hoveredVertexZoneId !== selectedZoneId) {
+            hoveredVertexIndex  = foundVtx;
+            hoveredVertexZoneId = foundVtx >= 0 ? selectedZoneId : null;
+            scheduleRender();
+        }
+    } else if (hoveredVertexIndex >= 0) {
+        hoveredVertexIndex  = -1;
+        hoveredVertexZoneId = null;
+        scheduleRender();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     updateCanvasCursor();
 
@@ -3345,6 +3510,7 @@ canvas.addEventListener("contextmenu", (e) => {
         if (pointInPolygon([e.offsetX, e.offsetY], transformed)) {
             e.preventDefault();
             selectedZoneId = zone.id;
+            clearSelectedVertex();
             showZoneContextMenu(zone, e.pageX, e.pageY);
             return;
         }
@@ -3487,6 +3653,15 @@ canvas.addEventListener("mouseup", () => {
     isDraggingMultiple = false;
     multiDragOffsets.clear();
 
+    // Завершение перетаскивания вершины зоны — чекпоинт в общей истории отмены
+    if (draggingVertexZoneId !== null) {
+        draggingVertexZoneId = null;
+        draggingVertexIndex  = -1;
+        saveDrawingStateToHistory();
+        debouncedSave(300);
+        render();
+    }
+
     if (isPanning) {
         isPanning = false;
     }
@@ -3498,6 +3673,18 @@ canvas.addEventListener("mouseleave", () => {
     if (isPanning) {
         isPanning = false;
         updateCanvasCursor();
+    }
+    if (draggingVertexZoneId !== null) {
+        draggingVertexZoneId = null;
+        draggingVertexIndex  = -1;
+        saveDrawingStateToHistory();
+        debouncedSave(300);
+        render();
+    }
+    if (hoveredVertexIndex >= 0) {
+        hoveredVertexIndex  = -1;
+        hoveredVertexZoneId = null;
+        scheduleRender();
     }
 });
 
@@ -3547,9 +3734,19 @@ canvas.addEventListener("click", (e) => {
         selectedZoneId = null;
         selectedFindId = null;
         selectedCharacterId = null;
+        clearSelectedVertex();
 
         updateSidebar();
         render();
+    }
+});
+
+canvas.addEventListener("dblclick", (e) => {
+    if (!currentMapId || !mapData) return;
+    if (drawingZone || isDrawMode || isEraseMode || isRulerMode) return;
+    if (e.button !== 0) return;
+    if (tryInsertZoneVertexOnEdge(e.offsetX, e.offsetY)) {
+        e.preventDefault();
     }
 });
 
@@ -3753,7 +3950,7 @@ document.addEventListener("keydown", (e) => {
         // Проверяем, является ли нажатая клавиша Y (для Ctrl+Y)
         const isYKey = key === 'y' || key === 'н' || code === 'KeyY';
 
-        // Обработка Ctrl+Z для отмены рисунков
+        // Обработка Ctrl+Z: единая история (рисунки + зоны)
         if (isZKey && !e.shiftKey) {
             e.preventDefault();
 
@@ -3761,30 +3958,7 @@ document.addEventListener("keydown", (e) => {
             const anyModalOpen = checkAnyModalOpen();
 
             if (!anyModalOpen) {
-                console.log('Ctrl+Z pressed - undo drawing');
-
-                // Важное изменение: не ждем следующего кадра, выполняем сразу
-                if (drawingHistoryIndex > 0) {
-                    drawingHistoryIndex--;
-                    drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-
-                    console.log(`Undo: Restored state ${drawingHistoryIndex}`);
-
-                    // НЕМЕДЛЕННО сохраняем на сервере
-                    saveDrawings();
-
-                    // НЕМЕДЛЕННО отправляем всем игрокам
-                    socket.emit('drawings_updated', {
-                        map_id: currentMapId,
-                        strokes: drawingStrokes,
-                        layer_id: currentDrawingLayerId
-                    });
-
-                    // НЕМЕДЛЕННО перерисовываем
-                    render();
-                } else {
-                    console.log('Nothing to undo');
-                    // Визуальная подсказка, что нечего отменять
+                if (!masterUndo()) {
                     showUndoNotification('Нечего отменять');
                 }
             }
@@ -3798,28 +3972,7 @@ document.addEventListener("keydown", (e) => {
             const anyModalOpen = checkAnyModalOpen();
 
             if (!anyModalOpen) {
-                console.log('Ctrl+Shift+Z or Ctrl+Y pressed - redo drawing');
-
-                if (drawingHistoryIndex < drawingHistory.length - 1) {
-                    drawingHistoryIndex++;
-                    drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-
-                    console.log(`Redo: Restored state ${drawingHistoryIndex}`);
-
-                    // НЕМЕДЛЕННО сохраняем на сервере
-                    saveDrawings();
-
-                    // НЕМЕДЛЕННО отправляем всем игрокам
-                    socket.emit('drawings_updated', {
-                        map_id: currentMapId,
-                        strokes: drawingStrokes,
-                        layer_id: currentDrawingLayerId
-                    });
-
-                    // НЕМЕДЛЕННО перерисовываем
-                    render();
-                } else {
-                    console.log('Nothing to redo');
+                if (!masterRedo()) {
                     showUndoNotification('Нечего повторять');
                 }
             }
@@ -3828,6 +3981,31 @@ document.addEventListener("keydown", (e) => {
     }
 
     if (e.key === "Delete") {
+        // Удаление вершины: только явно выделенной (клик по ручке)
+        if (!drawingZone && selectedVertexZoneId != null && selectedVertexIndex >= 0 && mapData?.zones &&
+            selectedVertexZoneId === selectedZoneId) {
+            const zid = selectedVertexZoneId;
+            const vidx = selectedVertexIndex;
+            const zone = mapData.zones.find(z => z.id === zid);
+            if (zone && zone.vertices && vidx < zone.vertices.length) {
+                e.preventDefault();
+                zone.vertices.splice(vidx, 1);
+                if (zone.vertices.length < 3) {
+                    mapData.zones = mapData.zones.filter(z => z.id !== zid);
+                    if (selectedZoneId === zid) selectedZoneId = null;
+                }
+                clearSelectedVertex();
+                hoveredVertexIndex  = -1;
+                hoveredVertexZoneId = null;
+                saveDrawingStateToHistory();
+                debouncedSave(300);
+                invalidateBg();
+                render();
+                updateSidebar();
+                return;
+            }
+        }
+
         let changed = false;
 
         // Удаление нескольких выделенных токенов
@@ -3897,6 +4075,7 @@ document.addEventListener("keydown", (e) => {
             if (!confirm(`Удалить зону?`)) return;
             mapData.zones = mapData.zones.filter(z => z.id !== selectedZoneId);
             selectedZoneId = null;
+            clearSelectedVertex();
             changed = true;
         }
 
@@ -4419,6 +4598,8 @@ function updateCanvasCursor() {
         canvas.classList.add('draw-mode');
     } else if (isEraseMode) {
         canvas.classList.add('erase-mode');
+    } else if (draggingVertexZoneId !== null || hoveredVertexIndex >= 0) {
+        canvas.style.cursor = 'move';
     } else if (drawingZone) {
         canvas.classList.add('zone-drawing-mode');
     } else if (isRulerMode) {
@@ -5410,6 +5591,7 @@ function openEditZoneModal(zone) {
     document.getElementById("zoneModal").style.display = "flex";
 
     selectedZoneId = zone.id;
+    clearSelectedVertex();
 }
 
 document.addEventListener("click", (e) => {
@@ -7805,90 +7987,77 @@ socket.on('player_connected', (data) => {
     }
 });
 
+function applyMasterUndoStateAt(index) {
+    const e = masterUndoHistory[index];
+    if (!e) return;
+    draggingVertexZoneId = null;
+    draggingVertexIndex  = -1;
+    clearSelectedVertex();
+    drawingStrokes = JSON.parse(JSON.stringify(e.strokes));
+    if (mapData) {
+        mapData.zones = JSON.parse(JSON.stringify(e.zones));
+    }
+    saveDrawings();
+    socket.emit('drawings_updated', {
+        map_id: currentMapId,
+        strokes: drawingStrokes,
+        layer_id: currentDrawingLayerId
+    });
+    debouncedSave(300);
+    invalidateBg();
+    render();
+    updateCanvasCursor();
+}
+
+function masterUndo() {
+    if (masterUndoIndex <= 0) return false;
+    masterUndoIndex--;
+    applyMasterUndoStateAt(masterUndoIndex);
+    return true;
+}
+
+function masterRedo() {
+    if (masterUndoIndex >= masterUndoHistory.length - 1) return false;
+    masterUndoIndex++;
+    applyMasterUndoStateAt(masterUndoIndex);
+    return true;
+}
+
+/** Сохранить снимок рисунков + зон в единую историю (рисование, перетаскивание вершины зоны и т.д.) */
 function saveDrawingStateToHistory() {
-    // Создаем глубокую копию текущих рисунков
-    const currentState = JSON.parse(JSON.stringify(drawingStrokes));
-
-    // Проверяем, не совпадает ли новое состояние с последним в истории
-    if (drawingHistory.length > 0) {
-        const lastState = drawingHistory[drawingHistoryIndex];
-
-        // Сравниваем состояния (простое сравнение JSON)
-        if (JSON.stringify(lastState) === JSON.stringify(currentState)) {
-            console.log('State unchanged, not saving to history');
+    const entry = {
+        strokes: JSON.parse(JSON.stringify(drawingStrokes)),
+        zones: JSON.parse(JSON.stringify(mapData?.zones || []))
+    };
+    if (masterUndoHistory.length > 0) {
+        const last = masterUndoHistory[masterUndoIndex];
+        if (JSON.stringify(last.strokes) === JSON.stringify(entry.strokes) &&
+            JSON.stringify(last.zones) === JSON.stringify(entry.zones)) {
             return;
         }
     }
-
-    // Если мы не в конце истории, обрезаем будущие состояния
-    if (drawingHistoryIndex < drawingHistory.length - 1) {
-        drawingHistory = drawingHistory.slice(0, drawingHistoryIndex + 1);
+    if (masterUndoIndex < masterUndoHistory.length - 1) {
+        masterUndoHistory = masterUndoHistory.slice(0, masterUndoIndex + 1);
     }
-
-    // Добавляем новое состояние
-    drawingHistory.push(currentState);
-    drawingHistoryIndex++;
-
-    // Ограничиваем размер истории
-    if (drawingHistory.length > MAX_HISTORY_SIZE) {
-        drawingHistory.shift();
-        drawingHistoryIndex--;
+    masterUndoHistory.push(entry);
+    masterUndoIndex++;
+    if (masterUndoHistory.length > MAX_HISTORY_SIZE) {
+        masterUndoHistory.shift();
+        masterUndoIndex--;
     }
-
-    console.log(`Saved drawing state. History size: ${drawingHistory.length}, Index: ${drawingHistoryIndex}`);
 }
 
 function undoDrawing() {
-    if (drawingHistoryIndex > 0) {
-        drawingHistoryIndex--;
-        drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-
-        console.log(`Undo: Restored state ${drawingHistoryIndex}`);
-
-        // Сохраняем на сервере
-        saveDrawings();
-
-        // Отправляем всем игрокам
-        socket.emit('drawings_updated', {
-            map_id: currentMapId,
-            strokes: drawingStrokes,
-            layer_id: currentDrawingLayerId
-        });
-
-        render();
-        return true;
-    }
-    return false;
+    return masterUndo();
 }
 
-// Функция для повтора отмененного действия (Ctrl+Shift+Z или Ctrl+Y)
 function redoDrawing() {
-    if (drawingHistoryIndex < drawingHistory.length - 1) {
-        drawingHistoryIndex++;
-        drawingStrokes = JSON.parse(JSON.stringify(drawingHistory[drawingHistoryIndex]));
-
-        console.log(`Redo: Restored state ${drawingHistoryIndex}`);
-
-        // Сохраняем на сервере
-        saveDrawings();
-
-        // Отправляем всем игрокам
-        socket.emit('drawings_updated', {
-            map_id: currentMapId,
-            strokes: drawingStrokes,
-            layer_id: currentDrawingLayerId
-        });
-
-        render();
-        return true;
-    }
-    return false;
+    return masterRedo();
 }
 
 function clearDrawingHistory() {
-    drawingHistory = [];
-    drawingHistoryIndex = -1;
-    console.log('Drawing history cleared');
+    masterUndoHistory = [];
+    masterUndoIndex = -1;
 }
 
 function checkAnyModalOpen() {
