@@ -753,6 +753,18 @@ socket.on("map_updated", (data) => {
     updatePortraits();
 });
 
+socket.on("token_synced_across_maps", (data) => {
+    if (!data || !mapData || !mapData.tokens) return;
+    const { token_id, updated_data } = data;
+    const token = mapData.tokens.find(
+        (t) => String(t.id) === String(token_id)
+    );
+    if (token && updated_data) {
+        Object.assign(token, updated_data);
+        requestRender();
+    }
+});
+
 socket.on("ruler_update", (data) => {
 
 

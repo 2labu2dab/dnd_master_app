@@ -1,6 +1,7 @@
 import json
 import os
-from datetime import datetime, time
+import time as time_stdlib
+from datetime import datetime
 import uuid
 import base64
 from PIL import Image, ImageFile
@@ -142,7 +143,7 @@ def sync_token_across_maps(token_id, updates):
                 token_updated = False
                 if "tokens" in data:
                     for token in data["tokens"]:
-                        if token.get("id") == token_id:
+                        if str(token.get("id")) == str(token_id):
                             # Обновляем все поля кроме позиции
                             for key, value in updates.items():
                                 if key != "position" and key != "avatar_data":
@@ -154,7 +155,7 @@ def sync_token_across_maps(token_id, updates):
                             ):
                                 token["avatar_url"] = (
                                     updates["avatar_url"].split("?")[0]
-                                    + f"?t={int(time.time())}"
+                                    + f"?t={int(time_stdlib.time())}"
                                 )
 
                             if "has_avatar" in updates:
@@ -182,6 +183,117 @@ def sync_token_across_maps(token_id, updates):
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
+
+
+def token_stats_payload_from_dict(t):
+    """Поля «одного персонажа» для слияния на других картах (без позиции)."""
+    if not t or t.get("id") is None:
+        return None
+    payload = {
+        "name": t.get("name", ""),
+        "armor_class": t.get("armor_class", 10),
+        "health_points": t.get("health_points", 10),
+        "max_health_points": t.get("max_health_points", 10),
+        "is_player": t.get("is_player", False),
+        "is_npc": t.get("is_npc", False),
+        "is_dead": t.get("is_dead", False),
+        "has_avatar": t.get("has_avatar", False),
+        "is_visible": t.get("is_visible", True),
+        "size": t.get("size", "medium"),
+    }
+    if t.get("avatar_url"):
+        payload["avatar_url"] = t["avatar_url"]
+    return payload
+
+
+def _token_stats_differ(token, updates):
+    """Нужно ли применять updates к token (без позиции)."""
+    for k, v in updates.items():
+        if k in ("position", "avatar_data"):
+            continue
+        if k == "avatar_url":
+            cur = (token.get("avatar_url") or "").split("?")[0]
+            new = (v or "").split("?")[0]
+            if cur != new:
+                return True
+            continue
+        if token.get(k) != v:
+            return True
+    return False
+
+
+def propagate_token_stats_to_other_maps(source_map_id, tokens):
+    """
+    После сохранения source_map_id: обновить токены с тем же id на всех остальных картах.
+    Позиция и avatar_data не трогаются. Один проход по файлам карт на сохранение.
+    Возвращает (список id изменённых карт, множество id токенов, у которых что-то обновилось).
+    """
+    ensure_dirs()
+    by_id = {}
+    for t in tokens or []:
+        tid = t.get("id")
+        if tid is None:
+            continue
+        payload = token_stats_payload_from_dict(t)
+        if payload:
+            by_id[str(tid)] = payload
+
+    if not by_id:
+        return [], set()
+
+    updated_maps = []
+    touched_token_ids = set()
+    src_mid = str(source_map_id)
+
+    for filename in os.listdir(MAPS_DIR):
+        if not filename.endswith(".json"):
+            continue
+        map_id = filename[:-5]
+        if str(map_id) == src_mid:
+            continue
+
+        filepath = os.path.join(MAPS_DIR, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"propagate_token_stats: skip {filename}: {e}")
+            continue
+
+        changed = False
+        for token in data.get("tokens") or []:
+            tid = token.get("id")
+            if tid is None or str(tid) not in by_id:
+                continue
+            updates = by_id[str(tid)]
+            if not _token_stats_differ(token, updates):
+                continue
+            for key, value in updates.items():
+                if key != "position" and key != "avatar_data":
+                    token[key] = value
+
+            if updates.get("avatar_url"):
+                token["avatar_url"] = (
+                    updates["avatar_url"].split("?")[0]
+                    + f"?t={int(time_stdlib.time())}"
+                )
+            if "has_avatar" in updates:
+                token["has_avatar"] = updates["has_avatar"]
+            if "size" in updates:
+                token["size"] = updates["size"]
+
+            touched_token_ids.add(str(tid))
+            changed = True
+
+        if changed:
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                updated_maps.append(map_id)
+            except Exception as e:
+                print(f"propagate_token_stats: write {filename}: {e}")
+
+    return updated_maps, touched_token_ids
 
 
 def ensure_dirs():
@@ -214,7 +326,7 @@ def get_all_maps_with_token(token_id):
             if map_data and "tokens" in map_data:
                 # Проверяем, есть ли токен на этой карте
                 for token in map_data["tokens"]:
-                    if token.get("id") == token_id:
+                    if str(token.get("id")) == str(token_id):
                         maps_with_token.append(
                             {
                                 "map_id": map_id,
@@ -384,7 +496,7 @@ def get_token_avatar_url(token_id, force_timestamp=False):
         return None
     url = f"/api/token/avatar/{token_id}"
     if force_timestamp:
-        url += f"?t={int(time.time())}"
+        url += f"?t={int(time_stdlib.time())}"
     return url
 
 

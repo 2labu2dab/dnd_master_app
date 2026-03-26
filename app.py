@@ -415,6 +415,37 @@ def save_map():
 
     save_map_data(data, map_id)
 
+    from utils.storage import propagate_token_stats_to_other_maps, token_stats_payload_from_dict
+
+    other_map_ids, touched_token_ids = propagate_token_stats_to_other_maps(
+        map_id, data.get("tokens", [])
+    )
+    for mid in other_map_ids:
+        other_data = load_map_data(mid)
+        if other_data:
+            socketio.emit(
+                "map_updated",
+                _build_player_data(mid, other_data),
+                room=f"map_{mid}",
+            )
+
+    for tid_str in touched_token_ids:
+        src_tok = next(
+            (t for t in data.get("tokens", []) if str(t.get("id")) == tid_str),
+            None,
+        )
+        if src_tok:
+            payload = token_stats_payload_from_dict(src_tok)
+            if payload:
+                socketio.emit(
+                    "token_synced_across_maps",
+                    {
+                        "token_id": src_tok.get("id"),
+                        "updated_data": payload,
+                        "updated_maps": other_map_ids,
+                    },
+                )
+
     player_data = _build_player_data(map_id, data)
     socketio.emit("map_updated", player_data, room=f"map_{map_id}")
     return jsonify({"status": "ok"})
@@ -1321,7 +1352,7 @@ def update_token(token_id):
     avatar_changed = False
 
     for i, t in enumerate(data.get("tokens", [])):
-        if t.get("id") == token_id:
+        if str(t.get("id")) == str(token_id):
             old_has_avatar = t.get("has_avatar", False)
             old_avatar_url = t.get("avatar_url")
 
@@ -1356,27 +1387,39 @@ def update_token(token_id):
 
     save_map_data(data, map_id)
 
+    updated_maps = []
     try:
-        sync_data = {
-            "name": token.get("name", ""),
-            "armor_class": token.get("armor_class", 10),
-            "health_points": token.get("health_points", 10),
-            "max_health_points": token.get("max_health_points", 10),
-            "is_player": token.get("is_player", False),
-            "is_npc": token.get("is_npc", False),
-            "is_dead": token.get("is_dead", False),
-            "has_avatar": token.get("has_avatar", False),
-            "size": token_size,
-        }
-        if avatar_changed:
+        from utils.storage import sync_token_across_maps, token_stats_payload_from_dict
+
+        sync_data = token_stats_payload_from_dict(token) or {}
+        if avatar_changed and token.get("avatar_url"):
             sync_data["avatar_url"] = token.get("avatar_url")
 
-        from utils.storage import sync_token_across_maps
         updated_maps = sync_token_across_maps(token_id, sync_data)
+
+        for mid in updated_maps:
+            map_data = load_map_data(mid)
+            if map_data:
+                socketio.emit(
+                    "map_updated",
+                    _build_player_data(mid, map_data),
+                    room=f"map_{mid}",
+                )
+
+        if updated_maps:
+            socketio.emit(
+                "token_synced_across_maps",
+                {
+                    "token_id": token_id,
+                    "updated_data": sync_data,
+                    "updated_maps": updated_maps,
+                },
+            )
     except Exception as e:
         print(f"Error during cross-map sync: {e}")
 
-    socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
+    if map_id not in updated_maps:
+        socketio.emit("map_updated", _build_player_data(map_id, data), room=f"map_{map_id}")
 
     if avatar_changed:
         from utils.storage import get_token_avatar_filepath
@@ -1459,13 +1502,15 @@ def delete_token(token_id):
         return jsonify({"error": "Map not found"}), 404
 
     # Проверяем, есть ли токен в данных текущей карты
-    token_exists = any(t.get("id") == token_id for t in data.get("tokens", []))
+    token_exists = any(
+        str(t.get("id")) == str(token_id) for t in data.get("tokens", [])
+    )
     if not token_exists:
         return jsonify({"error": "Token not found on current map"}), 404
 
     # Удаляем токен из данных текущей карты
     data["tokens"] = [
-        t for t in data.get("tokens", []) if t.get("id") != token_id
+        t for t in data.get("tokens", []) if str(t.get("id")) != str(token_id)
     ]
     save_map_data(data, map_id)
 
@@ -2080,7 +2125,7 @@ if __name__ == "__main__":
 
     socketio.run(
         app,
-        host="192.168.0.163",
+        host="0.0.0.0",
         port=5000,
         debug=False,
         allow_unsafe_werkzeug=True,

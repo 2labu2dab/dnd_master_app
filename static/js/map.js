@@ -629,7 +629,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
         requestBody.avatar_data = avatarData;
     }
 
-    fetch(`/api/token/${editingTokenId}`, {
+    fetch(`/api/token/${encodeURIComponent(editingTokenId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -643,6 +643,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
         .then(() => {
             console.log("Token updated successfully");
 
+            // PUT уже синкает на сервере и шлёт сокеты; дублируем POST /sync как страховку
             syncTokenAcrossMaps(token);
 
             // Обновляем в банке если нужно
@@ -1259,6 +1260,7 @@ function updateSidebar() {
             saveMapData();
             updateSidebar();
             render();
+            syncTokenAcrossMaps(token);
         };
 
         // Клик на элемент токена с поддержкой Shift
@@ -6880,6 +6882,8 @@ function spawnImportedToken(sourceToken) {
                     updateSidebar();
                     closeImportTokenModal();
 
+                    syncTokenAcrossMaps(targetToken);
+
                     // Показываем уведомление с учётом состояния
                     const statusText = targetToken.is_dead ? " (мёртв)" : "";
                     showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, 'success');
@@ -7560,7 +7564,8 @@ function syncTokenAcrossMaps(token) {
         is_npc: token.is_npc,
         is_dead: token.is_dead,
         has_avatar: token.has_avatar,
-        is_visible: token.is_visible
+        is_visible: token.is_visible,
+        size: token.size || "medium"
     };
 
     // Добавляем avatar_url если есть
@@ -7571,7 +7576,7 @@ function syncTokenAcrossMaps(token) {
     console.log("Sending sync data:", syncData);
 
     // Отправляем на сервер для синхронизации
-    fetch(`/api/token/${token.id}/sync`, {
+    fetch(`/api/token/${encodeURIComponent(token.id)}/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(syncData)
@@ -7601,7 +7606,9 @@ socket.on("token_synced_across_maps", (data) => {
     console.log(`Token ${token_id} was synced across maps`);
 
     // Если текущий токен был синхронизирован, обновляем его данные
-    const token = mapData.tokens.find(t => t.id === token_id);
+    const token = mapData.tokens.find(
+        (t) => String(t.id) === String(token_id)
+    );
     if (token) {
         // Обновляем поля (кроме позиции)
         Object.assign(token, updated_data);

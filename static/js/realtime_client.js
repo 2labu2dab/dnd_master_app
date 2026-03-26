@@ -8,8 +8,8 @@
       reconnectionAttempts: 10,
       reconnectionDelay: 500,
       reconnectionDelayMax: 5000,
-      // Allow fallback for unreliable networks.
-      transports: ['websocket', 'polling'],
+      // Polling first: Werkzeug/WebSocket from LAN often fails; polling still gets events.
+      transports: ['polling', 'websocket'],
     };
 
     return io(Object.assign(baseOptions, extraOptions || {}));
