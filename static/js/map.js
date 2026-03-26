@@ -1958,7 +1958,7 @@ function render() {
     // Динамические слои (меняются чаще: зоны, рисунки, токены, находки)
     mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
     drawAllStrokes(offsetX, offsetY, scale);
-    mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
+    getTokensSortedForDrawing(mapData.tokens).forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 
     if (drawingZone && currentZoneVertices.length > 0) {
@@ -2022,8 +2022,8 @@ function drawLayers(offsetX, offsetY, scale) {
     // Рисуем рисунки мастера (НОВОЕ)
     drawAllStrokes(offsetX, offsetY, scale);
 
-    // Токены и находки поверх рисунков
-    mapData.tokens.forEach(t => drawToken(t, offsetX, offsetY, scale));
+    // Токены и находки поверх рисунков (мелкие токены поверх крупных)
+    getTokensSortedForDrawing(mapData.tokens).forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 }
 
@@ -2052,17 +2052,7 @@ function drawToken(token, offsetX, offsetY, scale) {
     const sy = y * scale + offsetY;
 
     const cellSize = mapData.grid_settings.cell_size * scale;
-    let sizeScale = 1.0;
-    switch (token.size) {
-        case 'tiny': sizeScale = 0.5; break;
-        case 'small':
-        case 'medium': sizeScale = 1.0; break;
-        case 'large': sizeScale = 2.0; break;
-        case 'huge': sizeScale = 3.0; break;
-        case 'gargantuan': sizeScale = 4.0; break;
-        default: sizeScale = 1.0;
-    }
-
+    const sizeScale = getTokenSizeScale(token);
     const tokenSize = cellSize * sizeScale;
     const radius = tokenSize / 2;
 
@@ -2851,23 +2841,7 @@ canvas.addEventListener("mousedown", (e) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Проверяем клик по токену
-    let clickedToken = null;
-    let clickedTokenId = null;
-
-    // Проходим по всем токенам в обратном порядке, чтобы верхние перехватывали клик
-    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
-        const token = mapData.tokens[i];
-        const [x, y] = token.position;
-        const sx = x * scale + offsetX;
-        const sy = y * scale + offsetY;
-        const radius = getTokenScreenRadius(token, scale);
-
-        if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
-            clickedToken = token;
-            break;
-        }
-    }
+    const clickedToken = findTopTokenAtScreenPoint(mouseX, mouseY, scale, offsetX, offsetY);
 
     // Логика выделения и перетаскивания
     selectedTokenId = null;
@@ -3251,21 +3225,50 @@ canvas.addEventListener("mousemove", (e) => {
     }
 });
 
+function getTokenSizeScale(token) {
+    switch (token.size) {
+        case 'tiny': return 0.5;
+        case 'small':
+        case 'medium': return 1.0;
+        case 'large': return 2.0;
+        case 'huge': return 3.0;
+        case 'gargantuan': return 4.0;
+        default: return 1.0;
+    }
+}
+
+/** Порядок отрисовки: сначала крупные, последними — мелкие (мелкие визуально сверху). */
+function getTokensSortedForDrawing(tokens) {
+    if (!tokens || !tokens.length) return [];
+    return tokens.slice().sort((a, b) => getTokenSizeScale(b) - getTokenSizeScale(a));
+}
+
+/** Клик по стопке: приоритет у меньшего токена (тот, что нарисован сверху). При равном размере — раньше в массиве. */
+function findTopTokenAtScreenPoint(screenX, screenY, scale, offsetX, offsetY) {
+    if (!mapData.tokens || !mapData.tokens.length) return null;
+    let best = null;
+    let bestRadius = Infinity;
+    let bestIndex = Infinity;
+    for (let i = 0; i < mapData.tokens.length; i++) {
+        const token = mapData.tokens[i];
+        const [x, y] = token.position;
+        const sx = x * scale + offsetX;
+        const sy = y * scale + offsetY;
+        const radius = getTokenScreenRadius(token, scale);
+        if (Math.hypot(screenX - sx, screenY - sy) <= radius) {
+            if (radius < bestRadius || (radius === bestRadius && i < bestIndex)) {
+                best = token;
+                bestRadius = radius;
+                bestIndex = i;
+            }
+        }
+    }
+    return best;
+}
+
 function getTokenScreenRadius(token, scale) {
     const cellSize = mapData.grid_settings.cell_size * scale;
-    let sizeScale = 1.0;
-
-    switch (token.size) {
-        case 'tiny': sizeScale = 0.5; break;
-        case 'small':
-        case 'medium': sizeScale = 1.0; break;
-        case 'large': sizeScale = 2.0; break;
-        case 'huge': sizeScale = 3.0; break;
-        case 'gargantuan': sizeScale = 4.0; break;
-        default: sizeScale = 1.0;
-    }
-
-    return (cellSize * sizeScale) / 2;
+    return (cellSize * getTokenSizeScale(token)) / 2;
 }
 
 function renderTokenContextMenu(token, x, y) {
@@ -3436,35 +3439,12 @@ canvas.addEventListener("contextmenu", (e) => {
     }
     const { scale, offsetX, offsetY } = getTransform();
 
-    // Проверяем клик по токену с учётом размера
-    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
-        const token = mapData.tokens[i];
-        const [x, y] = token.position;
-        const sx = x * scale + offsetX;
-        const sy = y * scale + offsetY;
-
-        // Получаем размер токена с учётом масштаба
-        const cellSize = mapData.grid_settings.cell_size * scale;
-        let sizeScale = 1.0;
-        switch (token.size) {
-            case 'tiny': sizeScale = 0.5; break;
-            case 'small':
-            case 'medium': sizeScale = 1.0; break;
-            case 'large': sizeScale = 2.0; break;
-            case 'huge': sizeScale = 3.0; break;
-            case 'gargantuan': sizeScale = 4.0; break;
-            default: sizeScale = 1.0;
-        }
-
-        const tokenSize = cellSize * sizeScale;
-        const radius = tokenSize / 2;
-
-        if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
-            e.preventDefault();
-            selectedTokenId = token.id;
-            showTokenContextMenu(token, e.pageX, e.pageY);
-            return;
-        }
+    const ctxToken = findTopTokenAtScreenPoint(e.offsetX, e.offsetY, scale, offsetX, offsetY);
+    if (ctxToken) {
+        e.preventDefault();
+        selectedTokenId = ctxToken.id;
+        showTokenContextMenu(ctxToken, e.pageX, e.pageY);
+        return;
     }
 
     // Проверяем клик по находке
@@ -3676,35 +3656,7 @@ canvas.addEventListener("click", (e) => {
 
     if (!isClick) return;
 
-    // Проверяем клик по токену с учётом размера
-    let clickedToken = null;
-    for (let i = mapData.tokens.length - 1; i >= 0; i--) {
-        const token = mapData.tokens[i];
-        const [x, y] = token.position;
-        const sx = x * scale + offsetX;
-        const sy = y * scale + offsetY;
-
-        // Получаем размер токена с учётом масштаба
-        const cellSize = mapData.grid_settings.cell_size * scale;
-        let sizeScale = 1.0;
-        switch (token.size) {
-            case 'tiny': sizeScale = 0.5; break;
-            case 'small':
-            case 'medium': sizeScale = 1.0; break;
-            case 'large': sizeScale = 2.0; break;
-            case 'huge': sizeScale = 3.0; break;
-            case 'gargantuan': sizeScale = 4.0; break;
-            default: sizeScale = 1.0;
-        }
-
-        const tokenSize = cellSize * sizeScale;
-        const radius = tokenSize / 2;
-
-        if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
-            clickedToken = token;
-            break;
-        }
-    }
+    const clickedToken = findTopTokenAtScreenPoint(e.offsetX, e.offsetY, scale, offsetX, offsetY);
 
     if (clickedToken && !isShiftPressed) {
         selectedTokens.clear();

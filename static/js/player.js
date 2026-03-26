@@ -970,6 +970,25 @@ socket.on("map_sync", (data) => {
 
     requestRender();
 });
+
+function getTokenSizeScale(token) {
+    switch (token.size) {
+        case 'tiny': return 0.5;
+        case 'small':
+        case 'medium': return 1.0;
+        case 'large': return 2.0;
+        case 'huge': return 3.0;
+        case 'gargantuan': return 4.0;
+        default: return 1.0;
+    }
+}
+
+/** Крупные рисуются первыми, мелкие последними — мелкие визуально сверху. */
+function getTokensSortedForDrawing(tokens) {
+    if (!tokens || !tokens.length) return [];
+    return tokens.slice().sort((a, b) => getTokenSizeScale(b) - getTokenSizeScale(a));
+}
+
 function drawLayers(offsetX, offsetY, scale) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
 
@@ -992,15 +1011,12 @@ function drawLayers(offsetX, offsetY, scale) {
     }
 
     if (mapData.tokens && mapData.tokens.length) {
-        for (let i = 0; i < mapData.tokens.length; i++) {
-            const token = mapData.tokens[i];
-            if (token.is_visible !== false) {
-                const tokenPosition = token.position;
-                const isInHiddenZone = isPointInAnyZone(tokenPosition, mapData.zones);
-                if (!isInHiddenZone) {
-                    drawToken(token, offsetX, offsetY, scale);
-                }
-            }
+        const visible = mapData.tokens.filter((token) => {
+            if (token.is_visible === false) return false;
+            return !isPointInAnyZone(token.position, mapData.zones);
+        });
+        for (const token of getTokensSortedForDrawing(visible)) {
+            drawToken(token, offsetX, offsetY, scale);
         }
     }
 }
@@ -1067,17 +1083,7 @@ function drawToken(token, offsetX, offsetY, scale) {
     const sy = y * scale + offsetY;
 
     const cellSize = mapData.grid_settings.cell_size * scale;
-    let sizeScale = 1.0;
-    switch (token.size) {
-        case 'tiny': sizeScale = 0.5; break;
-        case 'small':
-        case 'medium': sizeScale = 1.0; break;
-        case 'large': sizeScale = 2.0; break;
-        case 'huge': sizeScale = 3.0; break;
-        case 'gargantuan': sizeScale = 4.0; break;
-        default: sizeScale = 1.0;
-    }
-
+    const sizeScale = getTokenSizeScale(token);
     const tokenSize = cellSize * sizeScale;
     const radius = tokenSize / 2;
 
