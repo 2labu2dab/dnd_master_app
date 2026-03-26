@@ -20,6 +20,36 @@ if (document.body && isMiniMap) {
     document.body.classList.add('player-embed');
 }
 
+const PLAYER_MOBILE_MQ = window.matchMedia('(max-width: 768px)');
+
+function isPlayerMobileLayout() {
+    return !isMiniMap && PLAYER_MOBILE_MQ.matches;
+}
+
+function syncPlayerMobileClass() {
+    if (isMiniMap || !document.body) return;
+    document.body.classList.toggle('player-mobile', PLAYER_MOBILE_MQ.matches);
+}
+
+syncPlayerMobileClass();
+PLAYER_MOBILE_MQ.addEventListener('change', () => {
+    syncPlayerMobileClass();
+    updatePortraits();
+});
+
+let _playerLayoutResizeTimer;
+window.addEventListener(
+    'resize',
+    () => {
+        clearTimeout(_playerLayoutResizeTimer);
+        _playerLayoutResizeTimer = setTimeout(() => {
+            syncPlayerMobileClass();
+            updatePortraits();
+        }, 150);
+    },
+    { passive: true }
+);
+
 let mapImage = new Image();
 const avatarCache = new Map();
 const portraitImageCache = new Map();
@@ -288,8 +318,13 @@ function renderPortraits(characters) {
 
     // Определяем конфигурацию сетки
     const gridConfig = getGridConfig(count);
-    const cols = gridConfig.cols;
-    const rows = gridConfig.rows;
+    const mobile = isPlayerMobileLayout();
+    let cols = gridConfig.cols;
+    let rows = gridConfig.rows;
+    if (mobile && !isMiniMap && count > 0) {
+        cols = count;
+        rows = 1;
+    }
 
     const sidebarStyle = window.getComputedStyle(portraitSidebar);
     const padY =
@@ -313,8 +348,11 @@ function renderPortraits(characters) {
     availableHeight = Math.max(40, availableHeight);
 
     let gapSize = isMiniMap ? 2 : 6;
-    if (!isMiniMap && count >= 3 && count <= 6) {
+    if (!isMiniMap && count >= 3 && count <= 6 && !mobile) {
         gapSize = 12;
+    }
+    if (mobile && !isMiniMap) {
+        gapSize = 10;
     }
 
     const totalGapHeight = (rows - 1) * gapSize;
@@ -344,13 +382,23 @@ function renderPortraits(characters) {
     portraitHeight = Math.min(maxPortraitSize, portraitHeight);
     portraitHeight = Math.max(isMiniMap ? 35 : 44, portraitHeight);
 
-    const padding = isMiniMap ? 10 : 16;
+    const padding = isMiniMap ? 10 : mobile ? 24 : 16;
     const availableWidth = sidebarWidth - padding;
     const totalGapWidth = (cols - 1) * gapSize;
     const columnWidth = (availableWidth - totalGapWidth) / cols;
 
-    let finalPortraitSize = Math.min(portraitHeight, columnWidth);
-    finalPortraitSize = Math.max(isMiniMap ? 30 : 44, finalPortraitSize);
+    let finalPortraitSize;
+    if (mobile && !isMiniMap) {
+        const hCap = Math.floor(
+            (availableHeight - (rows - 1) * gapSize - rows * nameBlock) / rows
+        );
+        const pxCap = Math.min(120, Math.max(56, hCap));
+        finalPortraitSize = Math.min(portraitHeight, pxCap);
+        finalPortraitSize = Math.max(48, finalPortraitSize);
+    } else {
+        finalPortraitSize = Math.min(portraitHeight, columnWidth);
+        finalPortraitSize = Math.max(isMiniMap ? 30 : 44, finalPortraitSize);
+    }
 
     if (isMiniMap) {
         const maxAllowedWidth = (sidebarWidth - padding) / cols;
@@ -366,8 +414,7 @@ function renderPortraits(characters) {
             finalPortraitSize -= 1;
             h = gridTotalH();
         }
-        const minGap =
-            !isMiniMap && count >= 3 && count <= 6 ? 8 : 2;
+        const minGap = mobile ? 4 : !isMiniMap && count >= 3 && count <= 6 ? 8 : 2;
         while (h > fitHeight && gapSize > minGap) {
             gapSize -= 1;
             h = gridTotalH();
@@ -376,10 +423,12 @@ function renderPortraits(characters) {
             finalPortraitSize -= 1;
             h = gridTotalH();
         }
-        const tgw = (cols - 1) * gapSize;
-        const cw = Math.floor((availableWidth - tgw) / cols);
-        if (finalPortraitSize > cw) {
-            finalPortraitSize = Math.max(minPortrait, cw);
+        if (!mobile) {
+            const tgw = (cols - 1) * gapSize;
+            const cw = Math.floor((availableWidth - tgw) / cols);
+            if (finalPortraitSize > cw) {
+                finalPortraitSize = Math.max(minPortrait, cw);
+            }
         }
         h = gridTotalH();
         while (h > fitHeight && finalPortraitSize > minPortrait) {

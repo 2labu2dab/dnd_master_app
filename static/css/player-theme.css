@@ -186,4 +186,140 @@ body.player-dnd canvas#mapCanvas {
   z-index: 1;
   background-color: transparent !important;
   background-image: none !important;
+  touch-action: manipulation;
+}
+
+/*
+ * Альбом телефона часто даёт ширину >768px — сюда не попадает блок ниже. В player.html #main = 100dvh,
+ * а в styles.css у #map-container и #portrait-sidebar стоит height: 100vh. На Android 100vh нередко
+ * меньше текущей видимой высоты, чем 100dvh → колонки короче #main, снизу «дыра» и фон #020617.
+ */
+body.player-dnd:not(.player-embed) #main {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
+body.player-dnd:not(.player-embed) #map-container,
+body.player-dnd:not(.player-embed) #portrait-sidebar {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ─── Мобильные (только страница игрока, без iframe мини-карты) ─── */
+@media (max-width: 768px) {
+  /*
+   * 100svh для высоты body давал чёрную полосу снизу: при скрытии UI браузера видимая
+   * область становится выше «small» viewport, а разметка оставалась по svh.
+   * 100dvh — текущая видимая высота; без dvh остаётся fallback 100vh.
+   */
+  html:has(body.player-dnd:not(.player-embed)) {
+    height: 100%;
+    height: -webkit-fill-available;
+  }
+
+  body.player-dnd:not(.player-embed) {
+    padding-left: env(safe-area-inset-left, 0);
+    padding-right: env(safe-area-inset-right, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    box-sizing: border-box;
+    height: 100vh;
+    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: -webkit-fill-available;
+    overflow: hidden;
+  }
+
+  body.player-dnd:not(.player-embed) #main {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  body.player-dnd:not(.player-embed) #map-container {
+    flex: 1 1 0%;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
+
+  /* Без жёсткого min-height: иначе карта + полоса портретов > экрана и низ обрезается */
+  body.player-dnd:not(.player-embed) #map {
+    min-height: 0;
+    flex: 1 1 auto;
+    height: 100%;
+  }
+
+  body.player-dnd:not(.player-embed) #portrait-sidebar {
+    height: auto;
+    max-height: none;
+    border-left: none;
+    border-top: 2px solid rgba(12, 8, 6, 0.9);
+    box-shadow:
+      inset 0 10px 80px rgba(0, 0, 0, 0.42),
+      0 -6px 20px rgba(0, 0, 0, 0.45);
+    flex: 0 0 auto;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  body.player-dnd:not(.player-embed) #portrait-sidebar.visible {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 10px 12px 10px;
+    /* Полоса портретов + запас; safe-area уже на body */
+    max-height: min(36dvh, 260px);
+  }
+
+  body.player-dnd:not(.player-embed) #portrait-list {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    flex: 0 0 auto;
+    max-height: none;
+    scrollbar-width: thin;
+  }
+
+  /* Одна строка портретов, прокрутка по горизонтали (перебивает inline display:grid из JS) */
+  body.player-dnd:not(.player-embed) .portrait-grid {
+    display: flex !important;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: max-content;
+    min-width: min(100%, max-content);
+    height: auto;
+    align-items: flex-end;
+    gap: 12px !important;
+    padding: 2px 4px 4px 0;
+    box-sizing: border-box;
+  }
+
+  body.player-dnd:not(.player-embed) .portrait-item {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  body.player-dnd:not(.player-embed) .portrait-nameplate {
+    font-size: clamp(11px, 3.2vw, 16px) !important;
+    padding: 3px 5px !important;
+  }
+}
+
+/* Узкий экран в альбомной ориентации: чуть больше места карте */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  body.player-dnd:not(.player-embed) #portrait-sidebar.visible {
+    max-height: min(32dvh, 200px);
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
 }
