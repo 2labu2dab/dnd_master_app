@@ -126,6 +126,71 @@ let currentStrokePoints = [];
 let lastDrawPoint = null;
 let drawThrottle = null;
 let currentDrawingLayerId = null;
+
+function ensureDrawingLayerId() {
+    if (!currentDrawingLayerId && currentMapId) {
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+            currentDrawingLayerId = `layer_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+        } else {
+            currentDrawingLayerId = `layer_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        }
+    }
+}
+
+/** Сброс слоя рисунков при смене карты (до загрузки данных с сервера). */
+function resetDrawingStateForNewMap() {
+    drawingStroke = null;
+    lastDrawPoint = null;
+    if (drawThrottle) {
+        clearTimeout(drawThrottle);
+        drawThrottle = null;
+    }
+    drawingStrokes = [];
+    currentDrawingLayerId = null;
+    clearDrawingHistory();
+}
+
+/**
+ * Загрузить рисунки карты; вызывать после resetDrawingStateForNewMap и выставления currentMapId.
+ * Возвращает Promise — дождаться перед тем как отпускать UI на рисование.
+ */
+function fetchAndApplyDrawingsForMap(mapId) {
+    if (!mapId) {
+        return Promise.resolve();
+    }
+    return fetch(`/api/drawings/${mapId}`)
+        .then((res) => {
+            if (!res.ok) {
+                throw new Error(`drawings HTTP ${res.status}`);
+            }
+            return res.json();
+        })
+        .then((data) => {
+            if (data.status === "ok") {
+                drawingStrokes = data.strokes || [];
+                currentDrawingLayerId = data.layer_id;
+            }
+            saveDrawingStateToHistory();
+            render();
+            setTimeout(() => {
+                if (currentMapId === mapId && currentDrawingLayerId) {
+                    socket.emit("drawings_updated", {
+                        map_id: currentMapId,
+                        strokes: drawingStrokes,
+                        layer_id: currentDrawingLayerId,
+                    });
+                }
+            }, 500);
+        })
+        .catch((err) => {
+            console.error("Error loading drawings:", err);
+            drawingStrokes = [];
+            currentDrawingLayerId = null;
+            ensureDrawingLayerId();
+            saveDrawingStateToHistory();
+            render();
+        });
+}
 let selectedTokens = new Set(); // Множество ID выбранных токенов
 let isDraggingMultiple = false; // Флаг перетаскивания нескольких токенов
 let multiDragOffsets = new Map(); // Смещения для каждого токена при групповом перетаскивании
@@ -148,6 +213,7 @@ socket.on('reconnect', () => {
     if (currentMapId) {
         socket.emit('join_map', { map_id: currentMapId });
     }
+    setMasterMapIdGlobal();
 });
 let panX = 0;
 let panY = 0;
@@ -667,6 +733,12 @@ function createCharacterListItem(character, index) {
     avEl.draggable = false;
 
     avEl.onerror = () => {
+        if (portraitUrl && !avEl.dataset._portraitRetry) {
+            avEl.dataset._portraitRetry = "1";
+            const sep = portraitUrl.includes("?") ? "&" : "?";
+            avEl.src = `${portraitUrl}${sep}_retry=${Date.now()}`;
+            return;
+        }
         avEl.style.display = "none";
         const placeholder = document.createElement("span");
         placeholder.textContent = "👤";
@@ -757,6 +829,7 @@ socket.on('connect', () => {
     if (currentMapId) {
         socket.emit('join_map', { map_id: currentMapId });
     }
+    setMasterMapIdGlobal();
 });
 
 socket.on('master_status', (data) => {
@@ -1834,6 +1907,20 @@ function updateSidebar() {
 
 let currentMapId = null;
 
+function syncPlayerMiniIframe() {
+    const iframe = document.getElementById("playerMini");
+    if (!iframe) return;
+    if (currentMapId) {
+        iframe.src = `/player?map_id=${encodeURIComponent(currentMapId)}`;
+    } else {
+        iframe.src = "/player?no_map=1";
+    }
+}
+
+function setMasterMapIdGlobal() {
+    window.masterCurrentMapId = currentMapId;
+}
+
 function checkMapExists() {
     if (!currentMapId) {
         // Показываем сообщение о необходимости создать карту
@@ -1860,15 +1947,11 @@ function switchMap(mapId) {
         return;
     }
 
-    if (currentMapId === mapId) {
-        console.log("Already on this map, ignoring");
-        return;
-    }
-
     isSwitchingMap = true;
 
     if (!mapId) {
         currentMapId = null;
+        resetDrawingStateForNewMap();
         mapData = {
             tokens: [],
             finds: [],
@@ -1883,8 +1966,14 @@ function switchMap(mapId) {
                 visible_to_players: true
             }
         };
+        mapImage = new Image();
+        invalidateBg();
         render();
         updateSidebar();
+        refreshPortraits();
+        if (window.updateMiniToggleIcon) window.updateMiniToggleIcon();
+        syncPlayerMiniIframe();
+        setMasterMapIdGlobal();
         socket.emit("switch_map", { map_id: null });
         isSwitchingMap = false;
         return;
@@ -1899,7 +1988,7 @@ function switchMap(mapId) {
             if (data.error) {
                 console.error(data.error);
                 isSwitchingMap = false;
-                return;
+                return Promise.reject(new Error(data.error));
             }
 
             // base64 больше не приходит — убеждаемся что не осталось в старых данных
@@ -1949,9 +2038,24 @@ function switchMap(mapId) {
             const playerRulerToggle = document.getElementById("playerRulerToggle");
             playerRulerToggle.classList.toggle("active", mapData.ruler_visible_to_players);
 
+            resetDrawingStateForNewMap();
+
+            return fetchAndApplyDrawingsForMap(mapId);
+        })
+        .then(() => {
+            socket.emit("switch_map", { map_id: mapId });
+            socket.emit("join_map", { map_id: mapId });
+
+            const toggleBtn = document.getElementById("togglePlayerMini");
+            if (toggleBtn) {
+                toggleBtn.innerHTML =
+                    mapData.player_map_enabled !== false
+                        ? getOpenEyeSVG()
+                        : getClosedEyeSVG();
+            }
+
             if (mapData.has_image) {
                 const imageUrl = mapData.image_url || `/api/map/image/${mapId}`;
-                // Берём из dndCache — мгновенно если уже загружено, иначе скачиваем
                 dndCache.fetch(imageUrl).then(src => {
                     mapImage = new Image();
                     mapImage.onload = () => {
@@ -1968,18 +2072,8 @@ function switchMap(mapId) {
                 render();
                 isSwitchingMap = false;
             }
-
-            socket.emit("switch_map", { map_id: mapId });
-            socket.emit("join_map", { map_id: mapId });
-            loadDrawingsForMap(mapId);
-
-            const toggleBtn = document.getElementById("togglePlayerMini");
-            if (toggleBtn) {
-                toggleBtn.innerHTML =
-                    mapData.player_map_enabled !== false
-                        ? getOpenEyeSVG()
-                        : getClosedEyeSVG();
-            }
+            syncPlayerMiniIframe();
+            setMasterMapIdGlobal();
         })
         .catch(err => {
             console.error("Error switching map:", err);
@@ -3688,6 +3782,7 @@ canvas.addEventListener("mousedown", (e) => {
             // Рисование - сохраняем состояние ТОЛЬКО если это начало нового штриха
             // и предыдущий штрих был завершен
             if (!drawingStroke) {
+                ensureDrawingLayerId();
                 saveDrawingStateToHistory();
             }
 
@@ -5477,20 +5572,15 @@ window.onload = () => {
 socket.on("map_created", (data) => {
     console.log("Map created event received:", data);
 
-    // СОХРАНЯЕМ ID НОВОЙ КАРТЫ
     saveCurrentMapToStorage(data.current_map);
 
-    // Обновляем селект карт
-    const select = document.getElementById('mapSelect');
+    const select = document.getElementById("mapSelect");
     if (!select) {
         console.warn("mapSelect element not found; skipping select update");
     } else {
-        select.innerHTML = '';
-    }
-
-    if (select) {
-        data.maps.forEach(map => {
-            const option = document.createElement('option');
+        select.innerHTML = "";
+        data.maps.forEach((map) => {
+            const option = document.createElement("option");
             option.value = map.id;
             option.textContent = map.name;
             if (map.id === data.current_map) option.selected = true;
@@ -5498,21 +5588,21 @@ socket.on("map_created", (data) => {
         });
     }
 
-    currentMapId = data.current_map;
+    // Не подменяем mapData заглушкой и не рендерим со старым drawingStrokes — иначе
+    // штрихи с прошлой карты «наезжают» на новую. Если switchMap уже идёт (создатель
+    // после POST), только обновили список карт выше.
+    if (isSwitchingMap) {
+        if (window.updateMiniToggleIcon) {
+            queueMicrotask(() => window.updateMiniToggleIcon());
+        }
+        return;
+    }
 
-    mapData = {
-        tokens: [], finds: [], zones: [], characters: [],
-        grid_settings: { cell_count: 20, cell_size: 20, color: "#888888", visible: false, visible_to_players: true },
-        player_map_enabled: false, has_image: false
-    };
-    mapImage = new Image();
-    render();
+    switchMap(data.current_map);
 
-    socket.emit("join_map", { map_id: currentMapId });
-
-    fetchMap().then(() => {
-        if (window.updateMiniToggleIcon) window.updateMiniToggleIcon();
-    });
+    if (window.updateMiniToggleIcon) {
+        queueMicrotask(() => window.updateMiniToggleIcon());
+    }
 });
 socket.on("map_image_updated", (data) => {
     if (data.map_id === currentMapId && data.new_image_url) {
@@ -7863,7 +7953,86 @@ function openEditMapModal(mapId) {
 
 // Закрытие модального окна
 function closeMapModal() {
+    if (window.mapModalSaveInProgress) return;
     document.getElementById("mapModal").style.display = "none";
+}
+
+function setMapModalSaveProgress(visible, options = {}) {
+    const overlay = document.getElementById("mapModalProgressOverlay");
+    const textEl = document.getElementById("mapModalProgressText");
+    const bar = document.getElementById("mapModalProgressBar");
+    const saveBtn = document.getElementById("mapModalSaveBtn");
+    const cancelBtn = document.getElementById("mapModalCancelBtn");
+    const closeBtn = document.querySelector("#mapModal .close");
+    if (!overlay || !textEl || !bar) return;
+
+    if (visible) {
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden", "false");
+        textEl.textContent = options.text || "Сохранение…";
+        bar.classList.toggle("indeterminate", !!options.indeterminate);
+        if (options.indeterminate) {
+            bar.style.width = "";
+        } else {
+            const p = Math.min(100, Math.max(0, options.percent ?? 0));
+            bar.style.width = `${p}%`;
+        }
+        if (saveBtn) saveBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "none";
+            closeBtn.style.opacity = "0.35";
+        }
+    } else {
+        overlay.style.display = "none";
+        overlay.setAttribute("aria-hidden", "true");
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "";
+            closeBtn.style.opacity = "";
+        }
+    }
+}
+
+/**
+ * POST multipart с отслеживанием прогресса загрузки (fetch не умеет upload progress).
+ */
+function xhrPostFormData(url, formData, { onProgress } = {}) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url);
+        xhr.onload = () => {
+            const ok = xhr.status >= 200 && xhr.status < 300;
+            let body = {};
+            const raw = xhr.responseText || "";
+            try {
+                body = raw ? JSON.parse(raw) : {};
+            } catch {
+                body = {};
+            }
+            if (ok) {
+                resolve(body);
+            } else {
+                const msg =
+                    body.error ||
+                    (raw && raw.length < 240 ? raw.trim() : "") ||
+                    `Ошибка ${xhr.status}`;
+                reject(new Error(msg));
+            }
+        };
+        xhr.onerror = () => reject(new Error("Нет соединения с сервером"));
+        if (onProgress && xhr.upload) {
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    onProgress(Math.round((e.loaded / e.total) * 100));
+                }
+            };
+        }
+        xhr.send(formData);
+    });
 }
 
 // Обработка загрузки изображения
@@ -7897,10 +8066,21 @@ function submitMap() {
         alert("Введите название карты");
         return;
     }
+    if (window.mapModalSaveInProgress) return;
+
+    const endMapModalSave = () => {
+        window.mapModalSaveInProgress = false;
+        setMapModalSaveProgress(false);
+    };
 
     // Если это создание новой карты (без редактирования)
     if (!editingMapId) {
-        // Сначала создаем карту с именем
+        window.mapModalSaveInProgress = true;
+        setMapModalSaveProgress(true, {
+            indeterminate: true,
+            text: "Создаём карту…",
+        });
+
         fetch("/api/map/new", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -7908,24 +8088,34 @@ function submitMap() {
         })
             .then(res => {
                 if (!res.ok) {
-                    throw new Error('Network response was not ok: ' + res.status);
+                    throw new Error("Network response was not ok: " + res.status);
                 }
                 return res.json();
             })
             .then(data => {
-                // Если есть изображение для загрузки, загружаем его отдельно
                 if (currentMapImageFile) {
+                    setMapModalSaveProgress(true, {
+                        indeterminate: false,
+                        percent: 0,
+                        text: "Загружаем изображение… 0%",
+                    });
                     const formData = new FormData();
                     formData.append("map_image", currentMapImageFile);
-
-                    return fetch("/upload_map", {
-                        method: "POST",
-                        body: formData
+                    if (data.map_id) {
+                        formData.append("map_id", data.map_id);
+                    }
+                    return xhrPostFormData("/upload_map", formData, {
+                        onProgress: (p) =>
+                            setMapModalSaveProgress(true, {
+                                percent: p,
+                                text: `Загружаем изображение… ${p}%`,
+                            }),
                     }).then(() => data);
                 }
                 return data;
             })
             .then(data => {
+                endMapModalSave();
                 closeMapModal();
                 loadMapsList();
 
@@ -7937,55 +8127,84 @@ function submitMap() {
             })
             .catch(err => {
                 console.error("Error saving map:", err);
-                showNotification("Ошибка при создании карты: " + err.message, "error");
+                showNotification(
+                    "Ошибка при создании карты: " + err.message,
+                    "error"
+                );
+            })
+            .finally(() => {
+                endMapModalSave();
             });
     } else {
-        // Редактирование существующей карты
+        window.mapModalSaveInProgress = true;
+
         const formData = new FormData();
         formData.append("name", name);
         if (currentMapImageFile) {
             formData.append("map_image", currentMapImageFile);
         }
 
-        fetch(`/api/map/update/${editingMapId}`, {
-            method: "POST",
-            body: formData
-        })
-            .then(res => {
+        let savePromise;
+        if (currentMapImageFile) {
+            setMapModalSaveProgress(true, {
+                indeterminate: false,
+                percent: 0,
+                text: "Загружаем изображение… 0%",
+            });
+            savePromise = xhrPostFormData(
+                `/api/map/update/${editingMapId}`,
+                formData,
+                {
+                    onProgress: (p) =>
+                        setMapModalSaveProgress(true, {
+                            percent: p,
+                            text: `Загружаем изображение… ${p}%`,
+                        }),
+                }
+            );
+        } else {
+            setMapModalSaveProgress(true, {
+                indeterminate: true,
+                text: "Сохраняем…",
+            });
+            savePromise = fetch(`/api/map/update/${editingMapId}`, {
+                method: "POST",
+                body: formData,
+            }).then(res => {
                 if (!res.ok) {
-                    throw new Error('Network response was not ok: ' + res.status);
+                    throw new Error("Network response was not ok: " + res.status);
                 }
                 return res.json();
-            })
+            });
+        }
+
+        savePromise
             .then(data => {
+                endMapModalSave();
                 closeMapModal();
                 loadMapsList();
 
                 if (data.map_id === currentMapId) {
-                    // ОЧИЩАЕМ КЭШ И ПЕРЕЗАГРУЖАЕМ ТЕКУЩУЮ КАРТУ
-                    // Удаляем старую ссылку на изображение
                     if (mapImage) {
-                        // Создаем новый объект Image
                         mapImage = new Image();
-                        mapImage.crossOrigin = "Anonymous"; // Добавляем для работы с кэшем
+                        mapImage.crossOrigin = "Anonymous";
                     }
 
-                    const imageUrl = data.image_url || mapData?.image_url || `/api/map/image/${currentMapId}`;
+                    const imageUrl =
+                        data.image_url ||
+                        mapData?.image_url ||
+                        `/api/map/image/${currentMapId}`;
 
                     mapImage.onload = () => {
                         console.log("New map image loaded after edit");
                         render();
 
-                        // Сохраняем позицию
                         mapData.zoom_level = zoomLevel;
                         mapData.pan_x = panX;
                         mapData.pan_y = panY;
-
                     };
 
                     mapImage.src = imageUrl;
-
-                    // Обновляем has_image в mapData
                     mapData.has_image = true;
                 }
 
@@ -7993,7 +8212,13 @@ function submitMap() {
             })
             .catch(err => {
                 console.error("Error updating map:", err);
-                showNotification("Ошибка при обновлении карты", "error");
+                showNotification(
+                    "Ошибка при обновлении карты: " + (err.message || ""),
+                    "error"
+                );
+            })
+            .finally(() => {
+                endMapModalSave();
             });
     }
 }
@@ -8043,7 +8268,7 @@ function showMapContextMenu(mapId, event) {
     // ===== НОВЫЙ КОД: добавляем временный обработчик для закрытия меню =====
     // Сохраняем ссылку на текущее меню
     window.currentMapMenu = menu;
-    window.currentMapId = mapId;
+    window.contextMenuTargetMapId = mapId;
 
     // Функция для закрытия меню при клике вне его
     const closeMenuOnClickOutside = (e) => {
@@ -8676,55 +8901,15 @@ function updateGridFromImage() {
     }
 }
 
-function loadDrawingsForMap(mapId) {
-    if (!mapId) {
-        console.log('No mapId provided to loadDrawingsForMap');
-        return;
-    }
-
-    console.log('Loading drawings for map:', mapId);
-
-    // Очищаем историю при загрузке новой карты
-    clearDrawingHistory();
-
-    fetch(`/api/drawings/${mapId}`)
-        .then(res => {
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-        })
-        .then(data => {
-            if (data.status === 'ok') {
-                console.log('Drawings loaded:', data.strokes?.length || 0, 'strokes');
-                drawingStrokes = data.strokes || [];
-                currentDrawingLayerId = data.layer_id;
-
-                // Сохраняем начальное состояние в историю
-                saveDrawingStateToHistory();
-
-                render();
-
-                setTimeout(() => {
-                    socket.emit('drawings_updated', {
-                        map_id: currentMapId,
-                        strokes: drawingStrokes,
-                        layer_id: currentDrawingLayerId
-                    });
-                }, 500);
-            }
-        })
-        .catch(err => console.error('Error loading drawings:', err));
-}
-
 // Сохраняем рисунки
 function saveDrawings() {
-    if (!currentMapId || !currentDrawingLayerId) {
-        console.log('Cannot save drawings: no mapId or layerId');
+    if (!currentMapId) {
+        console.log("Cannot save drawings: no mapId");
         return;
     }
+    ensureDrawingLayerId();
 
-    console.log('Saving drawings, count:', drawingStrokes.length);
+    console.log("Saving drawings, count:", drawingStrokes.length);
 
     fetch(`/api/drawings/${currentMapId}`, {
         method: 'POST',

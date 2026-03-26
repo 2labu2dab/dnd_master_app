@@ -16,6 +16,25 @@ const TOKEN_SMOOTHING_ENABLED = true;
 const isMiniMap = isEmbeddedPreview;
 const playerChannel = new BroadcastChannel('dnd_map_channel');
 
+function readParentMasterMapId() {
+    try {
+        if (!window.parent || window.parent === window) return null;
+        const p = window.parent;
+        return p.masterCurrentMapId ?? p.currentMapId ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function resolvedPlayerUrl(u) {
+    if (!u) return "";
+    try {
+        return new URL(u, window.location.origin).href;
+    } catch {
+        return String(u);
+    }
+}
+
 if (document.body && isMiniMap) {
     document.body.classList.add('player-embed');
 }
@@ -631,15 +650,18 @@ if (
 
 
 
-if (!mapId) {
-    const urlParams = new URLSearchParams(window.location.search);
-    mapId = urlParams.get('map_id');
+const urlParams = new URLSearchParams(window.location.search);
+const playerExplicitNoMap =
+    urlParams.get("no_map") === "1" ||
+    urlParams.get("no_map") === "true";
 
+if (!mapId) {
+    mapId = urlParams.get("map_id");
 }
 
-if (!mapId && window.parent && window.parent.currentMapId) {
-    mapId = window.parent.currentMapId;
-
+if (!mapId && !playerExplicitNoMap) {
+    const fromParent = readParentMasterMapId();
+    if (fromParent) mapId = fromParent;
 }
 
 if (
@@ -685,25 +707,27 @@ if (mapId) {
     ctx.textAlign = "center";
     ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
 
-    // Если mapId не передали (или в шаблоне пришло None),
-    // пробуем взять первую доступную карту.
-    fetch("/api/maps")
-        .then(res => res.json())
-        .then(maps => {
-            if (!maps || maps.length === 0) return;
-            mapId = maps[0].id;
-            window.playerMapId = mapId;
+    // Мастер явно указал «карт нет» (iframe) или мини-карта без id — не подставляем случайную карту.
+    if (playerExplicitNoMap || isMiniMap) {
+        // остаёмся без mapId
+    } else {
+        fetch("/api/maps")
+            .then(res => res.json())
+            .then(maps => {
+                if (!maps || maps.length === 0) return;
+                mapId = maps[0].id;
+                window.playerMapId = mapId;
 
-            // Синхронизация сразу, если сокет уже подключен.
-            if (socket && socket.connected) {
-                socket.emit("request_drawings", { map_id: mapId });
-                socket.emit("request_map_sync", { map_id: mapId });
-            }
-            fetchMap();
-        })
-        .catch(() => {
-            // Оставляем "Карта не выбрана"
-        });
+                if (socket && socket.connected) {
+                    socket.emit("request_drawings", { map_id: mapId });
+                    socket.emit("request_map_sync", { map_id: mapId });
+                }
+                fetchMap();
+            })
+            .catch(() => {
+                // Оставляем "Карта не выбрана"
+            });
+    }
 }
 
 function resizeCanvasToDisplaySize() {
@@ -772,8 +796,15 @@ socket.on("map_updated", (data) => {
 
     if (mapData.has_image) {
         const imageUrl = data.image_url || `/api/map/image/${mapId}`;
-        const currentSrc = mapImage ? mapImage.src : "";
-        const needsReload = !oldHasImage || !currentSrc || !currentSrc.includes(mapId);
+        let needsReload =
+            !oldHasImage ||
+            !mapImage ||
+            !mapImage.complete ||
+            mapImage.naturalWidth === 0;
+        if (!needsReload && data.image_url) {
+            needsReload =
+                resolvedPlayerUrl(data.image_url) !== resolvedPlayerUrl(mapImage.src);
+        }
         if (needsReload) {
             const memCached = mapImageCache.get(mapId);
             if (memCached && memCached.complete && memCached.naturalWidth > 0) {
@@ -1611,7 +1642,8 @@ socket.on("force_map_update", (data) => {
 socket.on("map_image_updated", (data) => {
     if (data.map_id === mapId) {
         if (mapData && mapData.player_map_enabled !== false) {
-            const imageUrl = `/api/map/image/${mapId}`;
+            const base = `/api/map/image/${mapId}`;
+            const imageUrl = `${base}${base.includes("?") ? "&" : "?"}_=${Date.now()}`;
             const newImage = new Image();
             newImage.onload = () => {
                 mapImage = newImage;
@@ -1657,8 +1689,9 @@ socket.on("force_image_reload", (data) => {
 window.addEventListener('load', () => {
     if (!mapId && window.parent) {
         try {
-            if (window.parent.currentMapId) {
-                mapId = window.parent.currentMapId;
+            const fromParent = readParentMasterMapId();
+            if (fromParent) {
+                mapId = fromParent;
                 window.playerMapId = mapId;
                 if (socket && socket.connected) {
                     socket.emit("join_map", { map_id: mapId });
@@ -1808,12 +1841,19 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
 
     if (!mapId) {
         try {
-            if (window.parent && window.parent.currentMapId) {
-                mapId = window.parent.currentMapId;
-                window.playerMapId = mapId;
+            const urlParams = new URLSearchParams(window.location.search);
+            const noMap = urlParams.get("no_map") === "1" || urlParams.get("no_map") === "true";
+            if (noMap) {
+                // явно без карты
             } else {
-                const urlParams = new URLSearchParams(window.location.search);
-                mapId = urlParams.get('map_id');
+                const fromParent = readParentMasterMapId();
+                if (fromParent) {
+                    mapId = fromParent;
+                    window.playerMapId = mapId;
+                } else {
+                    mapId = urlParams.get("map_id");
+                    if (mapId) window.playerMapId = mapId;
+                }
             }
         } catch (err) { /* cross-origin */ }
 

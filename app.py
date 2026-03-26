@@ -1640,7 +1640,7 @@ def upload_portrait():
         if file.filename == "":
             return jsonify({"error": "No selected file"}), 400
 
-        from utils.storage import save_portrait_upload
+        from utils.storage import find_portrait_file, save_portrait_upload
 
         file_data = file.read()
         result = save_portrait_upload(
@@ -1655,10 +1655,19 @@ def upload_portrait():
                 f"✓ Portrait saved for character {character_id}, "
                 f"media={result.get('media')}, size: {len(file_data)} bytes"
             )
+            portrait_path = find_portrait_file(character_id)
+            if portrait_path and os.path.exists(portrait_path):
+                try:
+                    pv = int(os.path.getmtime(portrait_path))
+                except Exception:
+                    pv = int(time.time())
+                portrait_url = f"/api/portrait/{character_id}?v={pv}"
+            else:
+                portrait_url = f"/api/portrait/{character_id}"
             return jsonify(
                 {
                     "status": "ok",
-                    "portrait_url": f"/api/portrait/{character_id}",
+                    "portrait_url": portrait_url,
                     "portrait_media": result.get("media", "image"),
                 }
             )
