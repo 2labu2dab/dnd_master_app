@@ -4010,6 +4010,49 @@ document.addEventListener("keydown", (e) => {
         } else {
             // Если модалки закрыты, обрабатываем другие режимы
 
+            const hasVertexHandle =
+                selectedVertexZoneId != null && selectedVertexIndex >= 0;
+            const hasObjectSelection =
+                hasVertexHandle ||
+                Boolean(selectedTokenId) ||
+                Boolean(selectedFindId) ||
+                Boolean(selectedZoneId) ||
+                selectedTokens.size > 0;
+
+            if (hasObjectSelection) {
+                selectedTokens.clear();
+                selectedTokenId = null;
+                selectedFindId = null;
+                selectedZoneId = null;
+                clearSelectedVertex();
+                hoveredVertexIndex = -1;
+                hoveredVertexZoneId = null;
+                draggingVertexZoneId = null;
+                draggingVertexIndex = -1;
+                draggingToken = null;
+                draggingFind = null;
+                isDraggingMultiple = false;
+                multiDragOffsets.clear();
+                multiDragStartPositions.clear();
+
+                [
+                    "tokenContextMenu",
+                    "findContextMenu",
+                    "zoneContextMenu",
+                    "characterContextMenu",
+                    "mapContextMenu"
+                ].forEach((menuId) => {
+                    const menu = document.getElementById(menuId);
+                    if (menu) menu.style.display = "none";
+                });
+                hideInitiativeStripContextMenu();
+
+                updateSidebar();
+                render();
+                updateCanvasCursor();
+                return;
+            }
+
             if (isDrawMode || isEraseMode) {
                 // Завершаем текущий штрих если есть
                 if (drawingStroke) {
@@ -4094,13 +4137,6 @@ document.addEventListener("keydown", (e) => {
                 const hint = document.getElementById('drawing-hint');
                 if (hint) hint.remove();
 
-                render();
-            }
-
-            // Снимаем выделение с токенов
-            if (selectedTokens.size > 0) {
-                selectedTokens.clear();
-                updateSidebar();
                 render();
             }
 
