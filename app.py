@@ -137,6 +137,7 @@ def _build_player_data(map_id, data):
         "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
+        "combat": data.get("combat"),
     }
     if data.get("has_image"):
         image_path = get_image_filepath(map_id)
@@ -1181,6 +1182,7 @@ def handle_request_map_data(data):
         "zoom_level": map_data.get("zoom_level", 1),
         "pan_x": map_data.get("pan_x", 0),
         "pan_y": map_data.get("pan_y", 0),
+        "combat": map_data.get("combat"),
     }
 
     emit("map_updated", player_data, room=request.sid)

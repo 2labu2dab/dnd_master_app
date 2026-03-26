@@ -129,6 +129,7 @@
       </div>
     </aside>
     <section id="canvas-container">
+      <div id="initiativeStrip" class="initiative-strip" style="display: none;" aria-hidden="true"></div>
       <div id="toolButtons">
         <button id="gridToggle" class="tool-button" title="Показать/скрыть сетку">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
@@ -176,6 +177,14 @@
             <path d="M15.5 3.5L3.5 15.5" />
             <path d="M19.5 7.5L7.5 19.5" />
             <circle cx="12" cy="12" r="2" />
+          </svg>
+        </button>
+        <button id="combatToggle" class="tool-button" title="Бой (инициатива)" type="button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 4l12 16" />
+            <path d="M18 4L6 20" />
+            <path d="M12 3v3M12 18v3" />
           </svg>
         </button>
       </div>
@@ -640,6 +649,9 @@
     </div>
 
     <div class="context-menu-section">
+      <button type="button" class="context-menu-item" id="contextCombatToggle" style="display: none;">
+        <span class="context-icon">⚔</span> <span id="contextCombatToggleLabel">Войти в бой</span>
+      </button>
       <button class="context-menu-item" id="contextDuplicateToken">
         <span class="context-icon">📋</span> Создать копию
       </button>
@@ -648,6 +660,20 @@
       </button>
       <button class="context-menu-item delete" id="contextDeleteToken">
         <span class="context-icon">🗑️</span> Удалить
+      </button>
+    </div>
+  </div>
+
+  <div id="initiativeStripContextMenu" class="context-menu" style="display: none;">
+    <div class="context-menu-header">
+      <span id="initiativeStripContextName"></span>
+    </div>
+    <div class="context-menu-section">
+      <button type="button" class="context-menu-item" id="initiativeStripEditInit">
+        <span class="context-icon">🎲</span> Изменить инициативу
+      </button>
+      <button type="button" class="context-menu-item delete" id="initiativeStripLeaveCombat">
+        <span class="context-icon">🚪</span> Выйти из боя
       </button>
     </div>
   </div>
@@ -711,6 +737,18 @@
       <button class="context-menu-item delete" id="contextDeleteMap">
         <span class="context-icon">🗑️</span> Удалить
       </button>
+    </div>
+  </div>
+  <div id="combatModal" class="modal" style="display: none;">
+    <div class="modal-content large-modal combat-modal-content">
+      <span class="close" id="combatModalClose" role="button" tabindex="0">&times;</span>
+      <h3>Бой: инициатива</h3>
+      <p class="combat-modal-hint">Укажите инициативу для каждого токена. «Исключить» — токен не участвует в этом бою.</p>
+      <div id="combatModalList" class="combat-modal-list"></div>
+      <div class="token-buttons">
+        <button type="button" class="save-btn" id="combatModalStart">Начать бой</button>
+        <button type="button" class="cancel-btn" id="combatModalCancel">Отмена</button>
+      </div>
     </div>
   </div>
   <div id="newMapModal" class="modal" style="display: none;">

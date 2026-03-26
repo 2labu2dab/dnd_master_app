@@ -554,6 +554,7 @@ function requestRender() {
         renderRequested = true;
         requestAnimationFrame(() => {
             render();
+            updatePlayerInitiativeStrip();
             renderRequested = false;
         });
     }
@@ -693,7 +694,8 @@ socket.on("map_updated", (data) => {
         player_map_enabled: data.player_map_enabled !== undefined ? data.player_map_enabled : true,
         has_image: data.has_image || false,
         master_canvas_width: data.master_canvas_width,
-        master_canvas_height: data.master_canvas_height
+        master_canvas_height: data.master_canvas_height,
+        combat: data.combat !== undefined ? data.combat : mapData.combat
     });
 
     preloadPortraits(mapData.characters);
@@ -987,6 +989,69 @@ function getTokenSizeScale(token) {
 function getTokensSortedForDrawing(tokens) {
     if (!tokens || !tokens.length) return [];
     return tokens.slice().sort((a, b) => getTokenSizeScale(b) - getTokenSizeScale(a));
+}
+
+function updatePlayerInitiativeStrip() {
+    if (isMiniMap) return;
+    const strip = document.getElementById("initiativeStrip");
+    if (!strip || !mapData) return;
+    const parent = strip.parentElement;
+    const combat = mapData.combat;
+    const tokens = mapData.tokens || [];
+
+    if (!combat || !combat.active || !Array.isArray(combat.entries) || combat.entries.length === 0) {
+        strip.style.display = "none";
+        strip.innerHTML = "";
+        if (parent) parent.classList.remove("has-initiative-strip");
+        return;
+    }
+
+    const byId = new Map(tokens.map((t) => [t.id, t]));
+    strip.style.display = "flex";
+    strip.innerHTML = "";
+    if (parent) parent.classList.add("has-initiative-strip");
+
+    for (const ent of combat.entries) {
+        const tok = byId.get(ent.id);
+        if (!tok) continue;
+        const hp = tok.health_points ?? 0;
+        const dead = tok.is_dead || hp <= 0;
+        if (dead) continue;
+
+        const item = document.createElement("div");
+        const typeCls = tok.is_player
+            ? "initiative-strip-item--hero"
+            : tok.is_npc
+                ? "initiative-strip-item--npc"
+                : "initiative-strip-item--enemy";
+        item.className = `initiative-strip-item ${typeCls}`;
+        item.title = tok.name || "Токен";
+
+        if (tok.avatar_url) {
+            const img = document.createElement("img");
+            img.src = tok.avatar_url;
+            img.alt = "";
+            item.appendChild(img);
+        } else if (tok.has_avatar) {
+            const img = document.createElement("img");
+            img.src = `/api/token_avatar/${tok.id}`;
+            img.alt = "";
+            item.appendChild(img);
+        } else {
+            const ph = document.createElement("div");
+            ph.className = "initiative-strip-placeholder";
+            ph.textContent = (tok.name || "?").slice(0, 1).toUpperCase();
+            item.appendChild(ph);
+        }
+
+        strip.appendChild(item);
+    }
+
+    if (!strip.childElementCount) {
+        strip.style.display = "none";
+        strip.innerHTML = "";
+        if (parent) parent.classList.remove("has-initiative-strip");
+    }
 }
 
 function drawLayers(offsetX, offsetY, scale) {
@@ -1678,6 +1743,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             if (data.error) throw new Error(data.error);
 
             mapData = data;
+            if (mapData.combat === undefined) mapData.combat = null;
 
             if (data.master_canvas_width) masterCanvasWidth = data.master_canvas_width;
             if (data.master_canvas_height) masterCanvasHeight = data.master_canvas_height;
@@ -1699,6 +1765,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             if (!mapData.player_map_enabled) {
                 canvas.style.display = "none";
                 updatePortraits();
+                updatePlayerInitiativeStrip();
                 return;
             } else {
                 canvas.style.display = "block";

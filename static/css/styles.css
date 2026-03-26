@@ -644,6 +644,10 @@ large-modal {
   z-index: 10;
 }
 
+#canvas-container.has-initiative-strip #toolButtons {
+  top: 68px;
+}
+
 #playerMini .portrait-grid {
   gap: 2px !important;
 }
@@ -2845,4 +2849,159 @@ canvas.erase-mode {
 
 .size-buttons{
   padding-top: 10px;
+}
+
+/* ─── Бой: полоса инициативы (фон полосы не виден; миниатюры по центру) ─── */
+.initiative-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.initiative-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.initiative-strip--player {
+  background: transparent;
+  border: none;
+}
+
+.initiative-strip-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 80px;
+  height: 80px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 4px solid rgba(148, 163, 184, 0.55);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* Цвет рамки как у маркеров типа в списке токенов: герой / НПС / враг */
+.initiative-strip-item--hero {
+  border-color: #4caf50;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(76, 175, 80, 0.35);
+}
+
+.initiative-strip-item--npc {
+  border-color: #ffc107;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 193, 7, 0.35);
+}
+
+.initiative-strip-item--enemy {
+  border-color: #f44336;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(244, 67, 54, 0.35);
+}
+
+.initiative-strip-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.initiative-strip-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #334155, #1e293b);
+  color: #e2e8f0;
+  font-size: 21px;
+  font-weight: 600;
+  font-family: Inter, sans-serif;
+}
+
+#combatToggle.active {
+  background-color: white;
+  color: #b91c1c;
+}
+
+.combat-modal-hint {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: -8px 0 14px;
+  line-height: 1.45;
+}
+
+.combat-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.combat-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  border-radius: 10px;
+}
+
+.combat-modal-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-modal-row input[type="number"] {
+  width: 72px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 14px;
+}
+
+.combat-modal-row .combat-row-exclude {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid #64748b;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.combat-modal-row .combat-row-exclude:hover {
+  border-color: #f87171;
+  color: #fca5a5;
 }

@@ -1487,6 +1487,7 @@ function switchMap(mapId) {
             finds: [],
             zones: [],
             characters: [],
+            combat: null,
             grid_settings: {
                 cell_count: 20,
                 cell_size: 20,
@@ -1518,6 +1519,7 @@ function switchMap(mapId) {
             delete data.map_image_base64;
             mapData = data;
             currentMapId = mapId;
+            if (mapData.combat === undefined) mapData.combat = null;
 
             // Убеждаемся, что grid_settings.visible_to_players определен
             if (mapData.grid_settings && mapData.grid_settings.visible_to_players === undefined) {
@@ -1731,6 +1733,240 @@ function saveMapData() {
         return response.json();
     });
 }
+
+// ─── Бой / инициатива ───
+function combatIsTokenInCombat(tokenId) {
+    const c = mapData && mapData.combat;
+    return !!(c && c.active && Array.isArray(c.entries) && c.entries.some((e) => e.id === tokenId));
+}
+
+function combatJoinToken(tokenId) {
+    if (!mapData.combat || !mapData.combat.active) return;
+    if (!Array.isArray(mapData.combat.entries)) mapData.combat.entries = [];
+    if (mapData.combat.entries.some((e) => e.id === tokenId)) return;
+    mapData.combat.entries.push({ id: tokenId, initiative: 0 });
+}
+
+function combatLeaveToken(tokenId) {
+    if (!mapData.combat || !Array.isArray(mapData.combat.entries)) return;
+    mapData.combat.entries = mapData.combat.entries.filter((e) => e.id !== tokenId);
+}
+
+/** После смены инициативы: выше значение — левее в полосе; равные — прежний порядок. */
+function resortCombatEntriesByInitiative() {
+    if (!mapData.combat || !Array.isArray(mapData.combat.entries)) return;
+    const arr = mapData.combat.entries;
+    arr.forEach((e, i) => {
+        e._tie = i;
+    });
+    arr.sort((a, b) => {
+        const di = (b.initiative ?? 0) - (a.initiative ?? 0);
+        if (di !== 0) return di;
+        return a._tie - b._tie;
+    });
+    arr.forEach((e) => delete e._tie);
+}
+
+let initiativeStripMenuTokenId = null;
+
+function hideInitiativeStripContextMenu() {
+    initiativeStripMenuTokenId = null;
+    const m = document.getElementById("initiativeStripContextMenu");
+    if (m) m.style.display = "none";
+}
+
+function showInitiativeStripContextMenu(clientX, clientY, tokenId, tokenName) {
+    hideInitiativeStripContextMenu();
+    initiativeStripMenuTokenId = tokenId;
+    const menu = document.getElementById("initiativeStripContextMenu");
+    const nameEl = document.getElementById("initiativeStripContextName");
+    if (!menu) return;
+    if (nameEl) nameEl.textContent = tokenName || "Токен";
+
+    menu.style.position = "fixed";
+    menu.style.display = "block";
+    menu.style.visibility = "hidden";
+
+    const rect = menu.getBoundingClientRect();
+    let left = clientX;
+    let top = clientY;
+    if (left + rect.width > window.innerWidth - 8) {
+        left = window.innerWidth - rect.width - 8;
+    }
+    if (top + rect.height > window.innerHeight - 8) {
+        top = window.innerHeight - rect.height - 8;
+    }
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+    menu.style.visibility = "visible";
+
+    const tm = document.getElementById("tokenContextMenu");
+    if (tm) tm.style.display = "none";
+    const fm = document.getElementById("findContextMenu");
+    if (fm) fm.style.display = "none";
+    const zm = document.getElementById("zoneContextMenu");
+    if (zm) zm.style.display = "none";
+}
+
+function combatMoveRevivedTokenToEnd(tokenId) {
+    if (!mapData || !mapData.combat || !mapData.combat.active || !Array.isArray(mapData.combat.entries)) return;
+    const idx = mapData.combat.entries.findIndex((e) => e.id === tokenId);
+    if (idx < 0) return;
+    const [ent] = mapData.combat.entries.splice(idx, 1);
+    mapData.combat.entries.push(ent);
+}
+
+function syncCombatToolbarButton() {
+    const btn = document.getElementById("combatToggle");
+    if (!btn) return;
+    btn.classList.toggle("active", !!(mapData && mapData.combat && mapData.combat.active));
+}
+
+function initiativeStripTypeClass(token) {
+    if (token.is_player) return "initiative-strip-item--hero";
+    if (token.is_npc) return "initiative-strip-item--npc";
+    return "initiative-strip-item--enemy";
+}
+
+function fillInitiativeStrip(stripEl, data) {
+    hideInitiativeStripContextMenu();
+    if (!stripEl) return;
+    const parent = stripEl.parentElement;
+    const combat = data && data.combat;
+    const tokens = (data && data.tokens) || [];
+
+    if (!combat || !combat.active || !Array.isArray(combat.entries) || combat.entries.length === 0) {
+        stripEl.style.display = "none";
+        stripEl.innerHTML = "";
+        if (parent) parent.classList.remove("has-initiative-strip");
+        return;
+    }
+
+    const byId = new Map(tokens.map((t) => [t.id, t]));
+    stripEl.style.display = "flex";
+    stripEl.innerHTML = "";
+    if (parent) parent.classList.add("has-initiative-strip");
+
+    for (const ent of combat.entries) {
+        const tok = byId.get(ent.id);
+        if (!tok) continue;
+        const hp = tok.health_points ?? 0;
+        const dead = tok.is_dead || hp <= 0;
+        if (dead) continue;
+
+        const item = document.createElement("div");
+        item.className = `initiative-strip-item ${initiativeStripTypeClass(tok)}`;
+        item.title = tok.name || "Токен";
+
+        if (tok.avatar_url) {
+            const img = document.createElement("img");
+            img.src = tok.avatar_url;
+            img.alt = "";
+            item.appendChild(img);
+        } else if (tok.has_avatar) {
+            const img = document.createElement("img");
+            img.src = `/api/token_avatar/${tok.id}`;
+            img.alt = "";
+            item.appendChild(img);
+        } else {
+            const ph = document.createElement("div");
+            ph.className = "initiative-strip-placeholder";
+            ph.textContent = (tok.name || "?").slice(0, 1).toUpperCase();
+            item.appendChild(ph);
+        }
+
+        item.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!mapData.combat || !mapData.combat.active) return;
+            showInitiativeStripContextMenu(e.clientX, e.clientY, ent.id, tok.name);
+        });
+
+        stripEl.appendChild(item);
+    }
+
+    if (!stripEl.childElementCount) {
+        stripEl.style.display = "none";
+        stripEl.innerHTML = "";
+        if (parent) parent.classList.remove("has-initiative-strip");
+        hideInitiativeStripContextMenu();
+    }
+}
+
+function updateMasterInitiativeStrip() {
+    fillInitiativeStrip(document.getElementById("initiativeStrip"), mapData);
+}
+
+function openCombatSetupModal() {
+    const modal = document.getElementById("combatModal");
+    const list = document.getElementById("combatModalList");
+    if (!modal || !list) return;
+    list.innerHTML = "";
+    const tokens = mapData.tokens || [];
+    tokens.forEach((token, tieIdx) => {
+        const row = document.createElement("div");
+        row.className = "combat-modal-row";
+        row.dataset.tokenId = token.id;
+        row.dataset.tieIndex = String(tieIdx);
+
+        const name = document.createElement("span");
+        name.className = "combat-modal-row-name";
+        name.textContent = token.name || "Без имени";
+
+        const inp = document.createElement("input");
+        inp.type = "number";
+        inp.value = "0";
+        inp.title = "Инициатива";
+
+        const ex = document.createElement("button");
+        ex.type = "button";
+        ex.className = "combat-row-exclude";
+        ex.textContent = "Исключить";
+        ex.addEventListener("click", () => row.remove());
+
+        row.appendChild(name);
+        row.appendChild(inp);
+        row.appendChild(ex);
+        list.appendChild(row);
+    });
+
+    modal.style.display = "flex";
+}
+
+function closeCombatSetupModal() {
+    const modal = document.getElementById("combatModal");
+    if (modal) modal.style.display = "none";
+}
+
+function startCombatFromModal() {
+    const list = document.getElementById("combatModalList");
+    if (!list) return;
+    const rows = [...list.querySelectorAll(".combat-modal-row")];
+    const rowsData = rows.map((row) => ({
+        id: row.dataset.tokenId,
+        initiative: parseInt(row.querySelector('input[type="number"]').value, 10) || 0,
+        tie: parseInt(row.dataset.tieIndex, 10) || 0
+    }));
+    rowsData.sort((a, b) => (b.initiative - a.initiative) || (a.tie - b.tie));
+    mapData.combat = {
+        active: true,
+        entries: rowsData.map((r) => ({ id: r.id, initiative: r.initiative }))
+    };
+    closeCombatSetupModal();
+    saveMapData();
+    syncCombatToolbarButton();
+    updateMasterInitiativeStrip();
+    render();
+}
+
+function endCombat() {
+    mapData.combat = null;
+    saveMapData();
+    syncCombatToolbarButton();
+    updateMasterInitiativeStrip();
+    render();
+}
+
 function zonesIntersect(verticesA, verticesB) {
     function onSegment(p, q, r) {
         return q[0] <= Math.max(p[0], r[0]) &&
@@ -1938,6 +2174,8 @@ function render() {
         ctx.textAlign = "center";
         ctx.fillText("Нет активной карты. Создайте новую или загрузите изображение",
             canvas.width / 2, canvas.height / 2);
+        syncCombatToolbarButton();
+        updateMasterInitiativeStrip();
         return;
     }
 
@@ -1946,6 +2184,8 @@ function render() {
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
         ctx.fillText("Загрузите изображение карты", canvas.width / 2, canvas.height / 2);
+        syncCombatToolbarButton();
+        updateMasterInitiativeStrip();
         return;
     }
 
@@ -1968,6 +2208,9 @@ function render() {
     if (isRulerMode && rulerStart) {
         drawRuler(offsetX, offsetY, scale);
     }
+
+    syncCombatToolbarButton();
+    updateMasterInitiativeStrip();
 }
 function drawTempZone(offsetX, offsetY, scale) {
     if (currentZoneVertices.length === 0) return;
@@ -3294,11 +3537,13 @@ function renderTokenContextMenu(token, x, y) {
             token.health_points = 0;
         } else if (wasDead) {
             token.health_points = 1;
+            combatMoveRevivedTokenToEnd(token.id);
         }
 
         saveMapData();
         render();
         updateSidebar();
+        updateMasterInitiativeStrip();
     };
 
     // Заполняем поля редактирования
@@ -3315,6 +3560,7 @@ function renderTokenContextMenu(token, x, y) {
     // Обработчик сохранения изменений
     if (saveBtn) {
         saveBtn.onclick = () => {
+            const wasDeadBefore = token.is_dead || (token.health_points ?? 0) <= 0;
             const newHp = parseInt(hpInput.value, 10);
             const newHpMax = parseInt(hpMaxInput.value, 10);
             const newAc = parseInt(acInput.value, 10);
@@ -3345,10 +3591,14 @@ function renderTokenContextMenu(token, x, y) {
             // Обновляем состояние «мёртв» в зависимости от HP
             token.is_dead = token.health_points <= 0;
             checkbox.checked = token.is_dead;
+            if (wasDeadBefore && token.health_points > 0) {
+                combatMoveRevivedTokenToEnd(token.id);
+            }
 
             saveMapData();
             render();
             updateSidebar();
+            updateMasterInitiativeStrip();
             menu.style.display = "none";
         };
     }
@@ -3360,6 +3610,7 @@ function renderTokenContextMenu(token, x, y) {
 
 canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    hideInitiativeStripContextMenu();
     if (isDrawMode || isEraseMode) {
         // Завершаем текущий штрих если есть
         if (drawingStroke) {
@@ -3727,6 +3978,12 @@ document.addEventListener("keydown", (e) => {
 
     // Обработка Escape - всегда работает, даже если фокус на поле ввода
     if (e.key === "Escape") {
+        if (initiativeStripMenuTokenId) {
+            hideInitiativeStripContextMenu();
+            e.preventDefault();
+            return;
+        }
+
         e.preventDefault(); // Предотвращаем стандартное поведение браузера
 
         // Проверяем, открыто ли какое-либо модальное окно
@@ -3740,7 +3997,8 @@ document.addEventListener("keydown", (e) => {
             'bankModal',
             'newMapModal',
             'bankModal',
-            'bankCharacterModal'
+            'bankCharacterModal',
+            'combatModal'
         ].some(modalId => {
             const modal = document.getElementById(modalId);
             return modal && modal.style.display === 'flex';
@@ -4416,6 +4674,69 @@ window.onload = () => {
         });
     });
 
+    const combatBtn = document.getElementById("combatToggle");
+    if (combatBtn) {
+        combatBtn.addEventListener("click", () => {
+            if (mapData.combat && mapData.combat.active) {
+                if (confirm("Закончить бой? Полоса инициативы исчезнет у всех.")) {
+                    endCombat();
+                }
+            } else {
+                openCombatSetupModal();
+            }
+        });
+    }
+
+    const combatModalClose = document.getElementById("combatModalClose");
+    if (combatModalClose) {
+        combatModalClose.addEventListener("click", closeCombatSetupModal);
+    }
+    const combatModalCancel = document.getElementById("combatModalCancel");
+    if (combatModalCancel) {
+        combatModalCancel.addEventListener("click", closeCombatSetupModal);
+    }
+    const combatModalStart = document.getElementById("combatModalStart");
+    if (combatModalStart) {
+        combatModalStart.addEventListener("click", startCombatFromModal);
+    }
+
+    const initiativeStripEditInit = document.getElementById("initiativeStripEditInit");
+    if (initiativeStripEditInit) {
+        initiativeStripEditInit.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const id = initiativeStripMenuTokenId;
+            if (!id || !mapData.combat || !mapData.combat.entries) return;
+            const entry = mapData.combat.entries.find((x) => x.id === id);
+            if (!entry) return;
+            const raw = prompt("Новая инициатива:", String(entry.initiative ?? 0));
+            if (raw === null) return;
+            const n = parseInt(raw, 10);
+            if (Number.isNaN(n)) {
+                alert("Введите целое число.");
+                return;
+            }
+            entry.initiative = n;
+            resortCombatEntriesByInitiative();
+            hideInitiativeStripContextMenu();
+            saveMapData();
+            updateMasterInitiativeStrip();
+            render();
+        });
+    }
+    const initiativeStripLeaveCombat = document.getElementById("initiativeStripLeaveCombat");
+    if (initiativeStripLeaveCombat) {
+        initiativeStripLeaveCombat.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const id = initiativeStripMenuTokenId;
+            if (!id) return;
+            combatLeaveToken(id);
+            hideInitiativeStripContextMenu();
+            saveMapData();
+            updateMasterInitiativeStrip();
+            render();
+        });
+    }
+
     const findVisibleCheckbox = document.getElementById("findVisibleCheckbox");
     findVisibleCheckbox.addEventListener("change", () => {
         if (!editingFindId) return;
@@ -4436,17 +4757,21 @@ window.onload = () => {
         const characterMenu = document.getElementById("characterContextMenu");
         const mapMenu = document.getElementById("mapContextMenu");
 
+        const initStripMenu = document.getElementById("initiativeStripContextMenu");
+
         if (!tokenMenu?.contains(e.target) &&
             !findMenu?.contains(e.target) &&
             !zoneMenu?.contains(e.target) &&
             !characterMenu?.contains(e.target) &&
-            !mapMenu?.contains(e.target)) {
+            !mapMenu?.contains(e.target) &&
+            !initStripMenu?.contains(e.target)) {
 
             if (tokenMenu) tokenMenu.style.display = "none";
             if (findMenu) findMenu.style.display = "none";
             if (zoneMenu) zoneMenu.style.display = "none";
             if (characterMenu) characterMenu.style.display = "none";
             if (mapMenu) mapMenu.style.display = "none";
+            hideInitiativeStripContextMenu();
         }
     });
 
@@ -4573,6 +4898,7 @@ let currentContextZone = null;
 
 // Функция для показа контекстного меню токена
 function showTokenContextMenu(token, x, y) {
+    hideInitiativeStripContextMenu();
     currentContextToken = token;
 
     const menu = document.getElementById("tokenContextMenu");
@@ -4658,6 +4984,17 @@ function showTokenContextMenu(token, x, y) {
             syncTokenAcrossMaps(currentContextToken);
         };
     });
+
+    const combatCtxBtn = document.getElementById("contextCombatToggle");
+    const combatCtxLbl = document.getElementById("contextCombatToggleLabel");
+    if (combatCtxBtn && combatCtxLbl) {
+        if (mapData.combat && mapData.combat.active) {
+            combatCtxBtn.style.display = "block";
+            combatCtxLbl.textContent = combatIsTokenInCombat(token.id) ? "Выйти из боя" : "Войти в бой";
+        } else {
+            combatCtxBtn.style.display = "none";
+        }
+    }
 
     // Позиционирование меню...
     menu.style.display = "block";
@@ -4791,6 +5128,7 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
             currentContextToken.health_points = 0;
         } else if (wasDead) {
             currentContextToken.health_points = 1;
+            combatMoveRevivedTokenToEnd(currentContextToken.id);
         }
 
         // Обновляем отображение HP
@@ -4814,6 +5152,7 @@ document.getElementById("contextTokenDead").addEventListener("change", function 
         saveMapData();
         render();
         updateSidebar();
+        updateMasterInitiativeStrip();
 
         // Добавляем синхронизацию
         syncTokenAcrossMaps(currentContextToken);
@@ -4850,6 +5189,7 @@ document.getElementById("contextApplyDamage").addEventListener("click", function
             saveMapData();
             render();
             updateSidebar();
+            updateMasterInitiativeStrip();
 
             // Добавляем синхронизацию
             syncTokenAcrossMaps(currentContextToken);
@@ -4862,8 +5202,12 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
         if (heal > 0) {
             const maxHp = currentContextToken.max_health_points || 10;
             const currentHp = currentContextToken.health_points || 0;
+            const wasDead = currentContextToken.is_dead || currentHp <= 0;
             currentContextToken.health_points = Math.min(maxHp, currentHp + heal);
             currentContextToken.is_dead = currentContextToken.health_points <= 0;
+            if (wasDead && currentContextToken.health_points > 0) {
+                combatMoveRevivedTokenToEnd(currentContextToken.id);
+            }
 
             document.getElementById("contextTokenDead").checked = currentContextToken.is_dead;
 
@@ -4888,6 +5232,7 @@ document.getElementById("contextApplyHeal").addEventListener("click", function (
             saveMapData();
             render();
             updateSidebar();
+            updateMasterInitiativeStrip();
 
             // Добавляем синхронизацию
             syncTokenAcrossMaps(currentContextToken);
@@ -4939,6 +5284,7 @@ document.getElementById("contextDeleteToken").addEventListener("click", function
 
         // Удаляем токен из локальных данных
         mapData.tokens = mapData.tokens.filter(t => t.id !== currentContextToken.id);
+        combatLeaveToken(currentContextToken.id);
         selectedTokenId = null;
 
         saveMapData();
@@ -4946,6 +5292,21 @@ document.getElementById("contextDeleteToken").addEventListener("click", function
         updateSidebar();
         document.getElementById("tokenContextMenu").style.display = "none";
     }
+});
+
+document.getElementById("contextCombatToggle").addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (!currentContextToken || !mapData.combat || !mapData.combat.active) return;
+    const id = currentContextToken.id;
+    if (combatIsTokenInCombat(id)) {
+        combatLeaveToken(id);
+    } else {
+        combatJoinToken(id);
+    }
+    saveMapData();
+    updateMasterInitiativeStrip();
+    render();
+    document.getElementById("tokenContextMenu").style.display = "none";
 });
 
 // Обработчики для меню находки
@@ -7061,7 +7422,8 @@ function closeAllModals() {
         'importTokenModal',
         'bankModal',
         'newMapModal',
-        'bankCharacterModal'  // ДОБАВЛЕНО
+        'bankCharacterModal',  // ДОБАВЛЕНО
+        'combatModal'
     ];
 
     modals.forEach(modalId => {
