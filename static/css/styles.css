@@ -1187,7 +1187,8 @@ canvas.map-panning {
   flex: 1;
   position: relative;
   height: 100vh;
-  transition: flex 0.3s ease;
+  min-width: 0;
+  transition: none;
 }
 /* Сайдбар для портретов */
 #portrait-sidebar {
@@ -1197,7 +1198,7 @@ canvas.map-panning {
   border-left: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: -4px 0 18px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  transition: width 0.3s ease;
+  transition: none;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -1767,11 +1768,11 @@ canvas.map-panning {
     height: 20px;
 }
 
-/* Анимация */
+/* Без анимации ширины: иначе canvas тянется CSS, а bitmap обновляется с задержкой */
 #sidebar,
 #right-sidebar,
 #canvas-container {
-    transition: width 0.3s ease, padding 0.3s ease, min-width 0.3s ease;
+    transition: none;
 }
 
 /* Подсказки при наведении - исправлено */

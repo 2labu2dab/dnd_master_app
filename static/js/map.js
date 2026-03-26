@@ -91,8 +91,17 @@ const sidebar = document.getElementById("sidebar");
 const rightSidebar = document.getElementById("right-sidebar");
 const playerRulerToggle = document.getElementById("playerRulerToggle");
 const rulerToggle = document.getElementById("rulerToggle");
-canvas.width = window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth;
-canvas.height = window.innerHeight;
+(function initMasterCanvasSize() {
+    const container = document.getElementById('canvas-container');
+    const c = document.getElementById('mapCanvas');
+    if (container && c) {
+        c.width = Math.max(1, Math.round(container.clientWidth));
+        c.height = Math.max(1, Math.round(container.clientHeight));
+    } else if (c && sidebar && rightSidebar) {
+        c.width = Math.max(1, Math.round(window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth));
+        c.height = Math.max(1, Math.round(window.innerHeight));
+    }
+})();
 let mapsList = [];
 /** Единая история Ctrl+Z / Ctrl+Y: снимок рисунков + зон на каждом шаге */
 let masterUndoHistory = [];
@@ -6648,10 +6657,8 @@ function initSidebarCollapse() {
 
             localStorage.setItem('sidebar_left_collapsed', isCollapsed);
 
-            setTimeout(() => {
-                resizeCanvas();
-                render();
-            }, 300);
+            resizeCanvas();
+            render();
         };
     }
 
@@ -6676,33 +6683,27 @@ function initSidebarCollapse() {
 
             localStorage.setItem('sidebar_right_collapsed', isCollapsed);
 
-            setTimeout(() => {
-                resizeCanvas();
-                render();
-            }, 300);
+            resizeCanvas();
+            render();
         };
     }
+
+    resizeCanvas();
+    render();
 }
 function resizeCanvas() {
-    const leftSidebar = document.getElementById('sidebar');
-    const rightSidebar = document.getElementById('right-sidebar');
+    const canvasContainer = document.getElementById('canvas-container');
     const canvas = document.getElementById('mapCanvas');
 
-    if (!canvas || !leftSidebar || !rightSidebar) return;
+    if (!canvas || !canvasContainer) return;
 
-    console.log('Resizing canvas:', {
-        leftWidth: leftSidebar.offsetWidth,
-        rightWidth: rightSidebar.offsetWidth,
-        windowWidth: window.innerWidth
-    });
+    const w = Math.max(1, Math.round(canvasContainer.clientWidth));
+    const h = Math.max(1, Math.round(canvasContainer.clientHeight));
+    if (canvas.width === w && canvas.height === h) return;
 
-    canvas.width = window.innerWidth - leftSidebar.offsetWidth - rightSidebar.offsetWidth;
-    canvas.height = window.innerHeight;
-
-    // Центрируем карту после изменения размера
-    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
-        centerMap();
-    }
+    canvas.width = w;
+    canvas.height = h;
+    invalidateBg();
 }
 window.addEventListener('resize', function () {
     resizeCanvas();

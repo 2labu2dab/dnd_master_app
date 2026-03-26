@@ -249,16 +249,16 @@ function performUpdatePortraits() {
 
     if (shouldBeVisible) {
         portraitSidebar.classList.add('visible');
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             renderPortraits(visibleCharacters);
             requestRender();
-        }, 350);
+        });
     } else {
         portraitSidebar.classList.remove('visible');
         portraitsContainer.innerHTML = '';
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             requestRender();
-        }, 350);
+        });
     }
 }
 
