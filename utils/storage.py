@@ -341,6 +341,32 @@ def get_all_maps_with_token(token_id):
     return maps_with_token
 
 
+def get_all_maps_with_character(character_id):
+    """Найти все карты, в списке персонажей (портреты) которых есть character_id."""
+    maps_with_char = []
+    if not os.path.exists(MAPS_DIR):
+        return maps_with_char
+
+    for filename in os.listdir(MAPS_DIR):
+        if not filename.endswith(".json"):
+            continue
+        map_id = filename[:-5]
+        map_data = load_map_data(map_id)
+        if not map_data:
+            continue
+        for ch in map_data.get("characters") or []:
+            if str(ch.get("id")) == str(character_id):
+                maps_with_char.append(
+                    {
+                        "map_id": map_id,
+                        "map_name": map_data.get("name", "Без названия"),
+                    }
+                )
+                break
+
+    return maps_with_char
+
+
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
     return os.path.join(TOKENS_AVATARS_DIR, f"{token_id}.png")
@@ -661,12 +687,24 @@ def load_map_image(map_id):
 
 
 def delete_map_image(map_id):
-    """Удалить изображение карты"""
-    img_path = get_image_filepath(map_id)
-    if os.path.exists(img_path):
-        os.remove(img_path)
-        return True
-    return False
+    """Удалить изображения карты: PNG/JPEG оригинал и сжатую копию для игрока."""
+    removed = False
+    for suffix in (f"{map_id}.png", f"{map_id}.jpg"):
+        p = os.path.join(IMAGES_DIR, suffix)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                removed = True
+            except OSError as e:
+                print(f"✗ Error removing map image {p}: {e}")
+    player_path = get_player_image_filepath(map_id)
+    if os.path.exists(player_path):
+        try:
+            os.remove(player_path)
+            removed = True
+        except OSError as e:
+            print(f"✗ Error removing player map image {player_path}: {e}")
+    return removed
 
 
 def list_maps():
@@ -752,14 +790,45 @@ def create_new_map(name="Новая карта"):
 
 
 def delete_map(map_id):
-    """Удалить карту и её изображение"""
-    # Удаляем JSON
+    """
+    Удалить карту: JSON, изображения, слой рисунков.
+    Аватары токенов и файлы портретов удаляются с диска, только если больше не
+    упоминаются ни на одной другой карте.
+    """
     filepath = get_map_filepath(map_id)
+    map_data = None
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                map_data = json.load(f)
+        except Exception as e:
+            print(f"Warning: could not read map {map_id} before delete: {e}")
+
+    token_ids = []
+    character_ids = []
+    if map_data:
+        for t in map_data.get("tokens") or []:
+            if t.get("has_avatar") and t.get("id"):
+                token_ids.append(str(t["id"]))
+        for c in map_data.get("characters") or []:
+            if c.get("has_avatar") and c.get("id"):
+                character_ids.append(str(c["id"]))
+        token_ids = list(dict.fromkeys(token_ids))
+        character_ids = list(dict.fromkeys(character_ids))
+
     if os.path.exists(filepath):
         os.remove(filepath)
 
-    # Удаляем изображение
     delete_map_image(map_id)
+    delete_drawings_layer(map_id)
+
+    for tid in token_ids:
+        if not get_all_maps_with_token(tid):
+            delete_token_avatar(tid)
+
+    for cid in character_ids:
+        if not get_all_maps_with_character(cid):
+            delete_portrait_image(cid)
 
     return True
 
