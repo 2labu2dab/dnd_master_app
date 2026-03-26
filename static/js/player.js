@@ -16,6 +16,10 @@ const TOKEN_SMOOTHING_ENABLED = true;
 const isMiniMap = isEmbeddedPreview;
 const playerChannel = new BroadcastChannel('dnd_map_channel');
 
+if (document.body && isMiniMap) {
+    document.body.classList.add('player-embed');
+}
+
 let mapImage = new Image();
 const avatarCache = new Map();
 const portraitImageCache = new Map();
@@ -200,7 +204,7 @@ const resizeObserver = new ResizeObserver(() => {
             }
         }
         resizeTimeout = null;
-    }, 100);
+    }, 180);
 });
 
 if (portraitSidebar) {
@@ -262,6 +266,14 @@ function performUpdatePortraits() {
     }
 }
 
+/**
+ * Резерв под табличку имени (margin + padding + строка текста + border).
+ * Должен быть ≥ фактической высоте .portrait-nameplate в player-theme.css.
+ */
+const PORTRAIT_NAME_BLOCK_PX = 42;
+/** Запас по высоте списка, чтобы нижний ряд не обрезался из‑за округлений и скролла */
+const PORTRAIT_LIST_HEIGHT_BUFFER_PX = 10;
+
 function renderPortraits(characters) {
     if (!portraitsContainer || !portraitSidebar) return;
 
@@ -279,36 +291,41 @@ function renderPortraits(characters) {
     const cols = gridConfig.cols;
     const rows = gridConfig.rows;
 
-    // Зарезервированная высота для заголовка (минимум)
-    const headerHeight = isMiniMap ? 20 : 40;
+    const sidebarStyle = window.getComputedStyle(portraitSidebar);
+    const padY =
+        (parseFloat(sidebarStyle.paddingTop) || 0) + (parseFloat(sidebarStyle.paddingBottom) || 0);
+    const listStyle = window.getComputedStyle(portraitsContainer);
+    const listPadY =
+        (parseFloat(listStyle.paddingTop) || 0) + (parseFloat(listStyle.paddingBottom) || 0);
 
-    // Доступная высота для контента (максимум)
-    const availableHeight = sidebarHeight - headerHeight;
+    const headerHeight = isMiniMap ? 20 : 0;
+    let availableHeight =
+        sidebarHeight - padY - listPadY - headerHeight - PORTRAIT_LIST_HEIGHT_BUFFER_PX;
 
-    // Минимальные зазоры для максимального размера
-    let gapSize = isMiniMap ? 2 : 4;
-
-    // Общая высота зазоров
-    const totalGapHeight = (rows - 1) * gapSize;
-
-    // Минимальная высота имени (только для полноэкранного режима)
-    let nameHeight = isMiniMap ? 0 : 20; // В мини-карте подписей нет
-    if (!isMiniMap) {
-        if (count > 6) nameHeight = 18;
-        if (count > 8) nameHeight = 16;
+    const listInnerH = portraitsContainer.clientHeight - listPadY;
+    if (listInnerH > 0) {
+        availableHeight = Math.min(
+            availableHeight,
+            listInnerH - PORTRAIT_LIST_HEIGHT_BUFFER_PX
+        );
     }
 
-    // Доступная высота для всех портретов (максимум)
-    const availableForPortraits = availableHeight - totalGapHeight - (rows * nameHeight);
+    availableHeight = Math.max(40, availableHeight);
 
-    // Высота каждого портрета (максимально возможная)
+    let gapSize = isMiniMap ? 2 : 6;
+    if (!isMiniMap && count >= 3 && count <= 6) {
+        gapSize = 12;
+    }
+
+    const totalGapHeight = (rows - 1) * gapSize;
+    const nameBlock = isMiniMap ? 0 : PORTRAIT_NAME_BLOCK_PX;
+    const availableForPortraits = availableHeight - totalGapHeight - rows * nameBlock;
+
     let portraitHeight = Math.floor(availableForPortraits / rows);
 
-    // Динамические максимальные размеры
     let maxPortraitSize;
 
     if (isMiniMap) {
-        // Для мини-карты - без подписей, можно сделать чуть больше
         if (count === 1) maxPortraitSize = 100;
         else if (count === 2) maxPortraitSize = 85;
         else if (count <= 4) maxPortraitSize = 70;
@@ -316,40 +333,58 @@ function renderPortraits(characters) {
         else if (count <= 8) maxPortraitSize = 50;
         else maxPortraitSize = 45;
     } else {
-        // Для полноэкранного режима
-        if (count === 1) maxPortraitSize = 400;
-        else if (count === 2) maxPortraitSize = 320;
-        else if (count <= 4) maxPortraitSize = 260;
-        else if (count <= 6) maxPortraitSize = 200;
+        if (count === 1) maxPortraitSize = 520;
+        else if (count === 2) maxPortraitSize = 336;
+        else if (count <= 4) maxPortraitSize = 220;
+        else if (count <= 6) maxPortraitSize = 175;
         else if (count <= 8) maxPortraitSize = 160;
-        else maxPortraitSize = 130;
+        else maxPortraitSize = 150;
     }
 
-    // Применяем максимальный размер
     portraitHeight = Math.min(maxPortraitSize, portraitHeight);
+    portraitHeight = Math.max(isMiniMap ? 35 : 44, portraitHeight);
 
-    // Минимальный размер
-    portraitHeight = Math.max(isMiniMap ? 35 : 60, portraitHeight);
-
-    // Рассчитываем доступную ширину колонки
-    const padding = isMiniMap ? 10 : 30;
+    const padding = isMiniMap ? 10 : 16;
     const availableWidth = sidebarWidth - padding;
-
-    // Рассчитываем ширину колонки с учетом зазоров
     const totalGapWidth = (cols - 1) * gapSize;
     const columnWidth = (availableWidth - totalGapWidth) / cols;
 
-    // Итоговый размер портрета
     let finalPortraitSize = Math.min(portraitHeight, columnWidth);
+    finalPortraitSize = Math.max(isMiniMap ? 30 : 44, finalPortraitSize);
 
-    // Убеждаемся, что портрет не слишком маленький
-    finalPortraitSize = Math.max(isMiniMap ? 30 : 60, finalPortraitSize);
-
-    // Для мини-карты дополнительно проверяем, не слишком ли большой
     if (isMiniMap) {
         const maxAllowedWidth = (sidebarWidth - padding) / cols;
         if (finalPortraitSize > maxAllowedWidth) {
             finalPortraitSize = maxAllowedWidth - 2;
+        }
+    } else {
+        const minPortrait = 32;
+        const fitHeight = Math.max(0, availableHeight - 4);
+        const gridTotalH = () => rows * (finalPortraitSize + nameBlock) + (rows - 1) * gapSize;
+        let h = gridTotalH();
+        while (h > fitHeight && finalPortraitSize > minPortrait) {
+            finalPortraitSize -= 1;
+            h = gridTotalH();
+        }
+        const minGap =
+            !isMiniMap && count >= 3 && count <= 6 ? 8 : 2;
+        while (h > fitHeight && gapSize > minGap) {
+            gapSize -= 1;
+            h = gridTotalH();
+        }
+        while (h > fitHeight && finalPortraitSize > minPortrait) {
+            finalPortraitSize -= 1;
+            h = gridTotalH();
+        }
+        const tgw = (cols - 1) * gapSize;
+        const cw = Math.floor((availableWidth - tgw) / cols);
+        if (finalPortraitSize > cw) {
+            finalPortraitSize = Math.max(minPortrait, cw);
+        }
+        h = gridTotalH();
+        while (h > fitHeight && finalPortraitSize > minPortrait) {
+            finalPortraitSize -= 1;
+            h = gridTotalH();
         }
     }
 
@@ -363,7 +398,8 @@ function renderPortraits(characters) {
     gridContainer.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
     gridContainer.style.gap = `${gapSize}px`;
     gridContainer.style.width = '100%';
-    gridContainer.style.height = '100%';
+    gridContainer.style.height = 'auto';
+    gridContainer.style.maxHeight = '100%';
     gridContainer.style.alignContent = 'start';
     gridContainer.style.padding = '0';
     gridContainer.style.margin = '0';
@@ -375,21 +411,39 @@ function renderPortraits(characters) {
         portraitItem.style.display = 'flex';
         portraitItem.style.flexDirection = 'column';
         portraitItem.style.alignItems = 'center';
+        portraitItem.style.justifyContent = 'flex-start';
         portraitItem.style.width = '100%';
         portraitItem.style.padding = '0';
         portraitItem.style.margin = '0';
         portraitItem.style.boxSizing = 'border-box';
 
+        const card = document.createElement('div');
+        card.className = 'portrait-card';
+        card.style.width = `${finalPortraitSize}px`;
+        card.style.maxWidth = '100%';
+        card.style.margin = '0 auto';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.alignItems = 'stretch';
+        card.style.boxSizing = 'border-box';
+
         // Контейнер для аватара
         const avatarContainer = document.createElement('div');
         avatarContainer.style.width = `${finalPortraitSize}px`;
         avatarContainer.style.height = `${finalPortraitSize}px`;
-        avatarContainer.style.margin = '0 auto';
+        avatarContainer.style.margin = '0';
         avatarContainer.style.flexShrink = '0';
         avatarContainer.style.position = 'relative';
         avatarContainer.style.overflow = 'hidden';
-        avatarContainer.style.borderRadius = isMiniMap ? '4px' : '8px';
-        avatarContainer.style.backgroundColor = '#2a2a3b';
+        avatarContainer.style.boxSizing = 'border-box';
+        avatarContainer.classList.add('portrait-avatar-frame');
+        if (isMiniMap) {
+            avatarContainer.style.borderRadius = '4px';
+            avatarContainer.style.backgroundColor = '#1a1410';
+        } else {
+            avatarContainer.style.borderRadius = '';
+            avatarContainer.style.backgroundColor = '';
+        }
 
         // Аватар
         const avatar = document.createElement('img');
@@ -406,10 +460,8 @@ function renderPortraits(characters) {
             avatar.style.opacity = '1';
         } else {
             avatar.src = portraitUrl;
-            avatar.style.opacity = '0';
-            avatar.style.transition = 'opacity 0.3s ease';
+            avatar.style.opacity = '1';
             avatar.onload = () => {
-                avatar.style.opacity = '1';
                 portraitImageCache.set(character.id, avatar);
             };
         }
@@ -423,38 +475,23 @@ function renderPortraits(characters) {
         };
 
         avatarContainer.appendChild(avatar);
-        portraitItem.appendChild(avatarContainer);
+        card.appendChild(avatarContainer);
 
         // Добавляем имя ТОЛЬКО для полноэкранного режима
         if (!isMiniMap) {
             const nameSpan = document.createElement('span');
-            nameSpan.className = 'portrait-name';
+            nameSpan.className = 'portrait-name portrait-nameplate';
             nameSpan.textContent = character.name;
-            nameSpan.style.width = '100%';
+            nameSpan.style.flexShrink = '0';
             nameSpan.style.textAlign = 'center';
             nameSpan.style.overflow = 'hidden';
             nameSpan.style.textOverflow = 'ellipsis';
             nameSpan.style.whiteSpace = 'nowrap';
 
-            // Размер шрифта для имени
-            let fontSize = 14;
-            if (finalPortraitSize < 80) fontSize = 11;
-            else if (finalPortraitSize < 120) fontSize = 12;
-            else if (finalPortraitSize < 180) fontSize = 13;
-            else fontSize = 14;
-
-            nameSpan.style.fontSize = `${fontSize}px`;
-            nameSpan.style.padding = '2px 6px';
-            nameSpan.style.marginTop = '4px';
-            nameSpan.style.lineHeight = '1.4';
-            nameSpan.style.backgroundColor = 'rgba(0,0,0,0.3)';
-            nameSpan.style.borderRadius = '8px';
-            nameSpan.style.color = '#fff';
-            nameSpan.style.fontWeight = '500';
-
-            portraitItem.appendChild(nameSpan);
+            card.appendChild(nameSpan);
         }
 
+        portraitItem.appendChild(card);
         gridContainer.appendChild(portraitItem);
     });
 
@@ -796,7 +833,7 @@ function render() {
     canvas.style.left = '0';
     canvas.style.width = '100%';
     canvas.style.height = '100%';
-    canvas.style.backgroundColor = '#020617';
+    canvas.style.backgroundColor = 'transparent';
 
     // 4. Проверка изображения
     resizeCanvasToDisplaySize();

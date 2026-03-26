@@ -1,0 +1,189 @@
+/* Тема экрана игрока: пергамент, таблички имён, Vinque (+ запасной Cinzel Decorative) */
+
+body.player-dnd {
+  background-color: #1a1410;
+}
+
+body.player-dnd #main {
+  background-color: #1a1410;
+}
+
+@font-face {
+  font-family: "Vinque";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local("Vinque Regular"),
+    local("Vinque"),
+    url("../fonts/Vinque-Regular.woff2") format("woff2"),
+    url("../fonts/Vinque-Regular.ttf") format("truetype");
+}
+
+/* Слабый «водяной знак» карты на сайдбаре */
+body.player-dnd #portrait-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.11;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='640' viewBox='0 0 420 640'%3E%3Cg fill='none' stroke='%23a89880' stroke-width='0.9'%3E%3Cpath d='M10 120c60-50 140-40 200-20s120-30 180-50'/%3E%3Cpath d='M30 260c80 40 160 10 240 30s120-20 140-60'/%3E%3Cpath d='M50 400c70-30 150-20 220 10s100 50 90 100'/%3E%3Cellipse cx='130' cy='480' rx='90' ry='55'/%3E%3Cpath d='M200 80l30 40-25 35 40 20'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 180% auto;
+  background-position: 40% 20%;
+  background-repeat: no-repeat;
+}
+
+body.player-dnd #portrait-sidebar {
+  position: relative;
+  z-index: 20;
+  border-left: 2px solid rgba(12, 8, 6, 0.9);
+  box-shadow:
+    inset 0 0 100px rgba(0, 0, 0, 0.45),
+    -6px 0 24px rgba(0, 0, 0, 0.55);
+  background-color: #2f2319;
+  background-image:
+    linear-gradient(165deg, rgba(62, 48, 36, 0.97) 0%, rgba(32, 24, 18, 0.99) 45%, rgba(22, 16, 12, 1) 100%),
+    repeating-linear-gradient(
+      -8deg,
+      transparent,
+      transparent 3px,
+      rgba(0, 0, 0, 0.04) 3px,
+      rgba(0, 0, 0, 0.04) 6px
+    );
+}
+
+body.player-dnd #portrait-sidebar.visible {
+  width: min(46vw, 480px);
+  min-width: 330px;
+  max-width: 570px;
+  padding: 18px 16px;
+  box-sizing: border-box;
+}
+
+body.player-dnd #portrait-list {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  height: auto; /* переопределяет calc(100% - 35px) из styles.css без заголовка h3 */
+  padding: 0 2px 4px;
+  overflow-y: hidden;
+  overflow-x: hidden;
+}
+
+/* gap задаётся из JS (без !important), иначе перебивает зазор для 3–6 портретов */
+body.player-dnd:not(.player-embed) .portrait-grid {
+  gap: 10px 8px;
+}
+
+body.player-dnd .portrait-item {
+  margin-bottom: 0;
+}
+
+/* Карточка: портрет + табличка одной ширины, центр в ячейке сетки */
+body.player-dnd .portrait-card {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* border входит в width/height — табличка совпадает с визуальной шириной квадрата */
+body.player-dnd .portrait-avatar-frame {
+  box-sizing: border-box !important;
+  border: 1px solid rgba(8, 6, 4, 0.95) !important;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-radius: 4px !important;
+  background-color: #1a1410 !important;
+}
+
+body.player-dnd .portrait-avatar {
+  border-radius: 3px !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* Табличка имени под портретом (компактная; высота согласована с NAME_BLOCK в player.js) */
+body.player-dnd .portrait-nameplate {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 5px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding: 4px 6px !important;
+  min-height: 0;
+  text-align: center;
+  color: #f5ead8 !important;
+  background: linear-gradient(180deg, #2a1d16 0%, #1a110a 100%) !important;
+  border: 1px solid rgba(0, 0, 0, 0.65);
+  border-radius: 2px !important;
+  font-family: "Vinque", "Cinzel Decorative", "Cinzel", "Times New Roman", serif !important;
+  font-size: clamp(14px, 1.45vw, 24px) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.02em;
+  line-height: 1.25 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Встроенная мини-карта (iframe) */
+body.player-dnd.player-embed #portrait-sidebar.visible {
+  width: 120px !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 6px 5px !important;
+}
+
+body.player-dnd.player-embed .portrait-grid {
+  gap: 4px 3px !important;
+}
+
+body.player-dnd.player-embed .portrait-avatar-frame {
+  border-radius: 3px !important;
+}
+
+/* Фон области карты: та же картинка, что при отключённой карте, под канвасом */
+body.player-dnd #map-container,
+body.player-dnd #map {
+  background-color: #2f2319;
+  background-image: url("/static/disabled.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Лёгкая «пергаментная» вуаль поверх текстуры — как у сайдбара */
+body.player-dnd #map {
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.35);
+}
+
+body.player-dnd #map::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    165deg,
+    rgba(62, 48, 36, 0.25) 0%,
+    rgba(32, 24, 18, 0.4) 50%,
+    rgba(18, 12, 9, 0.45) 100%
+  );
+}
+
+body.player-dnd #mapDisabledImage {
+  z-index: 12 !important;
+}
+
+body.player-dnd canvas#mapCanvas {
+  z-index: 1;
+  background-color: transparent !important;
+  background-image: none !important;
+}
