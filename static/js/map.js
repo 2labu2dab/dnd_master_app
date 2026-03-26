@@ -113,6 +113,8 @@ let currentMapImageFile = null;
 let allTokensFromMaps = [];
 let selectedImportToken = null;
 let isSwitchingMap = false;
+/** Инкрементируется при каждой смене карты / сбросе — отбрасываем устаревшие ответы fetch. */
+let _switchMapGen = 0;
 let selectedCharacterId = null;
 let spawnPosition = null;
 let isClick = true; // Флаг для определения клика vs перетаскивания
@@ -166,6 +168,7 @@ function fetchAndApplyDrawingsForMap(mapId) {
             return res.json();
         })
         .then((data) => {
+            if (currentMapId !== mapId) return;
             if (data.status === "ok") {
                 drawingStrokes = data.strokes || [];
                 currentDrawingLayerId = data.layer_id;
@@ -183,6 +186,7 @@ function fetchAndApplyDrawingsForMap(mapId) {
             }, 500);
         })
         .catch((err) => {
+            if (currentMapId !== mapId) return;
             console.error("Error loading drawings:", err);
             drawingStrokes = [];
             currentDrawingLayerId = null;
@@ -802,6 +806,8 @@ function saveCurrentMapToStorage(mapId) {
     if (mapId) {
         localStorage.setItem('dnd_last_map_id', mapId);
         console.log('Saved map ID to storage:', mapId);
+    } else {
+        localStorage.removeItem('dnd_last_map_id');
     }
 }
 
@@ -877,12 +883,16 @@ socket.on("map_deleted", (data) => {
         const select = document.getElementById("mapSelect");
         if (select) {
             select.innerHTML = "";
-            data.maps.forEach(m => {
-                const opt = document.createElement("option");
-                opt.value = m.id;
-                opt.textContent = m.name;
-                select.appendChild(opt);
-            });
+            if (data.maps.length === 0) {
+                select.innerHTML = '<option value="">Нет карт</option>';
+            } else {
+                data.maps.forEach(m => {
+                    const opt = document.createElement("option");
+                    opt.value = m.id;
+                    opt.textContent = m.name;
+                    select.appendChild(opt);
+                });
+            }
         }
     }
     if (data.map_id === currentMapId) {
@@ -890,9 +900,7 @@ socket.on("map_deleted", (data) => {
         if (maps.length > 0) {
             switchMap(maps[0].id);
         } else {
-            currentMapId = null;
-            mapData = null;
-            render();
+            switchMap(null);
         }
     }
 });
@@ -1937,19 +1945,14 @@ function checkMapExists() {
 function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
 
-    // СОХРАНЯЕМ ID В STORAGE
     saveCurrentMapToStorage(mapId);
     updateActiveMapInList(mapId);
 
     avatarCache.clear();
 
-    if (isSwitchingMap) {
-        return;
-    }
-
-    isSwitchingMap = true;
-
     if (!mapId) {
+        _switchMapGen++;
+        isSwitchingMap = false;
         currentMapId = null;
         resetDrawingStateForNewMap();
         mapData = {
@@ -1975,9 +1978,15 @@ function switchMap(mapId) {
         syncPlayerMiniIframe();
         setMasterMapIdGlobal();
         socket.emit("switch_map", { map_id: null });
-        isSwitchingMap = false;
         return;
     }
+
+    if (isSwitchingMap) {
+        return;
+    }
+
+    isSwitchingMap = true;
+    const opGen = ++_switchMapGen;
 
     fetch(`/api/map/${mapId}`)
         .then(res => {
@@ -1985,6 +1994,10 @@ function switchMap(mapId) {
             return res.json();
         })
         .then(data => {
+            if (opGen !== _switchMapGen) {
+                isSwitchingMap = false;
+                return Promise.reject("stale");
+            }
             if (data.error) {
                 console.error(data.error);
                 isSwitchingMap = false;
@@ -2043,6 +2056,10 @@ function switchMap(mapId) {
             return fetchAndApplyDrawingsForMap(mapId);
         })
         .then(() => {
+            if (opGen !== _switchMapGen) {
+                isSwitchingMap = false;
+                return;
+            }
             socket.emit("switch_map", { map_id: mapId });
             socket.emit("join_map", { map_id: mapId });
 
@@ -2057,16 +2074,32 @@ function switchMap(mapId) {
             if (mapData.has_image) {
                 const imageUrl = mapData.image_url || `/api/map/image/${mapId}`;
                 dndCache.fetch(imageUrl).then(src => {
+                    if (opGen !== _switchMapGen) {
+                        isSwitchingMap = false;
+                        return;
+                    }
                     mapImage = new Image();
                     mapImage.onload = () => {
+                        if (opGen !== _switchMapGen) return;
                         invalidateBg();
                         updateGridFromImage();
                         render();
                         isSwitchingMap = false;
                     };
-                    mapImage.onerror = () => { render(); isSwitchingMap = false; };
+                    mapImage.onerror = () => {
+                        if (opGen !== _switchMapGen) return;
+                        render();
+                        isSwitchingMap = false;
+                    };
                     mapImage.src = src || imageUrl;
-                }).catch(() => { render(); isSwitchingMap = false; });
+                }).catch(() => {
+                    if (opGen !== _switchMapGen) {
+                        isSwitchingMap = false;
+                        return;
+                    }
+                    render();
+                    isSwitchingMap = false;
+                });
             } else {
                 mapImage = new Image();
                 render();
@@ -2076,7 +2109,9 @@ function switchMap(mapId) {
             setMasterMapIdGlobal();
         })
         .catch(err => {
-            console.error("Error switching map:", err);
+            if (err !== "stale") {
+                console.error("Error switching map:", err);
+            }
             isSwitchingMap = false;
         });
 }
