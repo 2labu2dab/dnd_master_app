@@ -109,15 +109,20 @@ def _prepare_player_tokens(tokens):
 
 def _prepare_player_characters(characters):
     """Return a copy of character list with versioned portrait URLs."""
-    from utils.storage import get_portrait_filepath, get_portrait_url
+    from utils.storage import find_portrait_file, get_portrait_url, portrait_path_to_media
 
     result = []
     for c in characters:
         cc = c.copy()
         if cc.get("has_avatar"):
             base = get_portrait_url(cc["id"])
-            path = get_portrait_filepath(cc["id"])
-            cc["portrait_url"] = versioned_url(base, path)
+            path = find_portrait_file(cc["id"])
+            if path:
+                cc["portrait_url"] = versioned_url(base, path)
+                if not cc.get("portrait_media"):
+                    cc["portrait_media"] = portrait_path_to_media(path)
+            else:
+                cc["portrait_url"] = base
         cc.pop("avatar_data", None)
         result.append(cc)
     return result
@@ -322,16 +327,24 @@ def get_map(map_id):
     if "characters" in data:
         for character in data["characters"]:
             if character.get("has_avatar"):
-                from utils.storage import get_portrait_filepath, get_portrait_url
+                from utils.storage import (
+                    find_portrait_file,
+                    get_portrait_url,
+                    portrait_path_to_media,
+                )
 
-                portrait_path = get_portrait_filepath(character["id"])
+                portrait_path = find_portrait_file(character["id"])
                 portrait_url = get_portrait_url(character["id"])
-                if os.path.exists(portrait_path):
+                if portrait_path and os.path.exists(portrait_path):
                     try:
                         pv = int(os.path.getmtime(portrait_path))
                     except Exception:
                         pv = int(time.time())
                     character["portrait_url"] = f"{portrait_url}?v={pv}"
+                    if not character.get("portrait_media"):
+                        character["portrait_media"] = portrait_path_to_media(
+                            portrait_path
+                        )
                 else:
                     character["portrait_url"] = portrait_url
             # Удаляем старые данные аватара если они есть
@@ -1143,8 +1156,9 @@ def handle_request_map_data(data):
         get_image_filepath,
         get_token_avatar_filepath,
         get_token_avatar_url,
-        get_portrait_filepath,
+        find_portrait_file,
         get_portrait_url,
+        portrait_path_to_media,
     )
 
     image_path = get_image_filepath(map_id)
@@ -1181,14 +1195,18 @@ def handle_request_map_data(data):
     for character in map_data.get("characters", []):
         character_copy = character.copy()
         if character_copy.get("has_avatar"):
-            portrait_path = get_portrait_filepath(character_copy["id"])
+            portrait_path = find_portrait_file(character_copy["id"])
             base_portrait_url = get_portrait_url(character_copy["id"])
-            if os.path.exists(portrait_path):
+            if portrait_path and os.path.exists(portrait_path):
                 try:
                     pv = int(os.path.getmtime(portrait_path))
                 except Exception:
                     pv = int(time.time())
                 character_copy["portrait_url"] = f"{base_portrait_url}?v={pv}"
+                if not character_copy.get("portrait_media"):
+                    character_copy["portrait_media"] = portrait_path_to_media(
+                        portrait_path
+                    )
             else:
                 character_copy["portrait_url"] = base_portrait_url
         character_copy.pop("avatar_data", None)
@@ -1580,13 +1598,14 @@ def cleanup_token_avatars():
 
 @app.route("/api/portrait/<portrait_id>")
 def get_portrait(portrait_id):
-    """Получить портрет персонажа как файл"""
-    from utils.storage import get_portrait_filepath
+    """Получить портрет персонажа (PNG, GIF, WebM, MP4…)"""
+    from utils.storage import find_portrait_file, portrait_mimetype_for_path
 
-    image_path = get_portrait_filepath(portrait_id)
+    image_path = find_portrait_file(portrait_id)
 
-    if os.path.exists(image_path):
-        resp = send_file(image_path, mimetype="image/png", conditional=True)
+    if image_path and os.path.exists(image_path):
+        mime = portrait_mimetype_for_path(image_path)
+        resp = send_file(image_path, mimetype=mime, conditional=True)
         resp.cache_control.public = True
         resp.cache_control.max_age = 31536000
         resp.cache_control.immutable = True
@@ -1621,20 +1640,26 @@ def upload_portrait():
         if file.filename == "":
             return jsonify({"error": "No selected file"}), 400
 
-        # Сохраняем портрет
-        from utils.storage import save_portrait_image
+        from utils.storage import save_portrait_upload
 
-        # Читаем файл напрямую, без изменений
         file_data = file.read()
+        result = save_portrait_upload(
+            file_data,
+            character_id,
+            content_type=file.content_type,
+            filename=file.filename,
+        )
 
-        if save_portrait_image(file_data, character_id):
+        if result and result.get("ok"):
             print(
-                f"✓ Portrait saved for character {character_id}, size: {len(file_data)} bytes"
+                f"✓ Portrait saved for character {character_id}, "
+                f"media={result.get('media')}, size: {len(file_data)} bytes"
             )
             return jsonify(
                 {
                     "status": "ok",
                     "portrait_url": f"/api/portrait/{character_id}",
+                    "portrait_media": result.get("media", "image"),
                 }
             )
 

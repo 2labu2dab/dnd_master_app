@@ -266,6 +266,335 @@ let pendingZoneVertices = null;
 let hoveredSnapVertex = null;
 const avatarCache = new Map();
 
+/** GIF/видео портрета без кропа: файл до upload */
+window.pendingCharacterPortraitFile = null;
+window.pendingCharacterPortraitMedia = null;
+
+/** Оригинал GIF/видео при загрузке аватара токена — уходит в портреты, если отмечено «Добавить в портреты». */
+window.pendingTokenPortraitFile = null;
+window.pendingTokenPortraitMedia = null;
+
+function clearTokenPendingPortrait() {
+    window.pendingTokenPortraitFile = null;
+    window.pendingTokenPortraitMedia = null;
+}
+
+/**
+ * Первый кадр GIF или видео → PNG data URL для аватара токена (на карте всегда PNG).
+ */
+function tokenMediaFileToStaticPngDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+        const isVideo =
+            (file.type && file.type.startsWith("video/")) ||
+            /\.(webm|mp4|mov|m4v)$/i.test(file.name);
+
+        if (!isGif && !isVideo) {
+            reject(new Error("not gif/video"));
+            return;
+        }
+
+        const url = URL.createObjectURL(file);
+
+        if (isGif) {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const w = img.naturalWidth || img.width;
+                    const h = img.naturalHeight || img.height;
+                    if (!w || !h) throw new Error("bad size");
+                    const MAX = 1024;
+                    const scale = Math.min(1, MAX / Math.max(w, h));
+                    const cw = Math.max(1, Math.round(w * scale));
+                    const ch = Math.max(1, Math.round(h * scale));
+                    const c = document.createElement("canvas");
+                    c.width = cw;
+                    c.height = ch;
+                    const ctx = c.getContext("2d");
+                    if (!ctx) throw new Error("no 2d");
+                    ctx.drawImage(img, 0, 0, cw, ch);
+                    const dataUrl = c.toDataURL("image/png");
+                    URL.revokeObjectURL(url);
+                    resolve(dataUrl);
+                } catch (e) {
+                    URL.revokeObjectURL(url);
+                    reject(e);
+                }
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error("gif load failed"));
+            };
+            img.src = url;
+            return;
+        }
+
+        const v = document.createElement("video");
+        v.muted = true;
+        v.playsInline = true;
+        v.setAttribute("playsinline", "");
+        v.preload = "auto";
+
+        let settled = false;
+
+        const cleanup = () => {
+            URL.revokeObjectURL(url);
+            v.removeAttribute("src");
+            try {
+                v.load();
+            } catch (e) { /* ignore */ }
+        };
+
+        const grab = () => {
+            if (settled) return true;
+            try {
+                const w = v.videoWidth;
+                const h = v.videoHeight;
+                if (!w || !h) return false;
+                const MAX = 1024;
+                const scale = Math.min(1, MAX / Math.max(w, h));
+                const cw = Math.max(1, Math.round(w * scale));
+                const ch = Math.max(1, Math.round(h * scale));
+                const c = document.createElement("canvas");
+                c.width = cw;
+                c.height = ch;
+                const ctx = c.getContext("2d");
+                if (!ctx) return false;
+                ctx.drawImage(v, 0, 0, cw, ch);
+                const dataUrl = c.toDataURL("image/png");
+                settled = true;
+                cleanup();
+                resolve(dataUrl);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        const fail = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(new Error("video frame failed"));
+        };
+
+        v.addEventListener("loadeddata", () => {
+            if (grab()) return;
+            try {
+                const d = v.duration;
+                if (Number.isFinite(d) && d > 0) {
+                    v.currentTime = Math.min(0.08, d * 0.02);
+                } else {
+                    v.currentTime = 0.08;
+                }
+            } catch (e) {
+                fail();
+            }
+        });
+        v.addEventListener("seeked", () => {
+            if (settled) return;
+            if (!grab()) fail();
+        });
+        v.addEventListener("error", fail);
+        setTimeout(() => {
+            if (!settled) fail();
+        }, 20000);
+
+        v.src = url;
+    });
+}
+
+function inferPortraitMedia(character) {
+    if (!character) return "image";
+    const m = character.portrait_media;
+    if (m === "gif" || m === "video" || m === "image") return m;
+    const u = (character.portrait_url || "").split("?")[0];
+    if (/\.(webm|mp4|mov|m4v)$/i.test(u)) return "video";
+    if (/\.gif$/i.test(u)) return "gif";
+    return "image";
+}
+
+/** Создаёт <video> превью, если в шаблоне его ещё нет (старые кэши HTML). */
+function ensureCharacterAvatarPreviewVideo() {
+    let el = document.getElementById("characterAvatarPreviewVideo");
+    if (el) return el;
+    const dz = document.getElementById("characterAvatarDropzone");
+    const imgPrev = document.getElementById("characterAvatarPreview");
+    if (!dz) return null;
+    el = document.createElement("video");
+    el.id = "characterAvatarPreviewVideo";
+    el.style.display = "none";
+    el.style.width = "100%";
+    el.style.height = "100%";
+    el.style.objectFit = "cover";
+    el.muted = true;
+    el.loop = true;
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    el.autoplay = true;
+    if (imgPrev && imgPrev.parentNode === dz) {
+        dz.insertBefore(el, imgPrev.nextSibling);
+    } else {
+        dz.insertBefore(el, dz.firstChild);
+    }
+    return el;
+}
+
+function clearCharacterPendingMedia() {
+    window.pendingCharacterPortraitFile = null;
+    window.pendingCharacterPortraitMedia = null;
+    if (window._characterPortraitBlobUrl) {
+        URL.revokeObjectURL(window._characterPortraitBlobUrl);
+        window._characterPortraitBlobUrl = null;
+    }
+    const vid = document.getElementById("characterAvatarPreviewVideo");
+    if (vid) {
+        vid.pause();
+        vid.removeAttribute("src");
+        vid.style.display = "none";
+    }
+}
+
+/** Статичные миниатюры GIF/видео в списке портретов мастера (PNG data URL). Ключ — полный URL (?v=). */
+const masterPortraitFrozenThumbCache = new Map();
+
+function applyMasterPortraitListGifStaticFrame(targetImg, portraitUrl) {
+    const hit = masterPortraitFrozenThumbCache.get(portraitUrl);
+    if (hit) {
+        targetImg.src = hit;
+        return;
+    }
+    targetImg.style.opacity = "0.4";
+    const loader = new Image();
+    loader.onload = () => {
+        try {
+            const w = loader.naturalWidth || loader.width;
+            const h = loader.naturalHeight || loader.height;
+            if (!w || !h) throw new Error("bad size");
+            const MAX = 192;
+            const scale = Math.min(1, MAX / Math.max(w, h));
+            const cw = Math.max(1, Math.round(w * scale));
+            const ch = Math.max(1, Math.round(h * scale));
+            const c = document.createElement("canvas");
+            c.width = cw;
+            c.height = ch;
+            const ctx = c.getContext("2d");
+            if (!ctx) throw new Error("no 2d");
+            ctx.drawImage(loader, 0, 0, cw, ch);
+            const dataUrl = c.toDataURL("image/png");
+            masterPortraitFrozenThumbCache.set(portraitUrl, dataUrl);
+            targetImg.src = dataUrl;
+        } catch (e) {
+            targetImg.src = portraitUrl;
+        }
+        targetImg.style.opacity = "1";
+    };
+    loader.onerror = () => {
+        targetImg.src = portraitUrl;
+        targetImg.style.opacity = "1";
+    };
+    loader.src = portraitUrl;
+}
+
+function masterPortraitListPlaceholderDataUrl() {
+    const c = document.createElement("canvas");
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+        ctx.fillStyle = "#3a4a6b";
+        ctx.fillRect(0, 0, 32, 32);
+    }
+    return c.toDataURL("image/png");
+}
+
+/** Первый кадр видео-портрета для списка мастера (без воспроизведения). */
+function applyMasterPortraitListVideoStaticFrame(targetImg, portraitUrl) {
+    const hit = masterPortraitFrozenThumbCache.get(portraitUrl);
+    if (hit) {
+        targetImg.src = hit;
+        return;
+    }
+    targetImg.style.opacity = "0.4";
+    const v = document.createElement("video");
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.preload = "auto";
+
+    let settled = false;
+    let timeoutId = null;
+
+    const cleanup = () => {
+        if (timeoutId != null) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        v.removeAttribute("src");
+        try {
+            v.load();
+        } catch (e) { /* ignore */ }
+    };
+
+    const fail = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        targetImg.src = masterPortraitListPlaceholderDataUrl();
+        targetImg.style.opacity = "1";
+    };
+
+    const grab = () => {
+        if (settled) return true;
+        try {
+            const w = v.videoWidth;
+            const h = v.videoHeight;
+            if (!w || !h) return false;
+            const MAX = 192;
+            const scale = Math.min(1, MAX / Math.max(w, h));
+            const cw = Math.max(1, Math.round(w * scale));
+            const ch = Math.max(1, Math.round(h * scale));
+            const c = document.createElement("canvas");
+            c.width = cw;
+            c.height = ch;
+            const ctx = c.getContext("2d");
+            if (!ctx) return false;
+            ctx.drawImage(v, 0, 0, cw, ch);
+            const dataUrl = c.toDataURL("image/png");
+            masterPortraitFrozenThumbCache.set(portraitUrl, dataUrl);
+            targetImg.src = dataUrl;
+            settled = true;
+            targetImg.style.opacity = "1";
+            cleanup();
+            return true;
+        } catch (e) {
+            return false;
+        }
+    };
+
+    v.addEventListener("loadeddata", () => {
+        if (grab()) return;
+        try {
+            const d = v.duration;
+            if (Number.isFinite(d) && d > 0) {
+                v.currentTime = Math.min(0.08, d * 0.02);
+            } else {
+                v.currentTime = 0.08;
+            }
+        } catch (e) {
+            fail();
+        }
+    });
+    v.addEventListener("seeked", () => {
+        if (settled) return;
+        if (!grab()) fail();
+    });
+    v.addEventListener("error", fail);
+
+    timeoutId = setTimeout(fail, 15000);
+    v.src = portraitUrl;
+}
+
 let socketId = null;
 
 // Функция для создания элемента списка портретов (ДОЛЖНА БЫТЬ ГЛОБАЛЬНОЙ)
@@ -306,38 +635,50 @@ function createCharacterListItem(character, index) {
     li.style.cursor = 'grab';
     li.style.position = 'relative';
 
-    // Аватар с защитой от ошибок
-    const img = document.createElement('img');
-    if (character.has_avatar) {
-        // Защита от undefined portrait_url
-        const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-        // URL уже может содержать версию (?v=...), не ломаем кэш лишним Date.now().
-        img.src = portraitUrl;
+    const portraitUrl = character.has_avatar
+        ? (character.portrait_url || `/api/portrait/${character.id}`)
+        : null;
+    const pMedia = inferPortraitMedia(character);
+
+    let avEl;
+    if (character.has_avatar && portraitUrl) {
+        if (pMedia === "video") {
+            avEl = document.createElement("img");
+            avEl.alt = "";
+            applyMasterPortraitListVideoStaticFrame(avEl, portraitUrl);
+        } else if (pMedia === "gif") {
+            avEl = document.createElement("img");
+            avEl.alt = "";
+            applyMasterPortraitListGifStaticFrame(avEl, portraitUrl);
+        } else {
+            avEl = document.createElement("img");
+            avEl.src = portraitUrl;
+            avEl.alt = "";
+        }
     } else {
-        // Плейсхолдер для персонажей без аватара
-        img.style.display = 'none';
+        avEl = document.createElement("img");
+        avEl.style.display = "none";
     }
 
-    img.style.width = '32px';
-    img.style.height = '32px';
-    img.style.borderRadius = '4px';
-    img.style.objectFit = 'cover';
-    img.draggable = false;
+    avEl.style.width = "32px";
+    avEl.style.height = "32px";
+    avEl.style.borderRadius = "4px";
+    avEl.style.objectFit = "cover";
+    avEl.draggable = false;
 
-    img.onerror = () => {
-        img.style.display = 'none';
-        // Добавляем иконку-заглушку
-        const placeholder = document.createElement('span');
-        placeholder.textContent = '👤';
-        placeholder.style.fontSize = '24px';
-        placeholder.style.lineHeight = '32px';
-        placeholder.style.textAlign = 'center';
-        placeholder.style.width = '32px';
-        placeholder.style.height = '32px';
-        placeholder.style.backgroundColor = '#3a4a6b';
-        placeholder.style.borderRadius = '4px';
-        li.insertBefore(placeholder, img);
-        img.remove();
+    avEl.onerror = () => {
+        avEl.style.display = "none";
+        const placeholder = document.createElement("span");
+        placeholder.textContent = "👤";
+        placeholder.style.fontSize = "24px";
+        placeholder.style.lineHeight = "32px";
+        placeholder.style.textAlign = "center";
+        placeholder.style.width = "32px";
+        placeholder.style.height = "32px";
+        placeholder.style.backgroundColor = "#3a4a6b";
+        placeholder.style.borderRadius = "4px";
+        li.insertBefore(placeholder, avEl);
+        avEl.remove();
     };
 
     // Имя с защитой от undefined
@@ -378,7 +719,7 @@ function createCharacterListItem(character, index) {
         }
     };
 
-    li.appendChild(img);
+    li.appendChild(avEl);
     li.appendChild(nameSpan);
     li.appendChild(eye);
 
@@ -651,13 +992,53 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
                 // ... существующий код для банка ...
             }
 
-            // Теперь обрабатываем добавление в портреты
+            let portraitChain = Promise.resolve();
             if (addToCharacters) {
-                // ... существующий код для портретов ...
+                const ad = document.getElementById("avatarPreview").dataset.base64;
+                if (ad) {
+                    const portraitFile = window.pendingTokenPortraitFile;
+                    const portraitMedia = window.pendingTokenPortraitMedia;
+                    const characterId = `char_${Date.now()}`;
+                    if (!mapData.characters) mapData.characters = [];
+                    mapData.characters.push({
+                        id: characterId,
+                        name,
+                        has_avatar: true,
+                        visible_to_players: false,
+                    });
+                    portraitChain = saveMapData()
+                        .then(() =>
+                            postPortraitUploadForCharacter(
+                                characterId,
+                                ad,
+                                portraitFile,
+                                portraitMedia
+                            )
+                        )
+                        .then((data) => {
+                            const ch = mapData.characters.find(
+                                (c) => c.id === characterId
+                            );
+                            if (ch && data.portrait_url) {
+                                ch.portrait_url = data.portrait_url;
+                            }
+                            if (ch && data.portrait_media) {
+                                ch.portrait_media = data.portrait_media;
+                            }
+                            clearTokenPendingPortrait();
+                            refreshPortraits();
+                            return saveMapData();
+                        })
+                        .catch((err) => {
+                            console.error("Portrait from token edit:", err);
+                        });
+                }
             }
 
+            return portraitChain;
+        })
+        .then(() => {
             closeTokenModal();
-
             render();
             updateSidebar();
         })
@@ -776,10 +1157,15 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
             updateSidebar();
 
             if (addToCharacters && avatarData) {
-                return createCharacterFromToken(name, avatarData, characterId)
-                    .then(() => {
-                        return fetchMap();
-                    });
+                const portraitFile = window.pendingTokenPortraitFile;
+                const portraitMedia = window.pendingTokenPortraitMedia;
+                return createCharacterFromToken(
+                    name,
+                    avatarData,
+                    characterId,
+                    portraitFile,
+                    portraitMedia
+                ).then(() => fetchMap());
             }
         })
         .then(() => {
@@ -790,7 +1176,13 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
             alert('Ошибка при создании токена: ' + error.message);
         });
 }
-function createCharacterFromToken(name, avatarData, characterId) {
+function createCharacterFromToken(
+    name,
+    avatarData,
+    characterId,
+    portraitFile,
+    portraitMedia
+) {
     console.log("Creating character from token with ID:", characterId);
 
     if (!mapData.characters) mapData.characters = [];
@@ -804,42 +1196,35 @@ function createCharacterFromToken(name, avatarData, characterId) {
 
     mapData.characters.push(character);
 
-    // Сохраняем данные карты с новым персонажем
     return saveMapData()
-        .then(() => {
-            // Затем загружаем портрет на сервер отдельным запросом
-            const formData = new FormData();
-            const blob = dataURLtoBlob(avatarData);
-            formData.append("portrait", blob, `${characterId}.png`);
-            formData.append("character_id", characterId);
-
-            return fetch("/api/portrait/upload", {
-                method: "POST",
-                body: formData
-            });
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error("Failed to upload portrait: " + response.status);
-            }
-            return response.json();
-        })
-        .then(data => {
+        .then(() =>
+            postPortraitUploadForCharacter(
+                characterId,
+                avatarData,
+                portraitFile,
+                portraitMedia
+            )
+        )
+        .then((data) => {
             console.log("Portrait created from token successfully:", data);
 
-            // Обновляем URL портрета в данных персонажа
-            const character = mapData.characters.find(c => c.id === characterId);
-            if (character && data.portrait_url) {
-                character.portrait_url = data.portrait_url;
+            const ch = mapData.characters.find((c) => c.id === characterId);
+            if (ch && data.portrait_url) {
+                ch.portrait_url = data.portrait_url;
+            }
+            if (ch && data.portrait_media) {
+                ch.portrait_media = data.portrait_media;
             }
 
-            // Обновляем сайдбар и список портретов
             updateSidebar();
-            refreshPortraits(); // Добавьте эту строку
+            refreshPortraits();
+            return saveMapData();
         })
-        .catch(error => {
+        .catch((error) => {
             console.error("Error creating character from token:", error);
-            // Не прерываем выполнение, просто логируем ошибку
+        })
+        .finally(() => {
+            clearTokenPendingPortrait();
         });
 }
 
@@ -2438,6 +2823,7 @@ function onAvatarUploaded(tokenId) {
 function openCharacterModal() {
     document.getElementById("characterModal").style.display = "flex";
     document.getElementById("characterName").value = "";
+    clearCharacterPendingMedia();
     const preview = document.getElementById("characterAvatarPreview");
     preview.src = "";
     preview.style.display = "none";
@@ -2455,6 +2841,7 @@ function closeCharacterModal() {
 
     // Сбрасываем форму
     document.getElementById("characterName").value = "";
+    clearCharacterPendingMedia();
     const preview = document.getElementById("characterAvatarPreview");
     preview.src = "";
     preview.style.display = "none";
@@ -2466,51 +2853,138 @@ function closeCharacterModal() {
     document.getElementById("characterEditIcon").style.display = "none";
 }
 function handleCharacterAvatarUpload(event) {
-    const file = event.target.files[0];
+    const input = event.target || event;
+    const file = input.files && input.files[0];
     if (!file) return;
 
-    // Проверяем размер файла
-    if (file.size > 10 * 1024 * 1024) {
-        alert("Файл слишком большой. Максимальный размер 10MB.");
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+    const isVideo = (file.type && file.type.startsWith("video/")) ||
+        /\.(webm|mp4|mov|m4v)$/i.test(file.name);
+
+    const maxVideo = 50 * 1024 * 1024;
+    const maxImage = 10 * 1024 * 1024;
+    if (isVideo) {
+        if (file.size > maxVideo) {
+            alert("Видео слишком большое. Максимум 50 МБ.");
+            return;
+        }
+    } else if (!isGif && file.size > maxImage) {
+        alert("Файл слишком большой. Максимальный размер 10 МБ.");
+        return;
+    } else if (isGif && file.size > maxVideo) {
+        alert("GIF слишком большой. Максимум 50 МБ.");
         return;
     }
 
-    // Открываем кроппер для выбора области
-    openCropModal(file, 'character');
+    if (isGif || isVideo) {
+        clearCharacterPendingMedia();
+        window.pendingCharacterPortraitFile = file;
+        window.pendingCharacterPortraitMedia = isGif ? "gif" : "video";
+
+        const url = URL.createObjectURL(file);
+        window._characterPortraitBlobUrl = url;
+
+        const imgPrev = document.getElementById("characterAvatarPreview");
+        if (!imgPrev) return;
+
+        const vidPrev = isVideo ? ensureCharacterAvatarPreviewVideo() : document.getElementById("characterAvatarPreviewVideo");
+        imgPrev.removeAttribute("data-base64");
+
+        if (isVideo) {
+            if (!vidPrev) {
+                alert("Не найден блок превью аватара. Обновите страницу (Ctrl+F5).");
+                URL.revokeObjectURL(url);
+                window._characterPortraitBlobUrl = null;
+                window.pendingCharacterPortraitFile = null;
+                window.pendingCharacterPortraitMedia = null;
+                return;
+            }
+            imgPrev.style.display = "none";
+            imgPrev.removeAttribute("src");
+            vidPrev.style.display = "block";
+            vidPrev.src = url;
+            vidPrev.loop = true;
+            vidPrev.muted = true;
+            vidPrev.playsInline = true;
+            vidPrev.setAttribute("playsinline", "");
+            vidPrev.autoplay = true;
+            void vidPrev.play().catch(() => {});
+        } else {
+            if (vidPrev) {
+                vidPrev.style.display = "none";
+                vidPrev.removeAttribute("src");
+            }
+            imgPrev.src = url;
+            imgPrev.style.display = "block";
+        }
+
+        document.getElementById("characterAvatarOverlay").style.display = "none";
+        document.getElementById("characterAvatarMask").style.display = "none";
+        document.getElementById("characterEditIcon").style.display = "block";
+        input.value = "";
+        return;
+    }
+
+    openCropModal(file, "character");
+    input.value = "";
 }
 
 function openEditCharacterModal(character) {
     document.getElementById("characterModal").style.display = "flex";
     document.getElementById("characterModalTitle").textContent = "Редактирование портрета";
     document.getElementById("characterName").value = character.name;
+    clearCharacterPendingMedia();
 
     const preview = document.getElementById("characterAvatarPreview");
     const overlay = document.getElementById("characterAvatarOverlay");
     const mask = document.getElementById("characterAvatarMask");
     const editIcon = document.getElementById("characterEditIcon");
 
-    // Загружаем существующий аватар
     if (character.has_avatar) {
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-        preview.src = portraitUrl;
-        preview.style.display = "block";
-        preview.dataset.portraitId = character.id; // Сохраняем ID для обновления
+        const media = inferPortraitMedia(character);
+        preview.dataset.portraitId = character.id;
+
+        if (media === "video") {
+            const vidPrev = ensureCharacterAvatarPreviewVideo();
+            preview.style.display = "none";
+            preview.removeAttribute("src");
+            if (vidPrev) {
+                vidPrev.style.display = "block";
+                vidPrev.src = portraitUrl;
+                vidPrev.loop = true;
+                vidPrev.muted = true;
+                vidPrev.playsInline = true;
+                vidPrev.setAttribute("playsinline", "");
+                vidPrev.autoplay = true;
+                void vidPrev.play().catch(() => {});
+            }
+        } else {
+            const vidPrev = document.getElementById("characterAvatarPreviewVideo");
+            if (vidPrev) {
+                vidPrev.style.display = "none";
+                vidPrev.removeAttribute("src");
+            }
+            preview.src = portraitUrl;
+            preview.style.display = "block";
+        }
 
         overlay.style.display = "none";
-        mask.style.display = "block";
+        mask.style.display = media === "video" ? "none" : "block";
         editIcon.style.display = "block";
     } else {
         preview.src = "";
         preview.style.display = "none";
         preview.removeAttribute("data-base64");
         preview.removeAttribute("data-portrait-id");
+        vidPrev.style.display = "none";
+        vidPrev.removeAttribute("src");
 
         overlay.style.display = "block";
         mask.style.display = "none";
         editIcon.style.display = "none";
     }
 
-    // Сохраняем ID редактируемого портрета
     window.editingCharacterId = character.id;
 }
 
@@ -2519,22 +2993,31 @@ function submitCharacter() {
     const avatarPreview = document.getElementById("characterAvatarPreview");
     const avatarData = avatarPreview.dataset.base64 || null;
     const editingId = window.editingCharacterId;
+    const pendingFile = window.pendingCharacterPortraitFile;
+    const pendingMedia = window.pendingCharacterPortraitMedia;
 
     if (!name) {
         alert("Введите имя персонажа.");
         return;
     }
 
+    if (pendingFile && pendingMedia) {
+        if (editingId) {
+            editCharacterWithFile(editingId, name, pendingFile, pendingMedia);
+        } else {
+            createNewCharacterWithFile(name, pendingFile, pendingMedia);
+        }
+        return;
+    }
+
     if (editingId) {
-        // Редактирование существующего портрета
         editCharacter(editingId, name, avatarData);
     } else {
-        // Создание нового портрета
         if (!avatarData) {
             alert("Выберите изображение для портрета.");
             return;
         }
-        createNewCharacter(name, avatarData); // avatarData передается правильно
+        createNewCharacter(name, avatarData);
     }
 }
 
@@ -2548,6 +3031,7 @@ function createNewCharacter(name, avatarData) {
         name,
         has_avatar: true,
         visible_to_players: false,
+        portrait_media: "image",
     };
 
     if (!mapData.characters) mapData.characters = [];
@@ -2571,6 +3055,9 @@ function createNewCharacter(name, avatarData) {
             if (ch && data.portrait_url) {
                 ch.portrait_url = data.portrait_url;
             }
+            if (ch && data.portrait_media) {
+                ch.portrait_media = data.portrait_media;
+            }
 
             window.editingCharacterId = null;
             closeCharacterModal();
@@ -2587,6 +3074,59 @@ function createNewCharacter(name, avatarData) {
         })
         .catch(error => {
             console.error("Error creating character:", error);
+            alert("Ошибка при создании персонажа: " + error.message);
+        });
+}
+
+function createNewCharacterWithFile(name, file, portraitMedia) {
+    const characterId = `char_${Date.now()}`;
+    const character = {
+        id: characterId,
+        name,
+        has_avatar: true,
+        visible_to_players: false,
+        portrait_media: portraitMedia,
+    };
+
+    if (!mapData.characters) mapData.characters = [];
+    mapData.characters.push(character);
+
+    const formData = new FormData();
+    formData.append("portrait", file, file.name || "portrait");
+    formData.append("character_id", characterId);
+
+    fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+    })
+        .then(response => {
+            if (!response.ok) throw new Error("Failed to upload portrait");
+            return response.json();
+        })
+        .then(data => {
+            const ch = mapData.characters.find(c => c.id === characterId);
+            if (ch && data.portrait_url) {
+                ch.portrait_url = data.portrait_url;
+            }
+            if (ch && data.portrait_media) {
+                ch.portrait_media = data.portrait_media;
+            }
+
+            window.editingCharacterId = null;
+            closeCharacterModal();
+            updateSidebar();
+            refreshPortraits();
+            initCharacterDragAndDrop();
+            saveMapData();
+
+            socket.emit("characters_updated", {
+                map_id: currentMapId,
+                characters: mapData.characters
+            });
+        })
+        .catch(error => {
+            console.error("Error creating character:", error);
+            mapData.characters = mapData.characters.filter(c => c.id !== characterId);
             alert("Ошибка при создании персонажа: " + error.message);
         });
 }
@@ -2637,13 +3177,60 @@ function editCharacter(characterId, name, avatarData) {
         .then(data => {
             character.has_avatar = true;
             character.portrait_url = data.portrait_url;
+            character.portrait_media = data.portrait_media || "image";
 
-            // Очищаем кэш если есть
             const imgElements = document.querySelectorAll(`img[src*="/api/portrait/${characterId}"]`);
             imgElements.forEach(img => {
                 img.src = data.portrait_url;
             });
 
+            finishEdit();
+        })
+        .catch(error => {
+            console.error("Error updating portrait:", error);
+            alert("Ошибка при обновлении портрета");
+            finishEdit();
+        });
+}
+
+function editCharacterWithFile(characterId, name, file, portraitMedia) {
+    const character = mapData.characters?.find(c => c.id === characterId);
+    if (!character) return;
+
+    character.name = name;
+
+    const finishEdit = () => {
+        window.editingCharacterId = null;
+        closeCharacterModal();
+        saveMapData();
+        updateSidebar();
+        initCharacterDragAndDrop();
+        socket.emit("characters_updated", {
+            map_id: currentMapId,
+            characters: mapData.characters
+        });
+    };
+
+    const formData = new FormData();
+    formData.append("portrait", file, file.name || "portrait");
+    formData.append("character_id", characterId);
+
+    fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData
+    })
+        .then(response => {
+            if (!response.ok) throw new Error("Failed to upload portrait");
+            return response.json();
+        })
+        .then(data => {
+            character.has_avatar = true;
+            character.portrait_url = data.portrait_url;
+            if (data.portrait_media) {
+                character.portrait_media = data.portrait_media;
+            } else {
+                character.portrait_media = portraitMedia;
+            }
             finishEdit();
         })
         .catch(error => {
@@ -2665,6 +3252,32 @@ function dataURLtoBlob(dataURL) {
     }
 
     return new Blob([u8arr], { type: mime });
+}
+
+function postPortraitUploadForCharacter(characterId, pngDataUrl, portraitFile, portraitMedia) {
+    const formData = new FormData();
+    formData.append("character_id", characterId);
+    if (
+        portraitFile &&
+        (portraitMedia === "gif" || portraitMedia === "video")
+    ) {
+        formData.append("portrait", portraitFile, portraitFile.name || "portrait");
+    } else {
+        formData.append(
+            "portrait",
+            dataURLtoBlob(pngDataUrl),
+            `${characterId}.png`
+        );
+    }
+    return fetch("/api/portrait/upload", {
+        method: "POST",
+        body: formData,
+    }).then((response) => {
+        if (!response.ok) {
+            throw new Error("Failed to upload portrait: " + response.status);
+        }
+        return response.json();
+    });
 }
 
 function drawFind(find, offsetX, offsetY, scale) {
@@ -2757,6 +3370,8 @@ function addToken() {
 
     document.getElementById("addToCharactersCheckbox").checked = false;
     document.getElementById("addToBankCheckbox").checked = false;
+
+    clearTokenPendingPortrait();
 }
 
 function drawZone(zone, offsetX, offsetY, scale) {
@@ -2942,18 +3557,60 @@ function onGridSizeChange(value) {
     saveMapData();
 }
 
-function handleAvatarUpload(event) {
-    const file = event.target.files[0];
+function handleAvatarUpload(ev) {
+    const input = ev && ev.target ? ev.target : ev;
+    const file = input.files && input.files[0];
     if (!file) return;
 
-    // Проверяем размер файла
-    if (file.size > 10 * 1024 * 1024) {
-        alert("Файл слишком большой. Максимальный размер 10MB.");
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+    const isVideo =
+        (file.type && file.type.startsWith("video/")) ||
+        /\.(webm|mp4|mov|m4v)$/i.test(file.name);
+
+    const maxVideo = 50 * 1024 * 1024;
+    const maxImage = 10 * 1024 * 1024;
+
+    if (isVideo) {
+        if (file.size > maxVideo) {
+            alert("Видео слишком большое. Максимум 50 МБ.");
+            return;
+        }
+    } else if (!isGif && file.size > maxImage) {
+        alert("Файл слишком большой. Максимальный размер 10 МБ.");
+        return;
+    } else if (isGif && file.size > maxVideo) {
+        alert("GIF слишком большой. Максимум 50 МБ.");
         return;
     }
 
-    // Открываем кроппер для выбора области
-    openCropModal(file, 'token');
+    if (isGif || isVideo) {
+        clearTokenPendingPortrait();
+        window.pendingTokenPortraitFile = file;
+        window.pendingTokenPortraitMedia = isGif ? "gif" : "video";
+
+        tokenMediaFileToStaticPngDataUrl(file)
+            .then((pngDataUrl) => {
+                const tokenPreview = document.getElementById("avatarPreview");
+                tokenPreview.src = pngDataUrl;
+                tokenPreview.style.display = "block";
+                tokenPreview.dataset.base64 = pngDataUrl;
+                document.getElementById("avatarOverlay").style.display = "none";
+                document.getElementById("avatarMask").style.display = "block";
+                document.getElementById("editIcon").style.display = "block";
+            })
+            .catch(() => {
+                alert(
+                    "Не удалось извлечь кадр из GIF/видео для аватара токена."
+                );
+                clearTokenPendingPortrait();
+            });
+        input.value = "";
+        return;
+    }
+
+    clearTokenPendingPortrait();
+    openCropModal(file, "token");
+    input.value = "";
 }
 
 function closeTokenModal() {
@@ -2990,6 +3647,7 @@ function closeTokenModal() {
     document.getElementById("addToCharactersCheckbox").checked = false;
     document.getElementById("addToBankCheckbox").checked = false;
 
+    clearTokenPendingPortrait();
     editingTokenId = null;
 }
 canvas.addEventListener("mousedown", (e) => {
@@ -5421,6 +6079,8 @@ function reloadAvatarInModal(tokenId) {
 function openEditTokenModal(token) {
     console.log("Opening edit modal for token:", token.id, token.name);
 
+    clearTokenPendingPortrait();
+
     document.getElementById("tokenModal").style.display = "flex";
     document.getElementById("tokenName").value = token.name;
     document.getElementById("tokenAC").value = token.armor_class || 10;
@@ -5478,6 +6138,8 @@ function clearAvatarCacheForToken(tokenId) {
 }
 
 function loadTokenAvatarInModal(token, forceReload = false) {
+    clearTokenPendingPortrait();
+
     const preview = document.getElementById("avatarPreview");
     const overlay = document.getElementById("avatarOverlay");
     const mask = document.getElementById("avatarMask");
@@ -7923,6 +8585,7 @@ function applyCrop() {
     // В зависимости от цели, обновляем соответствующий превью
     switch (currentCropTarget) {
         case 'token':
+            clearTokenPendingPortrait();
             const tokenPreview = document.getElementById("avatarPreview");
             tokenPreview.src = croppedBase64;
             tokenPreview.style.display = "block";
@@ -7934,7 +8597,13 @@ function applyCrop() {
             break;
 
         case 'character':
+            clearCharacterPendingMedia();
             const charPreview = document.getElementById("characterAvatarPreview");
+            const charVid = document.getElementById("characterAvatarPreviewVideo");
+            if (charVid) {
+                charVid.style.display = "none";
+                charVid.removeAttribute("src");
+            }
             charPreview.src = croppedBase64;
             charPreview.style.display = "block";
             charPreview.dataset.base64 = croppedBase64;

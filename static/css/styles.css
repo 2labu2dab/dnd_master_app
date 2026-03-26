@@ -1298,7 +1298,8 @@ canvas.map-panning {
   display: block;
   object-fit: cover;
   background: #2a2a3b;
-  transition: all 0.2s;
+  /* transition: all ломает анимацию GIF в портретах (Chromium/WebKit) */
+  transition: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   border: 2px solid rgba(255, 255, 255, 0.15);
   margin: 0;

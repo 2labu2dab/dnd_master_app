@@ -104,6 +104,7 @@ body.player-dnd .portrait-avatar {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
+  transition: none !important;
 }
 
 /* Табличка имени под портретом (компактная; высота согласована с NAME_BLOCK в player.js) */

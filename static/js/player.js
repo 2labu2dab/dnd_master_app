@@ -137,15 +137,39 @@ async function preloadAllAssets() {
     });
 }
 
+function inferPortraitMedia(character) {
+    if (!character) return "image";
+    const m = character.portrait_media;
+    if (m === "gif" || m === "video" || m === "image") return m;
+    const u = (character.portrait_url || "").split("?")[0];
+    if (/\.(webm|mp4|mov|m4v)$/i.test(u)) return "video";
+    if (/\.gif$/i.test(u)) return "gif";
+    return "image";
+}
+
+function portraitUrlsMatch(a, b) {
+    if (!a || !b) return false;
+    try {
+        const base = window.location?.href || document.baseURI;
+        return new URL(a, base).href === new URL(b, base).href;
+    } catch {
+        return String(a) === String(b);
+    }
+}
+
 function preloadPortraits(characters) {
     if (!characters) return;
     characters.forEach(c => {
         const url = c.portrait_url || (c.has_avatar ? `/api/portrait/${c.id}` : null);
-        if (url && !portraitImageCache.has(c.id)) {
-            const img = new Image();
-            img.src = url;
-            portraitImageCache.set(c.id, img);
+        if (!url || inferPortraitMedia(c) === "video") return;
+        const prev = portraitImageCache.get(c.id);
+        if (prev && prev.src && !portraitUrlsMatch(prev.src, url)) {
+            portraitImageCache.delete(c.id);
         }
+        if (portraitImageCache.has(c.id)) return;
+        const img = new Image();
+        img.src = url;
+        portraitImageCache.set(c.id, img);
     });
 }
 
@@ -160,7 +184,7 @@ function getCharactersHash(characters) {
     if (!characters || characters.length === 0) return '';
     return characters
         .filter(char => char.visible_to_players !== false)
-        .map(char => `${char.id}-${char.name}-${char.visible_to_players}-${char.portrait_url || ''}`)
+        .map(char => `${char.id}-${char.name}-${char.visible_to_players}-${char.portrait_url || ''}-${inferPortraitMedia(char)}`)
         .join('|');
 }
 
@@ -494,32 +518,60 @@ function renderPortraits(characters) {
             avatarContainer.style.backgroundColor = '';
         }
 
-        // Аватар
-        const avatar = document.createElement('img');
-        avatar.className = 'portrait-avatar';
-        avatar.style.width = '100%';
-        avatar.style.height = '100%';
-        avatar.style.objectFit = 'cover';
-        avatar.style.display = 'block';
-
         const portraitUrl = character.portrait_url || `/api/portrait/${character.id}`;
-        const cached = portraitImageCache.get(character.id);
-        if (cached && cached.complete && cached.naturalWidth > 0) {
-            avatar.src = cached.src;
-            avatar.style.opacity = '1';
-        } else {
+        const pMedia = inferPortraitMedia(character);
+        let avatar;
+
+        if (pMedia === "video") {
+            avatar = document.createElement("video");
+            avatar.className = "portrait-avatar";
+            avatar.style.width = "100%";
+            avatar.style.height = "100%";
+            avatar.style.objectFit = "cover";
+            avatar.style.display = "block";
+            avatar.muted = true;
+            avatar.loop = true;
+            avatar.autoplay = true;
+            avatar.playsInline = true;
+            avatar.setAttribute("playsinline", "");
             avatar.src = portraitUrl;
-            avatar.style.opacity = '1';
-            avatar.onload = () => {
-                portraitImageCache.set(character.id, avatar);
-            };
+            void avatar.play().catch(() => {});
+        } else {
+            avatar = document.createElement("img");
+            avatar.className = "portrait-avatar";
+            avatar.style.width = "100%";
+            avatar.style.height = "100%";
+            avatar.style.objectFit = "cover";
+            avatar.style.display = "block";
+            avatar.alt = "";
+
+            const cached = portraitImageCache.get(character.id);
+            // GIF: всегда грузим в этот <img> с актуального URL — иначе после смены PNG→GIF
+            // или из‑за preload остаётся первый кадр / старый файл. Animated GIF + transition:all в CSS тоже ломают кадры в части браузеров.
+            const reusePreload =
+                pMedia !== "gif" &&
+                cached &&
+                cached.tagName === "IMG" &&
+                cached.complete &&
+                cached.naturalWidth > 0 &&
+                portraitUrlsMatch(cached.src, portraitUrl);
+            if (reusePreload) {
+                avatar.src = cached.src;
+                avatar.style.opacity = "1";
+            } else {
+                avatar.src = portraitUrl;
+                avatar.style.opacity = "1";
+                avatar.onload = () => {
+                    portraitImageCache.set(character.id, avatar);
+                };
+            }
         }
 
         avatar.onerror = () => {
-            avatar.style.display = 'none';
-            avatarContainer.style.display = 'flex';
-            avatarContainer.style.alignItems = 'center';
-            avatarContainer.style.justifyContent = 'center';
+            avatar.style.display = "none";
+            avatarContainer.style.display = "flex";
+            avatarContainer.style.alignItems = "center";
+            avatarContainer.style.justifyContent = "center";
             avatarContainer.innerHTML = `<span style="color: #666; font-size: ${finalPortraitSize / 2}px;">?</span>`;
         };
 

@@ -903,32 +903,104 @@ def save_map_data(data, map_id):
     print(f"Map data saved for {map_id}")
 
 
-def save_portrait_image(image_data, portrait_id):
+# Расширения портрета (порядок: сначала типичные для find)
+PORTRAIT_FILE_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webm",
+    ".mp4",
+    ".mov",
+    ".m4v",
+)
+
+
+def find_portrait_file(portrait_id):
+    """Найти файл портрета с любым из поддерживаемых расширений."""
+    for suf in PORTRAIT_FILE_SUFFIXES:
+        p = os.path.join(PORTRAITS_DIR, f"{portrait_id}{suf}")
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def portrait_mimetype_for_path(path):
+    ext = os.path.splitext(path)[1].lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webm": "video/webm",
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v",
+    }.get(ext, "application/octet-stream")
+
+
+def portrait_path_to_media(path):
+    """Для JSON/API: image | gif | video"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".gif":
+        return "gif"
+    if ext in (".webm", ".mp4", ".mov", ".m4v"):
+        return "video"
+    return "image"
+
+
+def save_portrait_upload(raw_bytes, portrait_id, content_type=None, filename=None):
     """
-    Сохранить изображение портрета как файл с максимальным качеством
+    Сохранить портрет: PNG/JPEG/WebP → PNG через PIL; GIF и видео — байты как есть.
+    Возвращает dict {ok, media, ext} или None при ошибке.
     """
     try:
-        os.makedirs(PORTRAITS_DIR, exist_ok=True)
-        filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
+        ct = (content_type or "").lower().split(";")[0].strip()
+        fn = (filename or "").lower()
 
-        # Если image_data - строка base64, конвертируем в бинарные данные
-        if isinstance(image_data, str) and image_data.startswith("data:image"):
-            base64_data = (
-                image_data.split(",")[1] if "," in image_data else image_data
-            )
+        is_gif = ct == "image/gif" or fn.endswith(".gif")
+        is_vid = ct.startswith("video/") or fn.endswith(
+            (".webm", ".mp4", ".mov", ".m4v")
+        )
+
+        delete_portrait_image(portrait_id)
+        os.makedirs(PORTRAITS_DIR, exist_ok=True)
+
+        if is_vid:
+            if fn.endswith(".webm") or "webm" in ct:
+                ext = ".webm"
+            elif fn.endswith(".mov") or "quicktime" in ct:
+                ext = ".mov"
+            elif fn.endswith(".m4v") or "m4v" in ct:
+                ext = ".m4v"
+            else:
+                ext = ".mp4"
+            path = os.path.join(PORTRAITS_DIR, f"{portrait_id}{ext}")
+            with open(path, "wb") as f:
+                f.write(raw_bytes)
+            print(f"Portrait video saved {path} ({len(raw_bytes)} bytes)")
+            return {"ok": True, "media": "video", "ext": ext}
+
+        if is_gif:
+            path = os.path.join(PORTRAITS_DIR, f"{portrait_id}.gif")
+            with open(path, "wb") as f:
+                f.write(raw_bytes)
+            print(f"Portrait GIF saved {path} ({len(raw_bytes)} bytes)")
+            return {"ok": True, "media": "gif", "ext": ".gif"}
+
+        # Статичная картинка → PNG
+        if isinstance(raw_bytes, str) and raw_bytes.startswith("data:image"):
+            b64 = raw_bytes.split(",")[1] if "," in raw_bytes else raw_bytes
             import base64
 
-            image_binary = base64.b64decode(base64_data)
-        elif isinstance(image_data, bytes):
-            image_binary = image_data
+            image_binary = base64.b64decode(b64)
+        elif isinstance(raw_bytes, bytes):
+            image_binary = raw_bytes
         else:
-            print(f"Unsupported image data type: {type(image_data)}")
-            return False
+            print(f"Unsupported portrait data type: {type(raw_bytes)}")
+            return None
 
-        # Открываем и сохраняем с оригинальным размером
         img = Image.open(io.BytesIO(image_binary))
-
-        # Конвертируем в RGBA для поддержки прозрачности
         if img.mode != "RGBA" and img.mode != "RGB":
             img = img.convert("RGBA")
         elif img.mode == "RGB":
@@ -936,28 +1008,33 @@ def save_portrait_image(image_data, portrait_id):
             rgba.paste(img, (0, 0))
             img = rgba
 
-        # PNG сжимается без потери качества — уменьшаем размер для сети
+        filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
         try:
             img.save(filepath, "PNG", optimize=True, compress_level=6)
         except OSError:
             img.save(filepath, "PNG", optimize=True, compress_level=0)
-        print(f"Portrait saved with original size: {img.width}x{img.height}")
-
-        return True
+        print(f"Portrait PNG saved {img.width}x{img.height}")
+        return {"ok": True, "media": "image", "ext": ".png"}
     except Exception as e:
         print(f"Error saving portrait: {e}")
-        return False
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+
+def save_portrait_image(image_data, portrait_id):
+    """
+    Сохранить портрет (обёртка для старого API: только растровая картинка → PNG).
+    """
+    r = save_portrait_upload(image_data, portrait_id, "image/png", "x.png")
+    return bool(r and r.get("ok"))
 
 
 def get_portrait_filepath(portrait_id):
     """
-    Получить путь к файлу портрета
-
-    Args:
-        portrait_id: ID портрета
-
-    Returns:
-        str: путь к файлу
+    Путь к PNG по умолчанию (для обратной совместимости).
+    Для фактической отдачи файла используйте find_portrait_file.
     """
     return os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
 
@@ -1050,23 +1127,19 @@ def delete_drawings_layer(map_id):
 
 def delete_portrait_image(portrait_id):
     """
-    Удалить файл портрета
-
-    Args:
-        portrait_id: ID портрета
-
-    Returns:
-        bool: True если успешно, False если ошибка
+    Удалить все варианты файла портрета (любое расширение).
     """
     try:
-        filepath = get_portrait_filepath(portrait_id)
-        if os.path.exists(filepath):
-            os.remove(filepath)
-            print(f"✓ Portrait deleted: {filepath}")
-            return True
-        else:
-            print(f"→ Portrait file not found: {filepath}")
-            return False
+        removed = False
+        for suf in PORTRAIT_FILE_SUFFIXES:
+            filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}{suf}")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"✓ Portrait deleted: {filepath}")
+                removed = True
+        if not removed:
+            print(f"→ No portrait files for {portrait_id}")
+        return removed
     except Exception as e:
         print(f"✗ Error deleting portrait: {e}")
         return False
