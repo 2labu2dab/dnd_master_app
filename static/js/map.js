@@ -7857,7 +7857,6 @@ function initMasterProjectUI() {
     const backBtn = document.getElementById("masterBackToProjects");
     if (backBtn) {
         backBtn.addEventListener("click", async () => {
-            if (!confirm("Выйти в список проектов? Сохраните карту при необходимости.")) return;
             try {
                 await fetch("/api/projects/leave", { method: "POST" });
             } catch (e) { /* ignore */ }

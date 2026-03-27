@@ -3255,6 +3255,35 @@ canvas.erase-mode {
   color: #94a3b8;
 }
 
+.projects-hub-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.projects-hub-import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+
+.projects-hub-import-btn:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(148, 163, 184, 0.55);
+  transform: translateY(-1px);
+}
+
 .projects-hub-new-btn {
   padding: 10px 18px;
   border-radius: 10px;
@@ -3271,23 +3300,6 @@ canvas.erase-mode {
 .projects-hub-new-btn:hover {
   background: #3e4cd4;
   transform: translateY(-1px);
-}
-
-.projects-hub-empty {
-  text-align: center;
-  color: #94a3b8;
-  font-size: 15px;
-  margin-top: 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-.projects-hub-empty-text {
-  margin: 0;
-  max-width: 420px;
-  line-height: 1.5;
 }
 
 .projects-hub-grid {

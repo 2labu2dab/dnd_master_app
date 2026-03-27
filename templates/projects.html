@@ -17,7 +17,19 @@
       <div class="projects-hub-header-text">
         <h1 class="projects-hub-title">Подземелья</h1>
       </div>
-      <button type="button" class="projects-hub-new-btn" id="projectsHubNewBtn">+ Новый проект</button>
+      <div class="projects-hub-header-actions">
+        <button type="button" class="projects-hub-import-btn" id="projectsHubImportBtn"
+          title="Импорт .mdma — заменит всю папку data" aria-label="Импорт">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          Импорт
+        </button>
+        <button type="button" class="projects-hub-new-btn" id="projectsHubNewBtn">+ Новый проект</button>
+      </div>
     </header>
 
     {% if projects %}
@@ -61,14 +73,6 @@
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
           </button>
-          <button type="button" class="project-card-icon-btn project-card-icon-btn--import"
-            title="Импорт .mdma — заменит всю папку data" aria-label="Импорт">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
           <button type="button" class="project-card-icon-btn project-card-icon-btn--rename"
             data-project-id="{{ p.id }}" data-project-name="{{ p.name | e }}"
             title="Переименовать проект" aria-label="Переименовать">
@@ -88,18 +92,6 @@
         </div>
       </div>
       {% endfor %}
-    </div>
-    {% else %}
-    <div class="projects-hub-empty">
-      <p class="projects-hub-empty-text">Пока нет проектов. Создайте первый или импортируйте .mdma.</p>
-      <button type="button" class="project-card-icon-btn project-card-icon-btn--import projects-hub-empty-import"
-        title="Импорт .mdma — заменит всю папку data" aria-label="Импорт .mdma">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="17 8 12 3 7 8" />
-          <line x1="12" y1="3" x2="12" y2="15" />
-        </svg>
-      </button>
     </div>
     {% endif %}
   </div>
@@ -251,6 +243,12 @@
         if (importInp) importInp.click();
       }
 
+      var importHubBtn = document.getElementById("projectsHubImportBtn");
+      if (importHubBtn) {
+        importHubBtn.addEventListener("click", function () {
+          runImportPrompt();
+        });
+      }
       document.querySelectorAll(".project-card-icon-btn--export").forEach(function (b) {
         b.addEventListener("click", function (e) {
           e.preventDefault();
@@ -258,18 +256,6 @@
           runExport(b.getAttribute("data-project-id"));
         });
       });
-      document.querySelectorAll(".project-card-icon-btn--import").forEach(function (b) {
-        b.addEventListener("click", function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          runImportPrompt();
-        });
-      });
-      var emptyImport = document.querySelector(".projects-hub-empty-import");
-      if (emptyImport) {
-        emptyImport.addEventListener("click", function () { runImportPrompt(); });
-      }
-
       if (importInp) {
         importInp.addEventListener("change", function () {
           var file = this.files && this.files[0];

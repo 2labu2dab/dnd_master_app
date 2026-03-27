@@ -99,7 +99,7 @@ def _merge_stray_legacy_into_first_project():
 def ensure_migrated():
     """
     Однократная миграция: data/maps → data/projects/<id>/maps.
-    Если проектов нет и легаси нет — создаётся один пустой проект.
+    Если проектов нет и легаси нет — список остаётся пустым (проект не создаётся автоматически).
     """
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(PROJECTS_DIR, exist_ok=True)
@@ -136,18 +136,8 @@ def ensure_migrated():
         _merge_stray_legacy_into_first_project()
         return
 
-    pid = uuid.uuid4().hex[:12]
-    _ensure_project_tree(pid)
-    data["projects"] = [
-        {
-            "id": pid,
-            "name": "Мой проект",
-            "created": datetime.now().isoformat(),
-        }
-    ]
+    data["projects"] = []
     _save_raw(data)
-
-    _merge_stray_legacy_into_first_project()
 
 
 def list_projects():
