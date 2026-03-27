@@ -12,4 +12,11 @@
 
 # Игнорировать все JSON файлы
 *.json
+
+# SQLite и прочие базы
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
 *.pyc
