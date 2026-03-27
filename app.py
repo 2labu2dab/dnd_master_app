@@ -5,6 +5,7 @@ import math
 import os
 import time
 import uuid
+from datetime import datetime
 
 from flask import (
     Flask,
@@ -34,6 +35,7 @@ from utils.master_lock import (
     release_master_lock,
     update_master_ping,
 )
+from utils.project_backup import export_project_zip_bytes, import_project_from_zip
 from utils.storage import (
     TOKENS_AVATARS_DIR,
     create_new_map,
@@ -191,6 +193,35 @@ def index():
 def get_maps():
     """Получить список всех карт"""
     return jsonify(list_maps())
+
+
+@app.route("/api/project/export", methods=["GET"])
+def project_export():
+    """Скачать все данные из data/ как ZIP с расширением .mdma."""
+    payload = export_project_zip_bytes()
+    buf = io.BytesIO(payload)
+    buf.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return send_file(
+        buf,
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name=f"dnd-master-backup-{stamp}.mdma",
+    )
+
+
+@app.route("/api/project/import", methods=["POST"])
+def project_import():
+    """Восстановить data/ из архива .mdma (ZIP)."""
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "Файл не передан"}), 400
+    upload = request.files["file"]
+    if not upload.filename:
+        return jsonify({"ok": False, "error": "Пустое имя файла"}), 400
+    ok, msg = import_project_from_zip(upload)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True, "message": msg})
 
 
 @socketio.on("drawings_updated")
