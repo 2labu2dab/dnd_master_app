@@ -14,13 +14,18 @@ MANIFEST_NAME = "mdma_manifest.json"
 
 
 def backup_download_slug(name):
-    """Безопасный фрагмент имени файла (Unicode допускается, убираем символы Windows)."""
-    s = (name or "").strip() or "dnd-data"
+    """Безопасный фрагмент имени файла: Unicode ок; пробелы и символы \\ / : * ? \" < > | и \\0 → «_»."""
+    s = (name or "").strip()
+    if not s:
+        s = "dnd-data"
     for ch in '\\/:*?"<>|\x00':
-        s = s.replace(ch, "")
-    s = re.sub(r"\s+", "-", s).strip("-") or "dnd-data"
+        s = s.replace(ch, "_")
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    if not s:
+        s = "dnd-data"
     if len(s) > 80:
-        s = s[:80].rstrip("-")
+        s = s[:80].rstrip("_")
     return s
 SKIP_EXPORT_FILES = {"master_lock.json"}
 SKIP_EXPORT_DIRS = {".git", "__pycache__"}

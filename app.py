@@ -349,7 +349,7 @@ def project_export():
     if meta:
         focus_name = (meta.get("name") or "").strip() or meta.get("id") or "Проект"
     slug = backup_download_slug(focus_name if meta else "dnd-data")
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     payload = export_project_zip_bytes(
         focus_project_id=pid if meta else None,
         focus_project_name=focus_name if meta else None,

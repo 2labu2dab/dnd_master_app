@@ -18,9 +18,9 @@
         <h1 class="projects-hub-title">Подземелья</h1>
       </div>
       <div class="projects-hub-header-actions">
-        <button type="button" class="projects-hub-import-btn" id="projectsHubImportBtn"
+        <button type="button" class="projects-hub-action-btn projects-hub-import-btn" id="projectsHubImportBtn"
           title="Импорт .mdma — заменит всю папку data" aria-label="Импорт">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
@@ -28,7 +28,7 @@
           </svg>
           Импорт
         </button>
-        <button type="button" class="projects-hub-new-btn" id="projectsHubNewBtn">+ Новый проект</button>
+        <button type="button" class="projects-hub-action-btn projects-hub-new-btn" id="projectsHubNewBtn">+ Новый проект</button>
       </div>
     </header>
 
@@ -209,33 +209,16 @@
 
       function runExport(pid) {
         if (!pid) return;
+        // Прямая ссылка на экспорт — без blob:, чтобы не было предупреждения в консоли про HTTP + blob.
+        // Имя файла задаёт сервер (Content-Disposition, в т.ч. filename* UTF-8).
         var url = "/api/project/export?project_id=" + encodeURIComponent(pid);
-        fetch(url)
-          .then(function (r) {
-            if (!r.ok) throw new Error();
-            return r.blob().then(function (blob) {
-              return { blob: blob, cd: r.headers.get("Content-Disposition") || "" };
-            });
-          })
-          .then(function (o) {
-            var name = "backup.mdma";
-            var m = /filename\*?=(?:UTF-8'')?["']?([^";\n]+)/i.exec(o.cd);
-            if (m) {
-              try {
-                name = decodeURIComponent(m[1].replace(/["']/g, "").trim());
-              } catch (e) {
-                name = m[1].replace(/["']/g, "").trim();
-              }
-            }
-            var a = document.createElement("a");
-            a.href = URL.createObjectURL(o.blob);
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(a.href);
-          })
-          .catch(function () { alert("Не удалось экспортировать"); });
+        var a = document.createElement("a");
+        a.href = url;
+        a.setAttribute("download", "");
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
       }
 
       function runImportPrompt() {
