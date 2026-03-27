@@ -111,6 +111,7 @@ let editingMapId = null;
 let masterPingInterval = null;
 let currentMapImageFile = null;
 let allTokensFromMaps = [];
+let allCharactersFromMaps = [];
 let selectedImportToken = null;
 let isSwitchingMap = false;
 /** Инкрементируется при каждой смене карты / сбросе — отбрасываем устаревшие ответы fetch. */
@@ -334,6 +335,29 @@ let editingFindId = null;
 let editingZoneId = null;
 let pendingZoneVertices = null;
 let hoveredSnapVertex = null;
+
+/** Ближайшая вершина существующей зоны в радиусе снапа (координаты карты). */
+function findZoneVertexSnapWorld(wx, wy, scale) {
+    if (!mapData?.zones?.length || !Number.isFinite(scale) || scale <= 0) return null;
+    const r = 10 / scale;
+    const r2 = r * r;
+    let best = null;
+    let bestD2 = r2;
+    for (const zone of mapData.zones) {
+        if (!zone.vertices) continue;
+        for (const [vx, vy] of zone.vertices) {
+            const dx = wx - vx;
+            const dy = wy - vy;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = [vx, vy];
+            }
+        }
+    }
+    return best;
+}
+
 const avatarCache = new Map();
 
 /** GIF/видео портрета без кропа: файл до upload */
@@ -1084,7 +1108,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
                     mapData.characters.push({
                         id: characterId,
                         name,
-                        has_avatar: true,
+                        has_avatar: false,
                         visible_to_players: false,
                     });
                     portraitChain = saveMapData()
@@ -1102,6 +1126,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
                             );
                             if (ch && data.portrait_url) {
                                 ch.portrait_url = data.portrait_url;
+                                ch.has_avatar = true;
                             }
                             if (ch && data.portrait_media) {
                                 ch.portrait_media = data.portrait_media;
@@ -1112,6 +1137,10 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
                         })
                         .catch((err) => {
                             console.error("Portrait from token edit:", err);
+                            mapData.characters = (mapData.characters || []).filter(
+                                (c) => c.id !== characterId
+                            );
+                            saveMapData().catch(() => {});
                         });
                 }
             }
@@ -1271,7 +1300,7 @@ function createCharacterFromToken(
     const character = {
         id: characterId,
         name,
-        has_avatar: true,
+        has_avatar: false,
         visible_to_players: false,
     };
 
@@ -1292,6 +1321,7 @@ function createCharacterFromToken(
             const ch = mapData.characters.find((c) => c.id === characterId);
             if (ch && data.portrait_url) {
                 ch.portrait_url = data.portrait_url;
+                ch.has_avatar = true;
             }
             if (ch && data.portrait_media) {
                 ch.portrait_media = data.portrait_media;
@@ -1303,6 +1333,10 @@ function createCharacterFromToken(
         })
         .catch((error) => {
             console.error("Error creating character from token:", error);
+            mapData.characters = (mapData.characters || []).filter(
+                (c) => c.id !== characterId
+            );
+            saveMapData().catch(() => {});
         })
         .finally(() => {
             clearTokenPendingPortrait();
@@ -2720,7 +2754,7 @@ function render() {
     getTokensSortedForDrawing(mapData.tokens).forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 
-    if (drawingZone && currentZoneVertices.length > 0) {
+    if (drawingZone) {
         drawTempZone(offsetX, offsetY, scale);
     }
 
@@ -2732,7 +2766,21 @@ function render() {
     updateMasterInitiativeStrip();
 }
 function drawTempZone(offsetX, offsetY, scale) {
-    if (currentZoneVertices.length === 0) return;
+    if (currentZoneVertices.length === 0) {
+        if (hoveredSnapVertex) {
+            const [hx, hy] = hoveredSnapVertex;
+            const px = hx * scale + offsetX;
+            const py = hy * scale + offsetY;
+            ctx.beginPath();
+            ctx.arc(px, py, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = "cyan";
+            ctx.fill();
+            ctx.strokeStyle = "#00ffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        return;
+    }
 
     ctx.beginPath();
     ctx.strokeStyle = "#2196F3";
@@ -3161,7 +3209,7 @@ function createNewCharacter(name, avatarData) {
     const character = {
         id: characterId,
         name,
-        has_avatar: true,
+        has_avatar: false,
         visible_to_players: false,
         portrait_media: "image",
     };
@@ -3186,6 +3234,7 @@ function createNewCharacter(name, avatarData) {
             const ch = mapData.characters.find(c => c.id === characterId);
             if (ch && data.portrait_url) {
                 ch.portrait_url = data.portrait_url;
+                ch.has_avatar = true;
             }
             if (ch && data.portrait_media) {
                 ch.portrait_media = data.portrait_media;
@@ -3206,6 +3255,7 @@ function createNewCharacter(name, avatarData) {
         })
         .catch(error => {
             console.error("Error creating character:", error);
+            mapData.characters = (mapData.characters || []).filter(c => c.id !== characterId);
             alert("Ошибка при создании персонажа: " + error.message);
         });
 }
@@ -3215,7 +3265,7 @@ function createNewCharacterWithFile(name, file, portraitMedia) {
     const character = {
         id: characterId,
         name,
-        has_avatar: true,
+        has_avatar: false,
         visible_to_players: false,
         portrait_media: portraitMedia,
     };
@@ -3239,6 +3289,7 @@ function createNewCharacterWithFile(name, file, portraitMedia) {
             const ch = mapData.characters.find(c => c.id === characterId);
             if (ch && data.portrait_url) {
                 ch.portrait_url = data.portrait_url;
+                ch.has_avatar = true;
             }
             if (ch && data.portrait_media) {
                 ch.portrait_media = data.portrait_media;
@@ -3841,9 +3892,9 @@ canvas.addEventListener("mousedown", (e) => {
         if (e.button === 0) {
             let x = (mouseX - offsetX) / scale;
             let y = (mouseY - offsetY) / scale;
-
-            if (hoveredSnapVertex) {
-                [x, y] = hoveredSnapVertex;
+            const snap = findZoneVertexSnapWorld(x, y, scale);
+            if (snap) {
+                [x, y] = snap;
             }
 
             x = Math.max(0, Math.min(x, mapImage.width));
@@ -4035,21 +4086,7 @@ canvas.addEventListener("mousemove", (e) => {
     if (drawingZone) {
         let x = (mouseX - offsetX) / scale;
         let y = (mouseY - offsetY) / scale;
-        let found = null;
-        const snapRadius = 10 / scale;
-
-        for (const zone of mapData.zones) {
-            for (const [vx, vy] of zone.vertices) {
-                const dist = Math.hypot(x - vx, y - vy);
-                if (dist < snapRadius) {
-                    found = [vx, vy];
-                    break;
-                }
-            }
-            if (found) break;
-        }
-
-        hoveredSnapVertex = found;
+        hoveredSnapVertex = findZoneVertexSnapWorld(x, y, scale);
         scheduleRender();
         return;
     }
@@ -4787,9 +4824,9 @@ document.addEventListener("keydown", (e) => {
             'zoneModal',
             'mapModal',
             'importTokenModal',
+            'importPortraitModal',
             'bankModal',
             'newMapModal',
-            'bankModal',
             'bankCharacterModal',
             'combatModal'
         ].some(modalId => {
@@ -7185,35 +7222,54 @@ function preventDefaultHandler(e) {
 
 
 document.addEventListener('dragstart', (e) => {
-    // Если перетаскивается элемент из characterList
-    if (e.target.closest('#characterList')) {
+    if (e.target.closest('#characterList') || e.target.closest('#mapsList')) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.dropEffect = 'move';
     }
 });
 
 document.addEventListener('dragover', (e) => {
-    // Если мы в области портретов или над зонами вставки
-    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+    // Если мы в области портретов, списка карт или над зонами вставки
+    if (
+        e.target.closest('#characterList') ||
+        e.target.closest('#mapsList') ||
+        e.target.classList.contains('drop-zone') ||
+        e.target.classList.contains('map-list-drop-zone')
+    ) {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
     }
 });
 
 document.addEventListener('dragenter', (e) => {
-    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+    if (
+        e.target.closest('#characterList') ||
+        e.target.closest('#mapsList') ||
+        e.target.classList.contains('drop-zone') ||
+        e.target.classList.contains('map-list-drop-zone')
+    ) {
         e.preventDefault();
     }
 });
 
 document.addEventListener('dragleave', (e) => {
-    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+    if (
+        e.target.closest('#characterList') ||
+        e.target.closest('#mapsList') ||
+        e.target.classList.contains('drop-zone') ||
+        e.target.classList.contains('map-list-drop-zone')
+    ) {
         e.preventDefault();
     }
 });
 
 document.addEventListener('drop', (e) => {
-    if (e.target.closest('#characterList') || e.target.classList.contains('drop-zone')) {
+    if (
+        e.target.closest('#characterList') ||
+        e.target.closest('#mapsList') ||
+        e.target.classList.contains('drop-zone') ||
+        e.target.classList.contains('map-list-drop-zone')
+    ) {
         e.preventDefault();
     }
 });
@@ -7730,6 +7786,193 @@ function spawnImportedToken(sourceToken) {
     createTokenWithAvatar(sourceToken, newToken);
 }
 
+// ─── Импорт портрета с другой карты (как токены: список со всех карт) ───
+
+function openImportPortraitModal() {
+    const modal = document.getElementById("importPortraitModal");
+    if (!modal) return;
+    modal.style.display = "flex";
+    loadAllCharactersForImport();
+}
+
+function closeImportPortraitModal() {
+    const modal = document.getElementById("importPortraitModal");
+    if (modal) modal.style.display = "none";
+    const inp = document.getElementById("importPortraitSearchInput");
+    if (inp) inp.value = "";
+}
+
+function portraitImportUploadFilename(source) {
+    const ext = (source.portrait_ext || "").replace(/^\./, "");
+    if (ext && /^[a-z0-9]+$/i.test(ext)) return `portrait.${ext}`;
+    if (source.portrait_media === "gif") return "portrait.gif";
+    if (source.portrait_media === "video") return "portrait.webm";
+    return "portrait.png";
+}
+
+function loadAllCharactersForImport() {
+    const list = document.getElementById("importPortraitList");
+    if (!list) return;
+    list.innerHTML = '<div style="text-align: center; padding: 20px;">Загрузка...</div>';
+
+    fetch("/api/characters/all")
+        .then((res) => res.json())
+        .then((chars) => {
+            allCharactersFromMaps = Array.isArray(chars) ? chars : [];
+            if (allCharactersFromMaps.length === 0) {
+                list.innerHTML =
+                    '<div style="text-align: center; padding: 20px; color: #aaa;">Нет портретов на других картах (или файлы ещё не загружены)</div>';
+                return;
+            }
+            displayImportPortraits(allCharactersFromMaps);
+        })
+        .catch((err) => {
+            console.error("Error loading characters for import:", err);
+            list.innerHTML =
+                '<div style="text-align: center; padding: 20px; color: #f44336;">Ошибка загрузки</div>';
+        });
+}
+
+function displayImportPortraits(chars) {
+    const list = document.getElementById("importPortraitList");
+    if (!list) return;
+    list.innerHTML = "";
+    chars.forEach((ch) => {
+        list.appendChild(createImportPortraitItem(ch));
+    });
+}
+
+function filterImportPortraits() {
+    const inp = document.getElementById("importPortraitSearchInput");
+    const list = document.getElementById("importPortraitList");
+    if (!inp || !list) return;
+    const q = inp.value.toLowerCase().trim();
+    if (!allCharactersFromMaps || allCharactersFromMaps.length === 0) return;
+    if (q === "") {
+        displayImportPortraits(allCharactersFromMaps);
+        return;
+    }
+    const filtered = allCharactersFromMaps.filter((ch) => {
+        const n = (ch.name || "").toLowerCase();
+        const m = (ch.source_map || "").toLowerCase();
+        return n.includes(q) || m.includes(q);
+    });
+    if (filtered.length === 0) {
+        list.innerHTML =
+            '<div style="text-align: center; padding: 20px; color: #aaa;">Ничего не найдено</div>';
+        return;
+    }
+    displayImportPortraits(filtered);
+}
+
+function createImportPortraitItem(ch) {
+    const div = document.createElement("div");
+    div.className = "bank-character-item";
+    div.onclick = () => importPortraitFromOtherMap(ch);
+
+    const mapLabel = (ch.source_map || "Карта").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const nameSafe = (ch.name || "Без имени").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const src = ch.portrait_url || `/api/portrait/${ch.id}`;
+    const mediaLabel =
+        ch.portrait_media === "gif" ? "GIF" : ch.portrait_media === "video" ? "Видео" : "Изображение";
+
+    div.innerHTML = `
+        <img class="bank-character-avatar" src="${src}" alt="" onerror="this.src='/static/default-avatar.png'">
+        <div class="bank-character-info">
+            <div class="bank-character-name">${nameSafe}</div>
+            <div class="bank-character-type">${mapLabel}</div>
+        </div>
+        <div class="bank-character-stats" style="color: #94a3b8;">
+            ${mediaLabel}
+        </div>
+    `;
+    return div;
+}
+
+async function importPortraitFromOtherMap(source) {
+    if (!currentMapId) {
+        showNotification("Нет активной карты", "error");
+        return;
+    }
+    if (!mapData.characters) mapData.characters = [];
+
+    const existsHere = mapData.characters.some((c) => c.id === source.id);
+    let targetId = source.id;
+    let name = source.name || "Без имени";
+    let portraitUrl = source.portrait_url || `/api/portrait/${source.id}`;
+    let portraitMedia = source.portrait_media || "image";
+
+    if (existsHere) {
+        if (
+            !confirm(
+                `Портрет «${name}» уже есть на этой карте (тот же id). Создать копию с новым id?`
+            )
+        ) {
+            closeImportPortraitModal();
+            return;
+        }
+        targetId = `char_${Date.now()}`;
+        try {
+            showNotification("Копирование файла портрета…", "info");
+            const baseUrl = (source.portrait_url || `/api/portrait/${source.id}`).split("?")[0];
+            const res = await fetch(baseUrl);
+            if (!res.ok) throw new Error("fetch portrait");
+            const blob = await res.blob();
+            const base = portraitImportUploadFilename(source);
+            const file = new File([blob], base, {
+                type: blob.type || "application/octet-stream",
+            });
+            const fd = new FormData();
+            fd.append("portrait", file);
+            fd.append("character_id", targetId);
+            const up = await fetch("/api/portrait/upload", { method: "POST", body: fd });
+            if (!up.ok) throw new Error("upload");
+            const data = await up.json();
+            if (data.portrait_url) portraitUrl = data.portrait_url;
+            if (data.portrait_media) portraitMedia = data.portrait_media;
+            name = `${name} (копия)`;
+        } catch (e) {
+            console.error(e);
+            showNotification("Не удалось скопировать портрет", "error");
+            return;
+        }
+    }
+
+    mapData.characters.push({
+        id: targetId,
+        name,
+        has_avatar: true,
+        visible_to_players: source.visible_to_players === true,
+        portrait_url: portraitUrl,
+        portrait_media: portraitMedia,
+    });
+
+    try {
+        await saveMapData();
+        socket.emit("characters_updated", {
+            map_id: currentMapId,
+            characters: mapData.characters,
+        });
+        refreshPortraits();
+        initCharacterDragAndDrop();
+        closeImportPortraitModal();
+        closeCharacterModal();
+        showNotification(`Портрет «${name}» добавлен`, "success");
+    } catch (e) {
+        console.error(e);
+        mapData.characters = mapData.characters.filter((c) => c.id !== targetId);
+        showNotification("Ошибка сохранения карты", "error");
+    }
+}
+
+const importPortraitSearchInput = document.getElementById("importPortraitSearchInput");
+if (importPortraitSearchInput) {
+    importPortraitSearchInput.addEventListener("input", filterImportPortraits);
+    importPortraitSearchInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") e.preventDefault();
+    });
+}
+
 
 // Добавляем обработчик поиска
 document.getElementById("importTokenSearchInput").addEventListener("input", filterImportTokens);
@@ -7884,10 +8127,204 @@ function loadMapsList() {
         });
 }
 
+function teardownMapsListDragDrop() {
+    const el = document.getElementById("mapsList");
+    if (!el || !el._mapsListDragMeta) return;
+    const m = el._mapsListDragMeta;
+    if (m.docOver) document.removeEventListener("dragover", m.docOver);
+    if (m.docEnd) document.removeEventListener("dragend", m.docEnd);
+    if (m.listListener) {
+        el.removeEventListener("dragover", m.listListener.dragover);
+        el.removeEventListener("dragleave", m.listListener.dragleave);
+        el.removeEventListener("drop", m.listListener.drop);
+    }
+    el._mapsListDragMeta = null;
+}
+
+function initMapsListDragDrop() {
+    const mapsListEl = document.getElementById("mapsList");
+    if (!mapsListEl) return;
+
+    teardownMapsListDragDrop();
+
+    const cards = mapsListEl.querySelectorAll(".map-card");
+    if (cards.length === 0) return;
+
+    let draggedCard = null;
+    let draggedIndex = -1;
+    let activeDropZone = null;
+    let lastDropTargetIndex = null;
+
+    function reorderMapsOnServer(fromIndex, toIndex) {
+        if (fromIndex === toIndex || !mapsList.length) return;
+        const next = mapsList.slice();
+        const [removed] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, removed);
+        const order = next.map((m) => m.id);
+        fetch("/api/maps/reorder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order })
+        })
+            .then((r) => r.json())
+            .then((data) => {
+                if (data.maps) {
+                    mapsList = data.maps;
+                    renderMapsList(data.maps);
+                } else {
+                    loadMapsList();
+                }
+            })
+            .catch(() => loadMapsList());
+    }
+
+    function removeAllDropZones() {
+        mapsListEl.querySelectorAll(".map-list-drop-zone").forEach((z) => z.remove());
+        activeDropZone = null;
+        lastDropTargetIndex = null;
+    }
+
+    function createDropZone(targetIndex) {
+        const dropZone = document.createElement("div");
+        dropZone.className = "map-list-drop-zone active";
+        dropZone.dataset.targetIndex = String(targetIndex);
+        lastDropTargetIndex = targetIndex;
+        return dropZone;
+    }
+
+    function getDropTargetIndex(e) {
+        const rect = mapsListEl.getBoundingClientRect();
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        if (mouseX < rect.left || mouseX > rect.right || mouseY < rect.top || mouseY > rect.bottom) {
+            return null;
+        }
+        const items = mapsListEl.querySelectorAll(".map-card");
+        if (items.length === 0) return 0;
+        for (let i = 0; i < items.length; i++) {
+            const itemRect = items[i].getBoundingClientRect();
+            if (mouseX <= itemRect.right) {
+                const mid = itemRect.left + itemRect.width / 2;
+                return mouseX < mid ? i : i + 1;
+            }
+        }
+        return items.length;
+    }
+
+    function updateDropZone(e) {
+        if (!draggedCard) return;
+        const targetIndex = getDropTargetIndex(e);
+        if (targetIndex === null) {
+            removeAllDropZones();
+            return;
+        }
+        if (lastDropTargetIndex === targetIndex && activeDropZone) return;
+        removeAllDropZones();
+        const items = mapsListEl.querySelectorAll(".map-card");
+        if (items.length === 0) {
+            activeDropZone = createDropZone(0);
+            mapsListEl.appendChild(activeDropZone);
+            return;
+        }
+        if (targetIndex === 0) {
+            activeDropZone = createDropZone(0);
+            mapsListEl.insertBefore(activeDropZone, items[0]);
+        } else if (targetIndex >= items.length) {
+            activeDropZone = createDropZone(items.length);
+            mapsListEl.appendChild(activeDropZone);
+        } else {
+            activeDropZone = createDropZone(targetIndex);
+            mapsListEl.insertBefore(activeDropZone, items[targetIndex]);
+        }
+    }
+
+    function completeDrag(e) {
+        if (draggedCard && lastDropTargetIndex !== null && draggedIndex >= 0) {
+            if (e) e.preventDefault();
+            let newIndex = lastDropTargetIndex;
+            if (draggedIndex < newIndex) newIndex -= 1;
+            reorderMapsOnServer(draggedIndex, newIndex);
+        }
+        removeAllDropZones();
+        draggedCard = null;
+        draggedIndex = -1;
+    }
+
+    cards.forEach((card, index) => {
+        const handle = card.querySelector(".map-drag-handle");
+        if (!handle) return;
+        if (handle._mapDragStart) {
+            handle.removeEventListener("dragstart", handle._mapDragStart);
+            handle.removeEventListener("dragend", handle._mapDragEnd);
+        }
+        const start = (ev) => {
+            draggedCard = card;
+            draggedIndex = index;
+            card.classList.add("map-card--dragging");
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", card.dataset.mapId || "");
+            try {
+                ev.dataTransfer.setDragImage(new Image(), 0, 0);
+            } catch (err) { /* ignore */ }
+        };
+        const end = () => {
+            card.classList.remove("map-card--dragging");
+            if (!draggedCard) return;
+            draggedCard = null;
+            draggedIndex = -1;
+            removeAllDropZones();
+        };
+        handle._mapDragStart = start;
+        handle._mapDragEnd = end;
+        handle.addEventListener("dragstart", start);
+        handle.addEventListener("dragend", end);
+    });
+
+    function globalDragOver(e) {
+        if (!draggedCard) return;
+        e.preventDefault();
+        updateDropZone(e);
+    }
+
+    function globalDragEnd(e) {
+        if (!draggedCard) return;
+        completeDrag(e);
+    }
+
+    const dragoverHandler = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (draggedCard) updateDropZone(e);
+    };
+    const dragleaveHandler = () => {};
+    const dropHandler = (e) => {
+        e.preventDefault();
+        completeDrag(e);
+    };
+
+    document.addEventListener("dragover", globalDragOver);
+    document.addEventListener("dragend", globalDragEnd);
+    mapsListEl.addEventListener("dragover", dragoverHandler);
+    mapsListEl.addEventListener("dragleave", dragleaveHandler);
+    mapsListEl.addEventListener("drop", dropHandler);
+
+    mapsListEl._mapsListDragMeta = {
+        docOver: globalDragOver,
+        docEnd: globalDragEnd,
+        listListener: {
+            dragover: dragoverHandler,
+            dragleave: dragleaveHandler,
+            drop: dropHandler
+        }
+    };
+}
+
 // Функция отрисовки списка карт
 function renderMapsList(maps) {
     const container = document.getElementById("mapsList");
     if (!container) return;
+
+    teardownMapsListDragDrop();
 
     if (maps.length === 0) {
         container.innerHTML = `
@@ -7906,43 +8343,77 @@ function renderMapsList(maps) {
         return;
     }
 
-    const esc = (s) => String(s ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+    container.innerHTML = "";
 
-    container.innerHTML = maps.map(map => {
+    maps.forEach((map) => {
         const isActive = map.id === currentMapId;
         const name = map.name || "Без названия";
-        const nameHtml = esc(name);
 
-        return `
-            <div class="map-card ${isActive ? 'active' : ''}" data-map-id="${map.id}" onclick="selectMap('${map.id}')">
-                <div class="map-thumbnail">
-                    ${map.has_image
-                ? `<img src="/api/map/thumbnail/${map.id}" alt="${nameHtml}" loading="lazy">`
-                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
-                            <circle cx="8.5" cy="8.5" r="1.5"/>
-                            <polyline points="21 15 16 10 5 21"/>
-                          </svg>`
-            }
-                </div>
-                <div class="map-name" title="${nameHtml}">${nameHtml}</div>
-                <button type="button" class="map-more-btn" onclick="event.stopPropagation(); showMapContextMenu('${map.id}', event)" aria-label="Меню карты">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="2"/>
-                        <circle cx="12" cy="5" r="2"/>
-                        <circle cx="12" cy="19" r="2"/>
-                    </svg>
-                </button>
-            </div>
-        `;
-    }).join('');
+        const card = document.createElement("div");
+        card.className = "map-card" + (isActive ? " active" : "");
+        card.dataset.mapId = map.id;
 
-    // Обновляем активное состояние
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "map-drag-handle";
+        handle.draggable = true;
+        handle.title = "Перетащите, чтобы изменить порядок";
+        handle.setAttribute("aria-label", "Изменить порядок карты в списке");
+        handle.innerHTML =
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
+            '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/>' +
+            '<circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/>' +
+            '<circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg>';
+        handle.addEventListener("click", (e) => e.stopPropagation());
+
+        const main = document.createElement("div");
+        main.className = "map-card-main";
+        main.addEventListener("click", () => selectMap(map.id));
+
+        const thumb = document.createElement("div");
+        thumb.className = "map-thumbnail";
+        if (map.has_image) {
+            const img = document.createElement("img");
+            img.src = `/api/map/thumbnail/${map.id}`;
+            img.alt = name;
+            img.loading = "lazy";
+            thumb.appendChild(img);
+        } else {
+            thumb.innerHTML =
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">' +
+                '<rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>' +
+                '<circle cx="8.5" cy="8.5" r="1.5"/>' +
+                '<polyline points="21 15 16 10 5 21"/></svg>';
+        }
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "map-name";
+        nameEl.title = name;
+        nameEl.textContent = name;
+
+        main.appendChild(thumb);
+        main.appendChild(nameEl);
+
+        const moreBtn = document.createElement("button");
+        moreBtn.type = "button";
+        moreBtn.className = "map-more-btn";
+        moreBtn.setAttribute("aria-label", "Меню карты");
+        moreBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+        moreBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            showMapContextMenu(map.id, e);
+        });
+
+        card.appendChild(handle);
+        card.appendChild(main);
+        card.appendChild(moreBtn);
+        container.appendChild(card);
+    });
+
     updateActiveMapInList(currentMapId);
+    initMapsListDragDrop();
 }
 function selectMap(mapId) {
     if (mapId === currentMapId) return;
@@ -8405,6 +8876,7 @@ function closeAllModals() {
         'zoneModal',
         'mapModal',
         'importTokenModal',
+        'importPortraitModal',
         'bankModal',
         'newMapModal',
         'bankCharacterModal',  // ДОБАВЛЕНО
@@ -8417,6 +8889,9 @@ function closeAllModals() {
             modal.style.display = 'none';
         }
     });
+
+    closeImportPortraitModal();
+    closeImportTokenModal();
 
     // Сбрасываем режимы рисования, если они активны
     if (drawingZone) {
@@ -9309,9 +9784,11 @@ function checkAnyModalOpen() {
         'zoneModal',
         'mapModal',
         'importTokenModal',
+        'importPortraitModal',
         'bankModal',
         'newMapModal',
-        'bankCharacterModal'
+        'bankCharacterModal',
+        'combatModal'
     ];
 
     return modals.some(modalId => {

@@ -1197,13 +1197,11 @@ function drawLayers(offsetX, offsetY, scale) {
     // Рисуем рисунки мастера - ЭТУ СТРОКУ НУЖНО ДОБАВИТЬ
     drawPlayerStrokes(offsetX, offsetY, scale);
 
-    if (mapData.zones && mapData.zones.length) {
-        for (let i = 0; i < mapData.zones.length; i++) {
-            const zone = mapData.zones[i];
-            if (zone.is_visible === false) {
-                drawBlurredZone(zone, offsetX, offsetY, scale);
-            }
-        }
+    const hiddenZones = (mapData.zones || []).filter(
+        (z) => z.is_visible === false && z.vertices && z.vertices.length >= 3
+    );
+    if (hiddenZones.length) {
+        drawUnionBlurredHiddenZones(hiddenZones, offsetX, offsetY, scale);
     }
 
     if (mapData.tokens && mapData.tokens.length) {
@@ -1443,35 +1441,46 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     ctx.stroke();
 }
 
-// ─── Кеш блюра зон ──────────────────────────────────────────────────────────
-// Блюр вычисляется ОДИН РАЗ на зону при загрузке карты/изменении зоны.
-// При каждом кадре — только дешёвый drawImage(cached, ...).
-const _zoneBlurCache = new Map(); // id → { canvas, worldX, worldY, worldW, worldH, mapSrc, hash, cacheVersion }
+// ─── Кеш блюра скрытых зон (один размытый фрагмент на объединение всех полигонов) ───
+// Раньше блюр считался отдельно по каждой зоне — на общей границе двух полигонов
+// получалась тонкая «полоска» из‑за разных локальных текстур; теперь один blur по общему bbox.
+const _unionZoneBlurCache = new Map(); // key → { canvas, worldX, worldY, worldW, worldH, mapSrc, cacheVersion }
 
 /** Смена версии сбрасывает кеш после правок алгоритма блюра */
-const ZONE_BLUR_CACHE_VERSION = 6;
+const ZONE_BLUR_CACHE_VERSION = 7;
 
-function invalidateZoneBlurCache() { _zoneBlurCache.clear(); }
+function invalidateZoneBlurCache() {
+    _unionZoneBlurCache.clear();
+}
 
-function _zoneKey(zone) { return zone.id || JSON.stringify(zone.vertices); }
-function _zoneHash(zone) { return JSON.stringify(zone.vertices); }
+function _unionHiddenZonesCacheKey(zones) {
+    return JSON.stringify(zones.map((z) => [z.id, z.vertices]));
+}
 
-function _buildZoneBlur(zone) {
+/** min/max по всем вершинам списка зон */
+function _boundsOfZonesVertexUnion(zones) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const z of zones) {
+        for (const [x, y] of z.vertices || []) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+}
+
+function _buildBlurredMapRegionForBounds(minX, minY, maxX, maxY) {
     if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) return null;
 
     const imgW = mapImage.naturalWidth;
     const imgH = mapImage.naturalHeight;
 
-    // Bounding box в координатах карты
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [x, y] of zone.vertices) {
-        if (x < minX) minX = x; if (y < minY) minY = y;
-        if (x > maxX) maxX = x; if (y > maxY) maxY = y;
-    }
-
-    // Отступ в мировых пикселях: больше у края карты нужен «запас» под ядро blur,
-    // иначе у границы карты размытие слабеет (сэмплит прозрачность вместо соседних пикселей).
-    // Целевой радиус размытия в МИРОВЫХ пикселях карты (одинаковая «сила» по всей карте)
     const BLUR_RADIUS_WORLD = 130;
     const padFrac = Math.max(imgW, imgH) * 0.11;
     const padMin = Math.max(140, Math.ceil(BLUR_RADIUS_WORLD * 4));
@@ -1485,7 +1494,6 @@ function _buildZoneBlur(zone) {
     const virtH = wy1 - wy0;
     if (virtW <= 0 || virtH <= 0) return null;
 
-    // Пересечение с картой (реальные пиксели)
     const ix0 = Math.min(imgW, Math.max(0, wx0));
     const iy0 = Math.min(imgH, Math.max(0, wy0));
     const ix1 = Math.min(imgW, Math.max(0, wx1));
@@ -1509,10 +1517,8 @@ function _buildZoneBlur(zone) {
     const sw = ix1 - ix0;
     const sh = iy1 - iy0;
 
-    // Центр: фрагмент карты
     srcCtx.drawImage(mapImage, ix0, iy0, sw, sh, offX, offY, cropW, cropH);
 
-    // Поля за пределами карты: растягиваем крайние ряды/колонки (blur видит «продолжение» картинки)
     if (offY > 0) {
         srcCtx.drawImage(mapImage, ix0, iy0, sw, 1, 0, 0, cw, offY);
     }
@@ -1532,8 +1538,6 @@ function _buildZoneBlur(zone) {
     dst.width = cw;
     dst.height = ch;
     const dstCtx = dst.getContext('2d');
-    // В кэше масштаб rs: мир → пиксель кэша. Чтобы в мире было ~BLUR_RADIUS_WORLD px размытия:
-    // blurPx_cache ≈ BLUR_RADIUS_WORLD * rs
     const blurPx = Math.max(8, BLUR_RADIUS_WORLD * rs);
     dstCtx.filter = `blur(${blurPx}px)`;
     dstCtx.drawImage(src, 0, 0);
@@ -1544,46 +1548,49 @@ function _buildZoneBlur(zone) {
         worldX: wx0,
         worldY: wy0,
         worldW: virtW,
-        worldH: virtH,
-        mapSrc: mapImage.src,
-        hash: _zoneHash(zone),
-        cacheVersion: ZONE_BLUR_CACHE_VERSION
+        worldH: virtH
     };
 }
 
-function _getCachedZoneBlur(zone) {
-    const key  = _zoneKey(zone);
-    const hash = _zoneHash(zone);
-    const c    = _zoneBlurCache.get(key);
-    if (
-        c &&
-        c.hash === hash &&
-        c.mapSrc === mapImage.src &&
-        c.cacheVersion === ZONE_BLUR_CACHE_VERSION
-    ) {
+function _getCachedUnionHiddenZonesBlur(zones) {
+    const key = _unionHiddenZonesCacheKey(zones);
+    const c = _unionZoneBlurCache.get(key);
+    if (c && c.mapSrc === mapImage.src && c.cacheVersion === ZONE_BLUR_CACHE_VERSION) {
         return c;
     }
-    const built = _buildZoneBlur(zone);
-    if (built) _zoneBlurCache.set(key, built);
-    return built;
+    const b = _boundsOfZonesVertexUnion(zones);
+    if (!b) return null;
+    const built = _buildBlurredMapRegionForBounds(b.minX, b.minY, b.maxX, b.maxY);
+    if (!built) return null;
+    const entry = {
+        canvas: built.canvas,
+        worldX: built.worldX,
+        worldY: built.worldY,
+        worldW: built.worldW,
+        worldH: built.worldH,
+        mapSrc: mapImage.src,
+        cacheVersion: ZONE_BLUR_CACHE_VERSION
+    };
+    _unionZoneBlurCache.set(key, entry);
+    return entry;
 }
-// ────────────────────────────────────────────────────────────────────────────
 
-function drawBlurredZone(zone, offsetX, offsetY, scale) {
-    if (!zone.vertices || zone.vertices.length < 2) return;
-
-    const cached = _getCachedZoneBlur(zone);
-    const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+function drawUnionBlurredHiddenZones(hiddenZones, offsetX, offsetY, scale) {
+    const cached = _getCachedUnionHiddenZonesBlur(hiddenZones);
 
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(transformed[0][0], transformed[0][1]);
-    for (let i = 1; i < transformed.length; i++) ctx.lineTo(transformed[i][0], transformed[i][1]);
-    ctx.closePath();
+    for (const zone of hiddenZones) {
+        const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+        ctx.moveTo(transformed[0][0], transformed[0][1]);
+        for (let i = 1; i < transformed.length; i++) {
+            ctx.lineTo(transformed[i][0], transformed[i][1]);
+        }
+        ctx.closePath();
+    }
     ctx.clip();
 
     if (cached) {
-        // Мгновенный drawImage из кеша — без пересчёта blur каждый кадр
         ctx.drawImage(
             cached.canvas,
             cached.worldX * scale + offsetX,
@@ -1592,7 +1599,6 @@ function drawBlurredZone(zone, offsetX, offsetY, scale) {
             cached.worldH * scale
         );
     } else {
-        // Fallback пока mapImage не готов
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fill();
     }

@@ -63,8 +63,10 @@ from utils.storage import (
     list_maps,
     load_map_data,
     load_map_image,
+    normalize_map_list_order,
     save_map_data,
     save_map_image,
+    save_map_list_order,
     save_token_avatar,
     save_drawings_layer,
     load_drawings_layer,
@@ -225,6 +227,23 @@ def get_maps():
     if not session.get("data_project_id"):
         return jsonify([])
     return jsonify(list_maps())
+
+
+@app.route("/api/maps/reorder", methods=["POST"])
+def api_maps_reorder():
+    """Сохранить порядок карт в списке мастера (как у портретов)."""
+    if not session.get("data_project_id"):
+        return jsonify({"error": "Нет активного проекта"}), 403
+    body = request.get_json(silent=True) or {}
+    order = body.get("order")
+    if not isinstance(order, list):
+        return jsonify({"error": "Нужен массив order с id карт"}), 400
+    normalized = normalize_map_list_order([str(x) for x in order])
+    if not save_map_list_order(normalized):
+        return jsonify({"error": "Не удалось сохранить порядок"}), 500
+    maps = list_maps()
+    socketio.emit("maps_list_updated", {"maps": maps})
+    return jsonify({"ok": True, "maps": maps})
 
 
 @app.route("/api/projects", methods=["GET"])
@@ -1973,6 +1992,16 @@ def get_all_tokens():
             token["avatar_url"] = get_token_avatar_url(token["id"])
 
     return jsonify(tokens)
+
+
+@app.route("/api/characters/all", methods=["GET"])
+def get_all_map_characters():
+    """Все портреты персонажей с карт проекта (с файлом на диске) — для импорта на текущую карту."""
+    if not session.get("data_project_id"):
+        return jsonify([])
+    from utils.storage import get_all_characters_from_maps
+
+    return jsonify(get_all_characters_from_maps())
 
 
 @app.route("/api/bank/character/<char_id>", methods=["DELETE"])

@@ -24,6 +24,13 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 DATA_DIR = "data"
 BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
 
+# Не карта: JSON с порядком отображения карт в UI мастера
+MAP_LIST_ORDER_FILENAME = "_map_list_order.json"
+
+
+def _is_map_data_json(filename):
+    return filename.endswith(".json") and filename != MAP_LIST_ORDER_FILENAME
+
 
 def get_active_project_id():
     try:
@@ -46,6 +53,77 @@ def _project_data_home():
 def get_maps_dir():
     h = _project_data_home()
     return os.path.join(h, "maps") if h else None
+
+
+def get_map_list_order_filepath():
+    md = get_maps_dir()
+    return os.path.join(md, MAP_LIST_ORDER_FILENAME) if md else None
+
+
+def load_map_list_order():
+    """Список id карт в порядке показа или None, если файла нет."""
+    p = get_map_list_order_filepath()
+    if not p or not os.path.isfile(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [str(x) for x in data]
+        if isinstance(data, dict) and isinstance(data.get("order"), list):
+            return [str(x) for x in data["order"]]
+    except Exception as e:
+        print(f"Warning: load_map_list_order: {e}")
+    return None
+
+
+def save_map_list_order(order_ids):
+    """Полный порядок id карт для списка мастера."""
+    md = get_maps_dir()
+    if not md:
+        return False
+    ensure_dirs()
+    p = get_map_list_order_filepath()
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"order": list(order_ids)}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error save_map_list_order: {e}")
+        return False
+
+
+def remove_map_from_list_order(map_id):
+    order = load_map_list_order()
+    if not order:
+        return
+    new = [x for x in order if str(x) != str(map_id)]
+    if len(new) == len(order):
+        return
+    save_map_list_order(new)
+
+
+def normalize_map_list_order(client_order):
+    """Объединить порядок с клиента с фактическими json-картами; отсутствующие id в конец."""
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return []
+    all_ids = []
+    for fn in os.listdir(maps_dir):
+        if _is_map_data_json(fn):
+            all_ids.append(fn[:-5])
+    all_set = set(all_ids)
+    seen = set()
+    out = []
+    for x in client_order or []:
+        s = str(x)
+        if s in all_set and s not in seen:
+            out.append(s)
+            seen.add(s)
+    for mid in all_ids:
+        if mid not in seen:
+            out.append(mid)
+    return out
 
 
 def get_images_dir():
@@ -172,54 +250,55 @@ def sync_token_across_maps(token_id, updates):
         return updated_maps
 
     for filename in os.listdir(maps_dir):
-        if filename.endswith(".json"):
-            map_id = filename[:-5]
-            filepath = os.path.join(maps_dir, filename)
+        if not _is_map_data_json(filename):
+            continue
+        map_id = filename[:-5]
+        filepath = os.path.join(maps_dir, filename)
 
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-                token_updated = False
-                if "tokens" in data:
-                    for token in data["tokens"]:
-                        if str(token.get("id")) == str(token_id):
-                            # Обновляем все поля кроме позиции
-                            for key, value in updates.items():
-                                if key != "position" and key != "avatar_data":
-                                    token[key] = value
+            token_updated = False
+            if "tokens" in data:
+                for token in data["tokens"]:
+                    if str(token.get("id")) == str(token_id):
+                        # Обновляем все поля кроме позиции
+                        for key, value in updates.items():
+                            if key != "position" and key != "avatar_data":
+                                token[key] = value
 
-                            if (
-                                "avatar_url" in updates
-                                and updates["avatar_url"]
-                            ):
-                                token["avatar_url"] = (
-                                    updates["avatar_url"].split("?")[0]
-                                    + f"?t={int(time_stdlib.time())}"
-                                )
+                        if (
+                            "avatar_url" in updates
+                            and updates["avatar_url"]
+                        ):
+                            token["avatar_url"] = (
+                                updates["avatar_url"].split("?")[0]
+                                + f"?t={int(time_stdlib.time())}"
+                            )
 
-                            if "has_avatar" in updates:
-                                token["has_avatar"] = updates["has_avatar"]
+                        if "has_avatar" in updates:
+                            token["has_avatar"] = updates["has_avatar"]
 
-                            # Убеждаемся, что размер синхронизирован
-                            if "size" in updates:
-                                token["size"] = updates["size"]
+                        # Убеждаемся, что размер синхронизирован
+                        if "size" in updates:
+                            token["size"] = updates["size"]
 
-                            token_updated = True
-                            print(f"  ✓ Updated token on map {map_id}")
-                            break
+                        token_updated = True
+                        print(f"  ✓ Updated token on map {map_id}")
+                        break
 
-                if token_updated:
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        json.dump(data, f, indent=2, ensure_ascii=False)
-                    updated_maps.append(map_id)
+            if token_updated:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                updated_maps.append(map_id)
 
-            except Exception as e:
-                print(f"  ✗ Error updating map {filename}: {e}")
-                import traceback
+        except Exception as e:
+            print(f"  ✗ Error updating map {filename}: {e}")
+            import traceback
 
-                traceback.print_exc()
-                continue
+            traceback.print_exc()
+            continue
 
     print(f"Token {token_id} updated on {len(updated_maps)} maps")
     return updated_maps
@@ -290,7 +369,7 @@ def propagate_token_stats_to_other_maps(source_map_id, tokens):
         return [], set()
 
     for filename in os.listdir(maps_dir):
-        if not filename.endswith(".json"):
+        if not _is_map_data_json(filename):
             continue
         map_id = filename[:-5]
         if str(map_id) == src_mid:
@@ -365,23 +444,24 @@ def get_all_maps_with_token(token_id):
     print(f"Searching for token {token_id} in maps...")
 
     for filename in os.listdir(maps_dir):
-        if filename.endswith(".json"):
-            map_id = filename[:-5]  # убираем .json
-            map_data = load_map_data(map_id)
+        if not _is_map_data_json(filename):
+            continue
+        map_id = filename[:-5]  # убираем .json
+        map_data = load_map_data(map_id)
 
-            if map_data and "tokens" in map_data:
-                # Проверяем, есть ли токен на этой карте
-                for token in map_data["tokens"]:
-                    if str(token.get("id")) == str(token_id):
-                        maps_with_token.append(
-                            {
-                                "map_id": map_id,
-                                "map_name": map_data.get(
-                                    "name", "Без названия"
-                                ),
-                            }
-                        )
-                        break  # Нашли токен на этой карте, переходим к следующей
+        if map_data and "tokens" in map_data:
+            # Проверяем, есть ли токен на этой карте
+            for token in map_data["tokens"]:
+                if str(token.get("id")) == str(token_id):
+                    maps_with_token.append(
+                        {
+                            "map_id": map_id,
+                            "map_name": map_data.get(
+                                "name", "Без названия"
+                            ),
+                        }
+                    )
+                    break  # Нашли токен на этой карте, переходим к следующей
 
     print(f"Found token {token_id} on {len(maps_with_token)} maps")
     return maps_with_token
@@ -401,7 +481,7 @@ def get_all_maps_with_token_all_projects(token_id):
         if meta:
             proj_name = meta.get("name", pid)
         for filename in os.listdir(mdir):
-            if not filename.endswith(".json"):
+            if not _is_map_data_json(filename):
                 continue
             map_id = filename[:-5]
             filepath = os.path.join(mdir, filename)
@@ -434,7 +514,7 @@ def get_all_maps_with_character(character_id):
         return maps_with_char
 
     for filename in os.listdir(maps_dir):
-        if not filename.endswith(".json"):
+        if not _is_map_data_json(filename):
             continue
         map_id = filename[:-5]
         map_data = load_map_data(map_id)
@@ -529,53 +609,54 @@ def get_all_tokens_from_maps():
         return []
 
     for filename in os.listdir(maps_dir):
-        if filename.endswith(".json"):
-            filepath = os.path.join(maps_dir, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        if not _is_map_data_json(filename):
+            continue
+        filepath = os.path.join(maps_dir, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-                # Собираем все токены
-                if "tokens" in data:
-                    for token in data["tokens"]:
-                        token_id = token.get("id")
-                        if token_id:  # Не фильтруем по seen_ids, чтобы получить все токены
-                            # Создаём копию со всеми полями
-                            token_copy = {
-                                "id": token.get("id"),  # Оригинальный ID!
-                                "name": token.get("name", "Безымянный"),
-                                "is_player": token.get("is_player", False),
-                                "is_npc": token.get("is_npc", False),
-                                "armor_class": token.get("armor_class", 10),
-                                "health_points": token.get(
-                                    "health_points", 10
-                                ),
-                                "max_health_points": token.get(
-                                    "max_health_points", 10
-                                ),
-                                "is_dead": token.get("is_dead", False),
-                                "has_avatar": token.get("has_avatar", False),
-                                "size": token.get("size", 20),
-                                "is_visible": token.get("is_visible", True),
-                                "source_map": data.get(
-                                    "name", "Неизвестная карта"
-                                ),
-                                "source_map_id": filename[
-                                    :-5
-                                ],  # убираем .json
-                            }
+            # Собираем все токены
+            if "tokens" in data:
+                for token in data["tokens"]:
+                    token_id = token.get("id")
+                    if token_id:  # Не фильтруем по seen_ids, чтобы получить все токены
+                        # Создаём копию со всеми полями
+                        token_copy = {
+                            "id": token.get("id"),  # Оригинальный ID!
+                            "name": token.get("name", "Безымянный"),
+                            "is_player": token.get("is_player", False),
+                            "is_npc": token.get("is_npc", False),
+                            "armor_class": token.get("armor_class", 10),
+                            "health_points": token.get(
+                                "health_points", 10
+                            ),
+                            "max_health_points": token.get(
+                                "max_health_points", 10
+                            ),
+                            "is_dead": token.get("is_dead", False),
+                            "has_avatar": token.get("has_avatar", False),
+                            "size": token.get("size", 20),
+                            "is_visible": token.get("is_visible", True),
+                            "source_map": data.get(
+                                "name", "Неизвестная карта"
+                            ),
+                            "source_map_id": filename[
+                                :-5
+                            ],  # убираем .json
+                        }
 
-                            # Если есть аватар, добавляем URL
-                            if token_copy["has_avatar"]:
-                                token_copy["avatar_url"] = (
-                                    get_token_avatar_url(token_id)
-                                )
+                        # Если есть аватар, добавляем URL
+                        if token_copy["has_avatar"]:
+                            token_copy["avatar_url"] = (
+                                get_token_avatar_url(token_id)
+                            )
 
-                            all_tokens.append(token_copy)
+                        all_tokens.append(token_copy)
 
-            except Exception as e:
-                print(f"Error loading map {filename}: {e}")
-                continue
+        except Exception as e:
+            print(f"Error loading map {filename}: {e}")
+            continue
 
     # Сортируем по имени (мёртвые внизу)
     all_tokens.sort(
@@ -828,47 +909,57 @@ def list_maps():
     if not maps_dir or not os.path.isdir(maps_dir):
         return maps
 
-    # Читаем все JSON файлы из папки maps
+    # Читаем все JSON файлы карт из папки maps
     for filename in os.listdir(maps_dir):
-        if filename.endswith(".json"):
-            map_id = filename[:-5]  # убираем .json
-            filepath = os.path.join(maps_dir, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        if not _is_map_data_json(filename):
+            continue
+        map_id = filename[:-5]  # убираем .json
+        filepath = os.path.join(maps_dir, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-                has_image = os.path.exists(get_image_filepath(map_id))
+            has_image = os.path.exists(get_image_filepath(map_id))
 
-                entry = {
-                    "id": map_id,
-                    "name": data.get("name", "Безымянная карта"),
-                    "created": datetime.fromtimestamp(
-                        os.path.getctime(filepath)
-                    ).isoformat(),
-                    "modified": datetime.fromtimestamp(
-                        os.path.getmtime(filepath)
-                    ).isoformat(),
-                    "has_image": has_image,
-                }
+            entry = {
+                "id": map_id,
+                "name": data.get("name", "Безымянная карта"),
+                "created": datetime.fromtimestamp(
+                    os.path.getctime(filepath)
+                ).isoformat(),
+                "modified": datetime.fromtimestamp(
+                    os.path.getmtime(filepath)
+                ).isoformat(),
+                "has_image": has_image,
+            }
 
-                # Версионированный URL изображения для предзагрузки
-                if has_image:
-                    orig_path = get_image_filepath(map_id)
-                    try:
-                        import time as _time
-                        v = int(os.path.getmtime(orig_path))
-                    except Exception:
-                        import time as _time
-                        v = int(_time.time())
-                    entry["image_url"] = f"/api/map/image/{map_id}?v={v}"
+            # Версионированный URL изображения для предзагрузки
+            if has_image:
+                orig_path = get_image_filepath(map_id)
+                try:
+                    import time as _time
+                    v = int(os.path.getmtime(orig_path))
+                except Exception:
+                    import time as _time
+                    v = int(_time.time())
+                entry["image_url"] = f"/api/map/image/{map_id}?v={v}"
 
-                maps.append(entry)
-            except Exception as e:
-                print(f"Error loading map {map_id}: {e}")
-                continue
+            maps.append(entry)
+        except Exception as e:
+            print(f"Error loading map {map_id}: {e}")
+            continue
 
-    # Сортируем по дате создания (новые сверху)
-    maps.sort(key=lambda x: x["created"], reverse=True)
+    map_ids_set = {m["id"] for m in maps}
+    ordered = load_map_list_order()
+    if ordered:
+        ordered = [x for x in ordered if x in map_ids_set]
+        seen = set(ordered)
+        extra = [m for m in maps if m["id"] not in seen]
+        extra.sort(key=lambda x: x["created"], reverse=True)
+        by_id = {m["id"]: m for m in maps}
+        maps = [by_id[i] for i in ordered if i in by_id] + extra
+    else:
+        maps.sort(key=lambda x: x["created"], reverse=True)
     return maps
 
 
@@ -948,7 +1039,22 @@ def delete_map(map_id):
         if not get_all_maps_with_character(cid):
             delete_portrait_image(cid)
 
+    remove_map_from_list_order(map_id)
     return True
+
+
+def _sync_character_portrait_flags(characters):
+    """Сбросить has_avatar, если файла портрета нет (устраняет 404 /api/portrait/...)."""
+    if not characters:
+        return
+    for ch in characters:
+        if not isinstance(ch, dict):
+            continue
+        cid = ch.get("id")
+        if not cid:
+            continue
+        if ch.get("has_avatar") and not find_portrait_file(cid):
+            ch["has_avatar"] = False
 
 
 def load_map_data(map_id):
@@ -978,6 +1084,8 @@ def load_map_data(map_id):
             if "characters" not in data:
                 data["characters"] = []
 
+            _sync_character_portrait_flags(data.get("characters"))
+
             return data
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON for map {map_id}: {e}")
@@ -999,46 +1107,47 @@ def get_all_heroes_from_maps():
         return heroes
 
     for filename in os.listdir(maps_dir):
-        if filename.endswith(".json"):
-            filepath = os.path.join(maps_dir, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        if not _is_map_data_json(filename):
+            continue
+        filepath = os.path.join(maps_dir, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-                # Собираем ТОЛЬКО токены-игроки
-                if "tokens" in data:
-                    for token in data["tokens"]:
-                        # Проверяем, что это игрок и ID еще не встречался
-                        if (
-                            token.get("is_player")
-                            and token.get("id") not in seen_ids
-                        ):
-                            seen_ids.add(token["id"])
+            # Собираем ТОЛЬКО токены-игроки
+            if "tokens" in data:
+                for token in data["tokens"]:
+                    # Проверяем, что это игрок и ID еще не встречался
+                    if (
+                        token.get("is_player")
+                        and token.get("id") not in seen_ids
+                    ):
+                        seen_ids.add(token["id"])
 
-                            # Создаем копию с нужными полями
-                            hero = {
-                                "id": token["id"],
-                                "name": token.get("name", "Безымянный герой"),
-                                "has_avatar": token.get("has_avatar", False),
-                                "avatar_url": token.get("avatar_url"),
-                                "armor_class": token.get("armor_class", 10),
-                                "health_points": token.get(
-                                    "health_points", 10
-                                ),
-                                "max_health_points": token.get(
-                                    "max_health_points", 10
-                                ),
-                                "is_player": True,
-                                "is_npc": token.get("is_npc", False),
-                                "source_map": data.get(
-                                    "name", "Неизвестная карта"
-                                ),
-                            }
-                            heroes.append(hero)
+                        # Создаем копию с нужными полями
+                        hero = {
+                            "id": token["id"],
+                            "name": token.get("name", "Безымянный герой"),
+                            "has_avatar": token.get("has_avatar", False),
+                            "avatar_url": token.get("avatar_url"),
+                            "armor_class": token.get("armor_class", 10),
+                            "health_points": token.get(
+                                "health_points", 10
+                            ),
+                            "max_health_points": token.get(
+                                "max_health_points", 10
+                            ),
+                            "is_player": True,
+                            "is_npc": token.get("is_npc", False),
+                            "source_map": data.get(
+                                "name", "Неизвестная карта"
+                            ),
+                        }
+                        heroes.append(hero)
 
-            except Exception as e:
-                print(f"Error loading map {filename}: {e}")
-                continue
+        except Exception as e:
+            print(f"Error loading map {filename}: {e}")
+            continue
 
     print(f"Found {len(heroes)} unique heroes from all maps")
     return heroes
@@ -1094,6 +1203,8 @@ def save_map_data(data, map_id):
         for character in data["characters"]:
             character.pop("avatar_data", None)
 
+    _sync_character_portrait_flags(data.get("characters"))
+
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -1147,6 +1258,69 @@ def portrait_path_to_media(path):
     if ext in (".webm", ".mp4", ".mov", ".m4v"):
         return "video"
     return "image"
+
+
+def get_all_characters_from_maps():
+    """
+    Все записи портретов (characters), для которых на диске есть файл портрета,
+    со всех карт активного проекта. Для импорта на текущую карту (как /api/tokens/all).
+    Дубликаты id схлопываются — остаётся первое вхождение при обходе папки.
+    """
+    ensure_dirs()
+    all_chars = []
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return []
+
+    for filename in os.listdir(maps_dir):
+        if not _is_map_data_json(filename):
+            continue
+        map_id = filename[:-5]
+        filepath = os.path.join(maps_dir, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+
+        map_name = data.get("name", "Без названия")
+        for ch in data.get("characters") or []:
+            cid = ch.get("id")
+            if not cid:
+                continue
+            p_path = find_portrait_file(cid)
+            if not p_path:
+                continue
+            try:
+                v = int(os.path.getmtime(p_path))
+            except OSError:
+                v = int(time_stdlib.time())
+            cid = str(cid)
+            ext = os.path.splitext(p_path)[1].lower() or ".png"
+            all_chars.append(
+                {
+                    "id": cid,
+                    "name": ch.get("name", "Без имени"),
+                    "has_avatar": True,
+                    "visible_to_players": ch.get("visible_to_players", False),
+                    "portrait_media": portrait_path_to_media(p_path),
+                    "portrait_ext": ext,
+                    "portrait_url": f"/api/portrait/{cid}?v={v}",
+                    "source_map": map_name,
+                    "source_map_id": map_id,
+                }
+            )
+
+    seen = set()
+    unique = []
+    for c in all_chars:
+        i = c["id"]
+        if i not in seen:
+            seen.add(i)
+            unique.append(c)
+
+    unique.sort(key=lambda x: (x.get("name") or "").lower())
+    return unique
 
 
 def save_portrait_upload(raw_bytes, portrait_id, content_type=None, filename=None):
