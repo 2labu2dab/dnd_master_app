@@ -264,6 +264,24 @@ function clearSelectedVertex() {
 const VERTEX_HIT_R = 10;          // радиус клика по вершине (пиксели экрана)
 const EDGE_INSERT_SCREEN_DIST = 16; // допуск к грани при двойном клике (экран, px)
 
+/** Рамка выделения токенов: ЛКМ на пустом месте карты + перетаскивание. */
+let tokenMarqueeAnchorX = null;
+let tokenMarqueeAnchorY = null;
+let tokenMarqueeCurrentX = null;
+let tokenMarqueeCurrentY = null;
+let tokenMarqueeDragging = false;
+/** Добавить к выделению (рамка с Shift или Ctrl). */
+let tokenMarqueeAdditive = false;
+
+function clearTokenMarqueeInteraction() {
+    tokenMarqueeAnchorX = null;
+    tokenMarqueeAnchorY = null;
+    tokenMarqueeCurrentX = null;
+    tokenMarqueeCurrentY = null;
+    tokenMarqueeDragging = false;
+    tokenMarqueeAdditive = false;
+}
+
 function closestPointOnSegmentWorld(px, py, x1, y1, x2, y2) {
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -2965,6 +2983,10 @@ function render() {
     getTokensSortedForDrawing(mapData.tokens).forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
 
+    if (tokenMarqueeAnchorX !== null && tokenMarqueeDragging) {
+        drawTokenMarqueeOverlay();
+    }
+
     if (drawingZone) {
         drawTempZone(offsetX, offsetY, scale);
     }
@@ -4142,11 +4164,6 @@ canvas.addEventListener("mousedown", (e) => {
 
     const clickedToken = findTopTokenAtScreenPoint(mouseX, mouseY, scale, offsetX, offsetY);
 
-    // Логика выделения и перетаскивания
-    selectedTokenId = null;
-    selectedFindId = null;
-    selectedZoneId = null;
-    clearSelectedVertex();
     draggingToken = null;
     draggingFind = null;
     isDraggingMultiple = false;
@@ -4155,6 +4172,13 @@ canvas.addEventListener("mousedown", (e) => {
 
     // Обработка клика по токену
     if (clickedToken) {
+        clearTokenMarqueeInteraction();
+
+        selectedZoneId = null;
+        selectedFindId = null;
+        selectedCharacterId = null;
+        clearSelectedVertex();
+
         if (isShiftPressed) {
             // Shift + клик - переключаем выделение
             if (selectedTokens.has(clickedToken.id)) {
@@ -4217,9 +4241,11 @@ canvas.addEventListener("mousedown", (e) => {
             const radius = (mapData.grid_settings.cell_size * scale) / 2;
 
             if (Math.hypot(mouseX - sx, mouseY - sy) <= radius) {
+                clearTokenMarqueeInteraction();
                 draggingFind = find;
                 dragOffset = [(mouseX - sx) / scale, (mouseY - sy) / scale];
                 selectedFindId = find.id;
+                selectedCharacterId = null;
                 selectedTokens.clear();
                 selectedTokenId = null;
                 clicked = true;
@@ -4235,7 +4261,9 @@ canvas.addEventListener("mousedown", (e) => {
             if (!zone.vertices || zone.vertices.length < 3) continue;
             const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
             if (pointInPolygon([mouseX, mouseY], transformed)) {
+                clearTokenMarqueeInteraction();
                 selectedZoneId = zone.id;
+                selectedCharacterId = null;
                 selectedTokens.clear();
                 selectedTokenId = null;
                 clicked = true;
@@ -4245,13 +4273,39 @@ canvas.addEventListener("mousedown", (e) => {
         }
     }
 
-    // Клик по пустому месту - снимаем всё выделение
+    // Рамка выделения токенов: ЛКМ на пустом месте карты (без токена, находки, зоны)
+    if (
+        !clicked &&
+        e.button === 0 &&
+        !isRulerMode &&
+        !drawingZone &&
+        !isDrawMode &&
+        !isEraseMode &&
+        currentMapId &&
+        mapImage &&
+        mapImage.complete &&
+        mapImage.naturalWidth > 0
+    ) {
+        clearTokenMarqueeInteraction();
+        tokenMarqueeAnchorX = mouseX;
+        tokenMarqueeAnchorY = mouseY;
+        tokenMarqueeCurrentX = mouseX;
+        tokenMarqueeCurrentY = mouseY;
+        tokenMarqueeDragging = false;
+        tokenMarqueeAdditive = isShiftPressed || e.ctrlKey;
+        clicked = true;
+        updateCanvasCursor();
+    }
+
+    // Клик по пустому месту без рамки — снимаем выделение (другая кнопка / нет карты)
     if (!clicked && !isRulerMode && !drawingZone) {
+        clearTokenMarqueeInteraction();
         selectedTokenId = null;
         selectedFindId = null;
         selectedZoneId = null;
         selectedCharacterId = null;
         selectedTokens.clear();
+        clearSelectedVertex();
         updateSidebar();
     }
 
@@ -4299,6 +4353,29 @@ canvas.addEventListener("mousemove", (e) => {
         let x = (mouseX - offsetX) / scale;
         let y = (mouseY - offsetY) / scale;
         hoveredSnapVertex = findZoneVertexSnapWorld(x, y, scale);
+        scheduleRender();
+        return;
+    }
+
+    if (tokenMarqueeAnchorX !== null) {
+        tokenMarqueeCurrentX = mouseX;
+        tokenMarqueeCurrentY = mouseY;
+        const dx = mouseX - tokenMarqueeAnchorX;
+        const dy = mouseY - tokenMarqueeAnchorY;
+        if (!tokenMarqueeDragging && dx * dx + dy * dy > 16) {
+            tokenMarqueeDragging = true;
+            isClick = false;
+            if (!tokenMarqueeAdditive) {
+                selectedTokenId = null;
+                selectedFindId = null;
+                selectedZoneId = null;
+                selectedCharacterId = null;
+                selectedTokens.clear();
+                clearSelectedVertex();
+                updateSidebar();
+            }
+        }
+        updateCanvasCursor();
         scheduleRender();
         return;
     }
@@ -4556,6 +4633,32 @@ function getTokenScreenRadius(token, scale) {
     return (cellSize * getTokenSizeScale(token)) / 2;
 }
 
+function tokenCircleIntersectsScreenRect(cx, cy, r, rx0, ry0, rx1, ry1) {
+    const xMin = Math.min(rx0, rx1);
+    const xMax = Math.max(rx0, rx1);
+    const yMin = Math.min(ry0, ry1);
+    const yMax = Math.max(ry0, ry1);
+    const nx = Math.max(xMin, Math.min(cx, xMax));
+    const ny = Math.max(yMin, Math.min(cy, yMax));
+    return Math.hypot(cx - nx, cy - ny) <= r;
+}
+
+function drawTokenMarqueeOverlay() {
+    if (tokenMarqueeAnchorX === null || tokenMarqueeCurrentX === null) return;
+    const x = Math.min(tokenMarqueeAnchorX, tokenMarqueeCurrentX);
+    const y = Math.min(tokenMarqueeAnchorY, tokenMarqueeCurrentY);
+    const w = Math.abs(tokenMarqueeCurrentX - tokenMarqueeAnchorX);
+    const h = Math.abs(tokenMarqueeCurrentY - tokenMarqueeAnchorY);
+    ctx.save();
+    ctx.fillStyle = "rgba(76, 91, 239, 0.12)";
+    ctx.strokeStyle = "#4C5BEF";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+}
+
 function renderTokenContextMenu(token, x, y) {
     const menu = document.getElementById("tokenContextMenu");
     const nameElem = document.getElementById("contextTokenName");
@@ -4811,11 +4914,60 @@ canvas.addEventListener("contextmenu", (e) => {
 });
 
 
-canvas.addEventListener("mouseup", () => {
+canvas.addEventListener("mouseup", (e) => {
     // Очищаем таймер
     if (clickTimer) {
         clearTimeout(clickTimer);
         clickTimer = null;
+    }
+
+    if (tokenMarqueeAnchorX !== null && e.button === 0) {
+        const { scale, offsetX, offsetY } = getTransform();
+        const x1 = Math.min(tokenMarqueeAnchorX, tokenMarqueeCurrentX);
+        const y1 = Math.min(tokenMarqueeAnchorY, tokenMarqueeCurrentY);
+        const x2 = Math.max(tokenMarqueeAnchorX, tokenMarqueeCurrentX);
+        const y2 = Math.max(tokenMarqueeAnchorY, tokenMarqueeCurrentY);
+        const w = x2 - x1;
+        const h = y2 - y1;
+        const minSide = 3;
+
+        if (tokenMarqueeDragging && w >= minSide && h >= minSide && mapData.tokens && mapData.tokens.length) {
+            const picked = [];
+            for (const token of mapData.tokens) {
+                const [wx, wy] = token.position;
+                const sx = wx * scale + offsetX;
+                const sy = wy * scale + offsetY;
+                const r = getTokenScreenRadius(token, scale);
+                if (tokenCircleIntersectsScreenRect(sx, sy, r, x1, y1, x2, y2)) {
+                    picked.push(token.id);
+                }
+            }
+            if (!tokenMarqueeAdditive) {
+                selectedTokens.clear();
+            }
+            for (const id of picked) {
+                selectedTokens.add(id);
+            }
+            selectedTokenId = picked.length ? picked[picked.length - 1] : null;
+            selectedFindId = null;
+            selectedZoneId = null;
+            selectedCharacterId = null;
+            clearSelectedVertex();
+            updateSidebar();
+        } else {
+            selectedTokenId = null;
+            selectedFindId = null;
+            selectedZoneId = null;
+            selectedCharacterId = null;
+            selectedTokens.clear();
+            clearSelectedVertex();
+            updateSidebar();
+        }
+
+        clearTokenMarqueeInteraction();
+        isClick = false;
+        updateCanvasCursor();
+        scheduleRender();
     }
 
     // Завершаем групповое перетаскивание
@@ -4923,6 +5075,11 @@ canvas.addEventListener("mouseup", () => {
 
 
 canvas.addEventListener("mouseleave", () => {
+    if (tokenMarqueeAnchorX !== null) {
+        clearTokenMarqueeInteraction();
+        scheduleRender();
+        updateCanvasCursor();
+    }
     if (isPanning) {
         isPanning = false;
         updateCanvasCursor();
@@ -5952,6 +6109,8 @@ function updateCanvasCursor() {
         canvas.classList.add('draw-mode');
     } else if (isEraseMode) {
         canvas.classList.add('erase-mode');
+    } else if (tokenMarqueeAnchorX !== null) {
+        canvas.style.cursor = 'crosshair';
     } else if (draggingVertexZoneId !== null || hoveredVertexIndex >= 0) {
         canvas.style.cursor = 'move';
     } else if (drawingZone) {
