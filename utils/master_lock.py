@@ -4,6 +4,8 @@ import json
 import os
 
 MASTER_LOCK_FILE = "data/master_lock.json"
+# Вкладка в фоне может заморозить setInterval; короткий таймаут даёт ложное «мастер отсутствует».
+MASTER_LOCK_STALE_SECONDS = 3600  # 1 час
 
 
 def acquire_master_lock(session_id, socket_id=None):
@@ -34,7 +36,7 @@ def acquire_master_lock(session_id, socket_id=None):
         if current_lock:
             # Проверяем время блокировки (таймаут 30 секунд без пинга)
             last_seen = current_lock.get("last_seen", 0)
-            if time.time() - last_seen < 30:
+            if time.time() - last_seen < MASTER_LOCK_STALE_SECONDS:
                 # Блокировка активна
                 return False, current_lock
             else:
@@ -120,7 +122,7 @@ def get_current_master():
             lock = json.load(f)
 
         # Проверяем, не истекла ли блокировка
-        if time.time() - lock.get("last_seen", 0) < 30:
+        if time.time() - lock.get("last_seen", 0) < MASTER_LOCK_STALE_SECONDS:
             return lock
         else:
             # Блокировка истекла, удаляем файл

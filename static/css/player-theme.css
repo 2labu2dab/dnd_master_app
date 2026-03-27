@@ -425,3 +425,85 @@ body.player-dnd .player-master-absent-hint {
   color: rgba(231, 221, 208, 0.78);
   font-family: Inter, sans-serif;
 }
+
+/* ─── Страница /master-locked (второй мастер) — та же эстетика, что у игрока ─── */
+body.player-dnd.master-lock-page {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+body.player-dnd .master-lock-screen.player-master-absent {
+  padding: min(5vw, 28px);
+  padding-bottom: max(min(5vw, 28px), env(safe-area-inset-bottom, 0));
+}
+
+body.player-dnd .master-lock-icon-wrap {
+  margin: 0 auto 14px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(196, 165, 116, 0.55);
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.35));
+}
+
+body.player-dnd .master-lock-icon {
+  width: 44px;
+  height: 44px;
+}
+
+body.player-dnd .master-lock-timer {
+  margin: 18px 0 16px;
+  font-family: "Cinzel", "Times New Roman", serif;
+  font-size: clamp(30px, 9vw, 42px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #c9a86c;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+body.player-dnd .master-lock-btn {
+  display: inline-block;
+  margin: 0 auto;
+  padding: 12px 28px;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5ead8;
+  cursor: pointer;
+  border-radius: 2px;
+  border: 1px solid rgba(40, 32, 24, 0.95);
+  background: linear-gradient(180deg, #3d3028 0%, #261c16 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 245, 230, 0.08);
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+body.player-dnd .master-lock-btn:hover {
+  background: linear-gradient(180deg, #4a3a30 0%, #2f221a 100%);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 245, 230, 0.1);
+}
+
+body.player-dnd .master-lock-btn:active {
+  transform: translateY(1px);
+}
+
+body.player-dnd .master-lock-status {
+  margin: 22px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(180, 160, 130, 0.55);
+}

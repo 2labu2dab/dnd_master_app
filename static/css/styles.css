@@ -2305,6 +2305,17 @@ body.sidebar-collapsed-both #canvas-container {
   pointer-events: none;
 }
 
+#tokenModal .save-btn:disabled,
+#tokenModal .cancel-btn:disabled,
+#bankModal .cancel-btn:disabled,
+#importTokenModal .cancel-btn:disabled,
+#bankCharacterModal .save-btn:disabled,
+#bankCharacterModal .cancel-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Прогресс сохранения карты (мастер) */
 .map-modal-save-overlay {
   position: absolute;

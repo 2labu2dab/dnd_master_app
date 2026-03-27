@@ -865,21 +865,20 @@ socket.on('connect', () => {
 socket.on('master_status', (data) => {
     console.log('Master status:', data);
 
-    if (!data.is_current) {
-        // Мы потеряли статус мастера
+    // Не сбрасывать пинг при !is_current: блокировка может кратковременно «моргнуть», а is_current — редкий кейс.
+    // Остановка интервала только когда мастер явно неактивен (иначе вкладка остаётся без master_ping).
+    if (data && data.active === false) {
         clearInterval(masterPingInterval);
-
-        // if (!data.active) {
-        //     // Мастер не активен - можем попробовать перезахватить
-        //     if (confirm('Соединение с мастером потеряно. Перезагрузить страницу?')) {
-        //         window.location.reload();
-        //     }
-        // } else {
-        //     // Другой мастер активен
-        //     alert('Другой мастер управляет картой. Вы будете перенаправлены.');
-        //     window.location.href = '/master-locked';
-        // }
     }
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    try {
+        if (typeof socket !== 'undefined' && socket && socket.connected) {
+            socket.emit('master_ping');
+        }
+    } catch (_) {}
 });
 
 // В обработчике master_switched_map добавьте проверку
@@ -1002,13 +1001,19 @@ function submitToken() {
 
     if (!name || !type) return alert("Заполните все поля");
 
+    if (window.tokenModalSaveInProgress) return;
+
     const addToBank = document.getElementById("addToBankCheckbox").checked;
 
+    window.tokenModalSaveInProgress = true;
+    setTokenModalSaveProgress(true, {
+        indeterminate: true,
+        text: editingTokenId ? "Сохраняем токен…" : "Создаём токен…",
+    });
+
     if (editingTokenId) {
-        // При редактировании передаём размер
         editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize);
     } else {
-        // При создании передаём размер
         createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize);
     }
 
@@ -1101,6 +1106,10 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
             if (addToCharacters) {
                 const ad = document.getElementById("avatarPreview").dataset.base64;
                 if (ad) {
+                    setTokenModalSaveProgress(true, {
+                        indeterminate: true,
+                        text: "Добавляем портрет…",
+                    });
                     const portraitFile = window.pendingTokenPortraitFile;
                     const portraitMedia = window.pendingTokenPortraitMedia;
                     const characterId = `char_${Date.now()}`;
@@ -1148,6 +1157,7 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
             return portraitChain;
         })
         .then(() => {
+            endTokenModalSave();
             closeTokenModal();
             render();
             updateSidebar();
@@ -1155,7 +1165,8 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
         .catch(error => {
             console.error('Error updating token:', error);
             alert('Ошибка при обновлении токена');
-        });
+        })
+        .finally(() => endTokenModalSave());
 }
 function refreshCharacterList() {
     if (!mapData.characters) {
@@ -1267,6 +1278,10 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
             updateSidebar();
 
             if (addToCharacters && avatarData) {
+                setTokenModalSaveProgress(true, {
+                    indeterminate: true,
+                    text: "Добавляем портрет…",
+                });
                 const portraitFile = window.pendingTokenPortraitFile;
                 const portraitMedia = window.pendingTokenPortraitMedia;
                 return createCharacterFromToken(
@@ -1279,12 +1294,14 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
             }
         })
         .then(() => {
+            endTokenModalSave();
             closeTokenModal();
         })
         .catch(error => {
             console.error('Error:', error);
             alert('Ошибка при создании токена: ' + error.message);
-        });
+        })
+        .finally(() => endTokenModalSave());
 }
 function createCharacterFromToken(
     name,
@@ -3797,6 +3814,7 @@ function handleAvatarUpload(ev) {
 }
 
 function closeTokenModal() {
+    if (window.tokenModalSaveInProgress) return;
     document.getElementById("tokenModal").style.display = "none";
     document.getElementById("tokenName").value = "";
     document.getElementById("tokenAC").value = 10;
@@ -6305,6 +6323,8 @@ function clearAvatarCacheForToken(tokenId) {
 function loadTokenAvatarInModal(token, forceReload = false) {
     clearTokenPendingPortrait();
 
+    const loadForTokenId = token.id;
+
     const preview = document.getElementById("avatarPreview");
     const overlay = document.getElementById("avatarOverlay");
     const mask = document.getElementById("avatarMask");
@@ -6337,6 +6357,7 @@ function loadTokenAvatarInModal(token, forceReload = false) {
         img.crossOrigin = "Anonymous";
 
         img.onload = () => {
+            if (editingTokenId !== loadForTokenId) return;
             console.log("Avatar loaded successfully in modal, size:", img.naturalWidth, "x", img.naturalHeight);
             preview.src = avatarUrl;
             preview.style.opacity = "1";
@@ -6355,16 +6376,21 @@ function loadTokenAvatarInModal(token, forceReload = false) {
                 ctx.drawImage(img, 0, 0);
 
                 // Используем PNG без потерь
-                preview.dataset.base64 = canvas.toDataURL('image/png', 1.0);
+                if (editingTokenId === loadForTokenId) {
+                    preview.dataset.base64 = canvas.toDataURL('image/png', 1.0);
+                }
                 console.log("Avatar converted to base64 with original size:", img.naturalWidth, "x", img.naturalHeight);
             } catch (e) {
                 console.warn("Could not convert avatar to base64:", e);
             }
 
-            avatarCache.set(token.id, img);
+            if (editingTokenId === loadForTokenId) {
+                avatarCache.set(token.id, img);
+            }
         };
 
         img.onerror = (err) => {
+            if (editingTokenId !== loadForTokenId) return;
             console.error("Failed to load avatar in modal:", err);
 
             preview.style.display = "none";
@@ -6375,7 +6401,7 @@ function loadTokenAvatarInModal(token, forceReload = false) {
             mask.style.display = "none";
             editIcon.style.display = "none";
 
-            fetchAvatarFromServer(token.id);
+            fetchAvatarFromServer(token.id, loadForTokenId);
         };
 
         img.src = avatarUrl;
@@ -6390,7 +6416,8 @@ function loadTokenAvatarInModal(token, forceReload = false) {
     }
 }
 
-function fetchAvatarFromServer(tokenId) {
+function fetchAvatarFromServer(tokenId, loadForTokenId) {
+    const expectId = loadForTokenId !== undefined ? loadForTokenId : tokenId;
     console.log("Fetching avatar from server for token:", tokenId);
 
     const preview = document.getElementById("avatarPreview");
@@ -6408,6 +6435,7 @@ function fetchAvatarFromServer(tokenId) {
         .then(blob => {
             const reader = new FileReader();
             reader.onload = (e) => {
+                if (editingTokenId !== expectId) return;
                 preview.src = e.target.result;
                 preview.style.display = "block";
                 preview.style.opacity = "1";
@@ -6423,6 +6451,7 @@ function fetchAvatarFromServer(tokenId) {
         })
         .catch(err => {
             console.error("Failed to fetch avatar:", err);
+            if (editingTokenId !== expectId) return;
 
             preview.style.display = "none";
             preview.removeAttribute("data-base64");
@@ -7308,6 +7337,7 @@ function openBankModal() {
 }
 
 function closeBankModal() {
+    if (window.bankModalSpawnInProgress) return;
     document.getElementById("bankModal").style.display = "none";
     // Очищаем поле поиска
     const searchInput = document.getElementById("bankSearchInput");
@@ -7424,9 +7454,17 @@ function createBankCharacterItem(character) {
 }
 
 function spawnBankCharacter(character) {
+    if (window.bankModalSpawnInProgress) return;
+
     const centerX = mapImage && mapImage.width ? mapImage.width / 2 : 500;
     const centerY = mapImage && mapImage.height ? mapImage.height / 2 : 500;
     const pos = spawnPosition || [centerX, centerY];
+
+    window.bankModalSpawnInProgress = true;
+    setBankModalSpawnProgress(true, {
+        indeterminate: true,
+        text: "Добавляем на карту…",
+    });
 
     fetch(`/api/bank/character/${character.id}/spawn`, {
         method: "POST",
@@ -7439,6 +7477,8 @@ function spawnBankCharacter(character) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'ok') {
+                window.bankModalSpawnInProgress = false;
+                setBankModalSpawnProgress(false);
                 closeBankModal();
 
                 // Обновляем данные карты
@@ -7454,6 +7494,10 @@ function spawnBankCharacter(character) {
         .catch(err => {
             console.error("Error spawning character:", err);
             showNotification("Ошибка при добавлении персонажа", 'error');
+        })
+        .finally(() => {
+            window.bankModalSpawnInProgress = false;
+            setBankModalSpawnProgress(false);
         });
 }
 
@@ -7540,7 +7584,10 @@ function openImportTokenModal() {
     loadAllTokens();
 }
 
-function closeImportTokenModal() {
+function closeImportTokenModal(force) {
+    if (!force && window.importTokenModalBusy) return;
+    window.importTokenModalBusy = false;
+    setImportTokenModalProgress(false);
     document.getElementById("importTokenModal").style.display = "none";
     document.getElementById("importTokenSearchInput").value = "";
     selectedImportToken = null;
@@ -7702,7 +7749,22 @@ function spawnImportedToken(sourceToken) {
 
     // Функция для создания токена (с аватаром или без)
     function createTokenWithAvatar(sourceToken, targetToken) {
+        window.importTokenModalBusy = true;
+        setImportTokenModalProgress(true, {
+            indeterminate: true,
+            text: "Импорт токена…",
+        });
+
+        const endImportBusy = () => {
+            window.importTokenModalBusy = false;
+            setImportTokenModalProgress(false);
+        };
+
         const createToken = (avatarData = null) => {
+            setImportTokenModalProgress(true, {
+                indeterminate: true,
+                text: "Создаём токен на карте…",
+            });
             const requestBody = {
                 ...targetToken,
                 avatar_data: avatarData,
@@ -7726,7 +7788,7 @@ function spawnImportedToken(sourceToken) {
                     mapData.tokens.push(targetToken);
                     render();
                     updateSidebar();
-                    closeImportTokenModal();
+                    closeImportTokenModal(true);
 
                     syncTokenAcrossMaps(targetToken);
 
@@ -7737,12 +7799,16 @@ function spawnImportedToken(sourceToken) {
                 .catch(error => {
                     console.error('Error importing token:', error);
                     showNotification('Ошибка при импорте токена', 'error');
-                });
+                })
+                .finally(endImportBusy);
         };
 
         // Если у исходного токена есть аватар, пытаемся его скопировать
         if (sourceToken.has_avatar && sourceToken.id) {
-            showNotification('Копирование аватара...', 'info');
+            setImportTokenModalProgress(true, {
+                indeterminate: true,
+                text: "Копируем аватар…",
+            });
 
             // Пытаемся получить аватар из кэша
             const cachedImg = avatarCache.get(sourceToken.id);
@@ -8526,6 +8592,165 @@ function setMapModalSaveProgress(visible, options = {}) {
     }
 }
 
+function endTokenModalSave() {
+    window.tokenModalSaveInProgress = false;
+    setTokenModalSaveProgress(false);
+}
+
+function setTokenModalSaveProgress(visible, options = {}) {
+    const overlay = document.getElementById("tokenModalProgressOverlay");
+    const textEl = document.getElementById("tokenModalProgressText");
+    const bar = document.getElementById("tokenModalProgressBar");
+    const saveBtn = document.getElementById("tokenModalSaveBtn");
+    const cancelBtn = document.getElementById("tokenModalCancelBtn");
+    const closeBtn = document.querySelector("#tokenModal .close");
+    if (!overlay || !textEl || !bar) return;
+
+    if (visible) {
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden", "false");
+        textEl.textContent = options.text || "Сохранение…";
+        bar.classList.toggle("indeterminate", !!options.indeterminate);
+        if (options.indeterminate) {
+            bar.style.width = "";
+        } else {
+            const p = Math.min(100, Math.max(0, options.percent ?? 0));
+            bar.style.width = `${p}%`;
+        }
+        if (saveBtn) saveBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "none";
+            closeBtn.style.opacity = "0.35";
+        }
+    } else {
+        overlay.style.display = "none";
+        overlay.setAttribute("aria-hidden", "true");
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "";
+            closeBtn.style.opacity = "";
+        }
+    }
+}
+
+function setBankModalSpawnProgress(visible, options = {}) {
+    const overlay = document.getElementById("bankModalProgressOverlay");
+    const textEl = document.getElementById("bankModalProgressText");
+    const bar = document.getElementById("bankModalProgressBar");
+    const closeBtn = document.querySelector("#bankModal .close");
+    const closeFooterBtn = document.getElementById("bankModalCloseBtn");
+    if (!overlay || !textEl || !bar) return;
+
+    if (visible) {
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden", "false");
+        textEl.textContent = options.text || "Добавляем на карту…";
+        bar.classList.toggle("indeterminate", !!options.indeterminate);
+        if (options.indeterminate) {
+            bar.style.width = "";
+        } else {
+            const p = Math.min(100, Math.max(0, options.percent ?? 0));
+            bar.style.width = `${p}%`;
+        }
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "none";
+            closeBtn.style.opacity = "0.35";
+        }
+        if (closeFooterBtn) closeFooterBtn.disabled = true;
+    } else {
+        overlay.style.display = "none";
+        overlay.setAttribute("aria-hidden", "true");
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "";
+            closeBtn.style.opacity = "";
+        }
+        if (closeFooterBtn) closeFooterBtn.disabled = false;
+    }
+}
+
+function setImportTokenModalProgress(visible, options = {}) {
+    const overlay = document.getElementById("importTokenModalProgressOverlay");
+    const textEl = document.getElementById("importTokenModalProgressText");
+    const bar = document.getElementById("importTokenModalProgressBar");
+    const closeBtn = document.querySelector("#importTokenModal .close");
+    const cancelBtn = document.getElementById("importTokenModalCancelBtn");
+    if (!overlay || !textEl || !bar) return;
+
+    if (visible) {
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden", "false");
+        textEl.textContent = options.text || "Импорт токена…";
+        bar.classList.toggle("indeterminate", !!options.indeterminate);
+        if (options.indeterminate) {
+            bar.style.width = "";
+        } else {
+            const p = Math.min(100, Math.max(0, options.percent ?? 0));
+            bar.style.width = `${p}%`;
+        }
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "none";
+            closeBtn.style.opacity = "0.35";
+        }
+        if (cancelBtn) cancelBtn.disabled = true;
+    } else {
+        overlay.style.display = "none";
+        overlay.setAttribute("aria-hidden", "true");
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "";
+            closeBtn.style.opacity = "";
+        }
+        if (cancelBtn) cancelBtn.disabled = false;
+    }
+}
+
+function setBankCharacterModalSaveProgress(visible, options = {}) {
+    const overlay = document.getElementById("bankCharacterModalProgressOverlay");
+    const textEl = document.getElementById("bankCharacterModalProgressText");
+    const bar = document.getElementById("bankCharacterModalProgressBar");
+    const saveBtn = document.getElementById("bankCharacterModalSaveBtn");
+    const cancelBtn = document.getElementById("bankCharacterModalCancelBtn");
+    const closeBtn = document.querySelector("#bankCharacterModal .close");
+    if (!overlay || !textEl || !bar) return;
+
+    if (visible) {
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden", "false");
+        textEl.textContent = options.text || "Сохранение…";
+        bar.classList.toggle("indeterminate", !!options.indeterminate);
+        if (options.indeterminate) {
+            bar.style.width = "";
+        } else {
+            const p = Math.min(100, Math.max(0, options.percent ?? 0));
+            bar.style.width = `${p}%`;
+        }
+        if (saveBtn) saveBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "none";
+            closeBtn.style.opacity = "0.35";
+        }
+    } else {
+        overlay.style.display = "none";
+        overlay.setAttribute("aria-hidden", "true");
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (closeBtn) {
+            closeBtn.style.pointerEvents = "";
+            closeBtn.style.opacity = "";
+        }
+    }
+}
+
 /**
  * POST multipart с отслеживанием прогресса загрузки (fetch не умеет upload progress).
  */
@@ -8891,7 +9116,13 @@ function closeAllModals() {
     });
 
     closeImportPortraitModal();
-    closeImportTokenModal();
+    closeImportTokenModal(true);
+    window.tokenModalSaveInProgress = false;
+    setTokenModalSaveProgress(false);
+    window.bankModalSpawnInProgress = false;
+    setBankModalSpawnProgress(false);
+    window.bankCharacterModalSaveInProgress = false;
+    setBankCharacterModalSaveProgress(false);
 
     // Сбрасываем режимы рисования, если они активны
     if (drawingZone) {
@@ -9060,6 +9291,7 @@ function openBankCharacterModal() {
 }
 
 function closeBankCharacterModal() {
+    if (window.bankCharacterModalSaveInProgress) return;
     document.getElementById("bankCharacterModal").style.display = "none";
 
     // Сбрасываем заголовок обратно
@@ -9145,6 +9377,13 @@ function submitBankCharacter() {
     const url = editingId ? `/api/bank/character/${editingId}` : "/api/bank/character";
     const method = editingId ? "PUT" : "POST";
 
+    if (window.bankCharacterModalSaveInProgress) return;
+    window.bankCharacterModalSaveInProgress = true;
+    setBankCharacterModalSaveProgress(true, {
+        indeterminate: true,
+        text: editingId ? "Сохраняем в банке…" : "Добавляем в банк…",
+    });
+
     fetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
@@ -9159,12 +9398,18 @@ function submitBankCharacter() {
         .then(data => {
             console.log("Bank character saved:", data);
             window.editingBankCharacterId = null;
+            window.bankCharacterModalSaveInProgress = false;
+            setBankCharacterModalSaveProgress(false);
             closeBankCharacterModal();
             showNotification(`Персонаж "${name}" ${editingId ? "обновлен" : "добавлен"} в банк`, 'success');
         })
         .catch(error => {
             console.error("Error saving bank character:", error);
             showNotification("Ошибка при сохранении персонажа", 'error');
+        })
+        .finally(() => {
+            window.bankCharacterModalSaveInProgress = false;
+            setBankCharacterModalSaveProgress(false);
         });
 }
 

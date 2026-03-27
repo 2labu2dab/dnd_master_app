@@ -740,12 +740,18 @@ function pollMasterPresence() {
         .catch(() => {});
 }
 
+document.addEventListener("visibilitychange", () => {
+    if (isMiniMap || document.visibilityState !== "visible") return;
+    pollMasterPresence();
+});
+
 socket.on('connect', () => {
     if (mapId) {
         socket.emit('join_map', { map_id: mapId });
         socket.emit('request_drawings', { map_id: mapId });
         socket.emit('request_map_sync', { map_id: mapId });
     }
+    pollMasterPresence();
 });
 
 let masterCanvasWidth = 1380;

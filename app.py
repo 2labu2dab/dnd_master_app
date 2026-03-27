@@ -2029,12 +2029,8 @@ def delete_bank_character(char_id):
                 }
             ), 400
 
-        # Удаляем аватар
-        from utils.storage import delete_token_avatar
-
-        delete_token_avatar(char_id)
-
-        # Удаляем из базы данных
+        # Удаляем из БД и файл в bank_avatars (delete_character_from_bank).
+        # Не вызывать delete_token_avatar: id в банке часто совпадает с id токена (token_…), иначе сотрётся аватар токена на карте.
         delete_character_from_bank(char_id)
 
         return jsonify({"status": "ok"})

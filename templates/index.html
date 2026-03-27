@@ -284,11 +284,6 @@
         <div class="token-fields">
           <label>Имя персонажа<br><input type="text" id="characterName"></label>
         </div>
-        <div style="margin-top: 12px;">
-          <button type="button" class="cancel-btn" onclick="openImportPortraitModal()" style="width: 100%;">
-            Портрет с другой карты…
-          </button>
-        </div>
       </div>
 
 
@@ -323,7 +318,16 @@
       </div>
 
       <div style="display: flex; justify-content: flex-end;">
-        <button class="cancel-btn" onclick="closeImportTokenModal()" style="margin-right: 10px;">Отмена</button>
+        <button type="button" class="cancel-btn" id="importTokenModalCancelBtn" onclick="closeImportTokenModal()" style="margin-right: 10px;">Отмена</button>
+      </div>
+
+      <div id="importTokenModalProgressOverlay" class="map-modal-save-overlay" style="display: none;" aria-hidden="true">
+        <div class="map-modal-save-panel">
+          <p id="importTokenModalProgressText" class="map-modal-save-text">Импорт…</p>
+          <div class="map-modal-progress-track">
+            <div id="importTokenModalProgressBar" class="map-modal-progress-fill"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -331,9 +335,6 @@
     <div class="modal-content large-modal" style="width: 600px; max-width: 90vw;">
       <span class="close" onclick="closeImportPortraitModal()">&times;</span>
       <h3>Портрет с другой карты</h3>
-      <p style="color: #94a3b8; font-size: 13px; margin: 0 0 12px 0;">
-        Список портретов со всех карт проекта (есть файл изображения). Тот же id, что уже на этой карте, можно добавить копией с новым id.
-      </p>
       <div style="margin-bottom: 15px;">
         <input type="text" id="importPortraitSearchInput" placeholder="Поиск по имени или карте…"
           style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #2a2a3b; color: white;">
@@ -377,7 +378,16 @@
       </div>
 
       <div class="token-buttons" style="margin-top: 15px;">
-        <button class="cancel-btn" onclick="closeBankModal()">Закрыть</button>
+        <button type="button" class="cancel-btn" id="bankModalCloseBtn" onclick="closeBankModal()">Закрыть</button>
+      </div>
+
+      <div id="bankModalProgressOverlay" class="map-modal-save-overlay" style="display: none;" aria-hidden="true">
+        <div class="map-modal-save-panel">
+          <p id="bankModalProgressText" class="map-modal-save-text">Добавляем на карту…</p>
+          <div class="map-modal-progress-track">
+            <div id="bankModalProgressBar" class="map-modal-progress-fill"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -450,8 +460,17 @@
 
       <!-- Кнопки -->
       <div class="token-buttons">
-        <button class="save-btn" onclick="submitToken()">Сохранить</button>
-        <button class="cancel-btn" onclick="closeTokenModal()">Отменить</button>
+        <button type="button" class="save-btn" id="tokenModalSaveBtn" onclick="submitToken()">Сохранить</button>
+        <button type="button" class="cancel-btn" id="tokenModalCancelBtn" onclick="closeTokenModal()">Отменить</button>
+      </div>
+
+      <div id="tokenModalProgressOverlay" class="map-modal-save-overlay" style="display: none;" aria-hidden="true">
+        <div class="map-modal-save-panel">
+          <p id="tokenModalProgressText" class="map-modal-save-text">Сохранение…</p>
+          <div class="map-modal-progress-track">
+            <div id="tokenModalProgressBar" class="map-modal-progress-fill"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -611,8 +630,17 @@
       </div>
       <!-- Кнопки -->
       <div class="token-buttons">
-        <button class="save-btn" onclick="submitBankCharacter()">Сохранить в банк</button>
-        <button class="cancel-btn" onclick="closeBankCharacterModal()">Отменить</button>
+        <button type="button" class="save-btn" id="bankCharacterModalSaveBtn" onclick="submitBankCharacter()">Сохранить в банк</button>
+        <button type="button" class="cancel-btn" id="bankCharacterModalCancelBtn" onclick="closeBankCharacterModal()">Отменить</button>
+      </div>
+
+      <div id="bankCharacterModalProgressOverlay" class="map-modal-save-overlay" style="display: none;" aria-hidden="true">
+        <div class="map-modal-save-panel">
+          <p id="bankCharacterModalProgressText" class="map-modal-save-text">Сохранение…</p>
+          <div class="map-modal-progress-track">
+            <div id="bankCharacterModalProgressBar" class="map-modal-progress-fill"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
