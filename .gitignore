@@ -19,4 +19,7 @@
 *.db-shm
 *.db-wal
 
-*.pyc
+# Python — байткод и кэш
+__pycache__/
+*.py[cod]
+*$py.class
