@@ -97,10 +97,11 @@
   <title>D&D Карта — Игрок</title>
 </head>
 
-<body class="player-dnd">
+<body class="player-dnd" data-map-id="{{ map_id or '' }}">
   <script>
-    // Устанавливаем MAP_ID из атрибута data-map-id
-    window.MAP_ID = document.body.getAttribute('data-map-id') || "{{ map_id }}";
+    window.MAP_ID = document.body.getAttribute('data-map-id') || "{{ map_id or '' }}";
+    window.__DND_PROJECT_ID__ = {{ (project_id or None)|tojson }};
+    window.__DND_INITIAL_MASTER_ACTIVE__ = {{ master_active|tojson }};
   </script>
   <!-- Загрузочный экран (скрыт в режиме мини-карты через JS) -->
   <div id="dnd-loading-overlay" style="
@@ -120,6 +121,17 @@
       <div id="dnd-loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#818cf8);border-radius:3px;transition:width .2s ease;"></div>
     </div>
     <div id="dnd-loading-text" style="font-size:13px;color:#94a3b8;">Подготовка…</div>
+  </div>
+
+  <div id="player-master-absent" class="player-master-absent" style="display: none;" aria-live="polite">
+    <div class="player-master-absent-frame">
+      <div class="player-master-absent-panel">
+        <p class="player-master-absent-kicker">Ожидание стола</p>
+        <p class="player-master-absent-title">Мастер отсутствует</p>
+        <div class="player-master-absent-rule" aria-hidden="true"></div>
+        <p class="player-master-absent-hint">Когда ведущий откроет мастер-экран, карта появится сама.</p>
+      </div>
+    </div>
   </div>
 
   <div id="main">

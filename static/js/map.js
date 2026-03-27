@@ -1918,7 +1918,10 @@ let currentMapId = null;
 function syncPlayerMiniIframe() {
     const iframe = document.getElementById("playerMini");
     if (!iframe) return;
-    if (currentMapId) {
+    const pid = window.__DND_PROJECT_ID__;
+    if (currentMapId && pid) {
+        iframe.src = `/player?map_id=${encodeURIComponent(currentMapId)}&project_id=${encodeURIComponent(pid)}`;
+    } else if (currentMapId) {
         iframe.src = `/player?map_id=${encodeURIComponent(currentMapId)}`;
     } else {
         iframe.src = "/player?no_map=1";
@@ -7850,76 +7853,27 @@ window.addEventListener('resize', function () {
     render();
 });
 
-function initProjectBackupUI() {
-    const input = document.getElementById("projectImportInput");
-    if (!input) return;
-    input.addEventListener("change", async function () {
-        const file = this.files && this.files[0];
-        this.value = "";
-        if (!file) return;
-        const fd = new FormData();
-        fd.append("file", file);
-        try {
-            const r = await fetch("/api/project/import", { method: "POST", body: fd });
-            const data = await r.json().catch(() => ({}));
-            if (!r.ok) {
-                alert(data.error || "Ошибка импорта");
-                return;
-            }
-            window.location.reload();
-        } catch (e) {
-            alert("Ошибка сети при импорте");
-        }
-    });
-}
-
-async function exportProjectBackup() {
-    try {
-        const r = await fetch("/api/project/export");
-        if (!r.ok) {
-            alert("Не удалось экспортировать данные");
-            return;
-        }
-        const blob = await r.blob();
-        const cd = r.headers.get("Content-Disposition") || "";
-        let name = "dnd-master-backup.mdma";
-        const m = /filename\*?=(?:UTF-8'')?["']?([^";\n]+)/i.exec(cd);
-        if (m) {
+function initMasterProjectUI() {
+    const backBtn = document.getElementById("masterBackToProjects");
+    if (backBtn) {
+        backBtn.addEventListener("click", async () => {
+            if (!confirm("Выйти в список проектов? Сохраните карту при необходимости.")) return;
             try {
-                name = decodeURIComponent(m[1].replace(/["']/g, "").trim());
-            } catch (e) {
-                name = m[1].replace(/["']/g, "").trim();
-            }
-        }
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(a.href);
-    } catch (e) {
-        alert("Ошибка при экспорте");
+                await fetch("/api/projects/leave", { method: "POST" });
+            } catch (e) { /* ignore */ }
+            window.location.href = "/projects";
+        });
     }
-}
-
-function triggerProjectImport() {
-    const ok = confirm(
-        "Импорт заменит все карты, изображения, токены и банк персонажей данными из файла. Текущие данные в папке data будут удалены (кроме блокировки мастера, если она есть).\n\nПродолжить?"
-    );
-    if (!ok) return;
-    const input = document.getElementById("projectImportInput");
-    if (input) input.click();
 }
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
         setTimeout(initSidebarCollapse, 200);
-        initProjectBackupUI();
+        initMasterProjectUI();
     });
 } else {
     setTimeout(initSidebarCollapse, 200);
-    initProjectBackupUI();
+    initMasterProjectUI();
 }
 
 function loadMapsList() {
@@ -7953,16 +7907,22 @@ function renderMapsList(maps) {
         return;
     }
 
+    const esc = (s) => String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
     container.innerHTML = maps.map(map => {
         const isActive = map.id === currentMapId;
-        // Обрезаем длинное название до 8 символов + троеточие
-        const displayName = map.name.length > 8 ? map.name.substring(0, 8) + '…' : map.name;
+        const name = map.name || "Без названия";
+        const nameHtml = esc(name);
 
         return `
             <div class="map-card ${isActive ? 'active' : ''}" data-map-id="${map.id}" onclick="selectMap('${map.id}')">
                 <div class="map-thumbnail">
                     ${map.has_image
-                ? `<img src="/api/map/thumbnail/${map.id}" alt="${map.name}" loading="lazy">`
+                ? `<img src="/api/map/thumbnail/${map.id}" alt="${nameHtml}" loading="lazy">`
                 : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
                             <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -7970,8 +7930,8 @@ function renderMapsList(maps) {
                           </svg>`
             }
                 </div>
-                <div class="map-name" title="${map.name}">${displayName}</div>
-                <button class="map-more-btn" onclick="event.stopPropagation(); showMapContextMenu('${map.id}', event)">
+                <div class="map-name" title="${nameHtml}">${nameHtml}</div>
+                <button type="button" class="map-more-btn" onclick="event.stopPropagation(); showMapContextMenu('${map.id}', event)" aria-label="Меню карты">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="2"/>
                         <circle cx="12" cy="5" r="2"/>

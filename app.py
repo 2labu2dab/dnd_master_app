@@ -15,6 +15,7 @@ from flask import (
     request,
     send_file,
     session,
+    url_for,
 )
 from flask_socketio import SocketIO, disconnect, emit, join_room, leave_room
 from PIL import Image
@@ -35,12 +36,28 @@ from utils.master_lock import (
     release_master_lock,
     update_master_ping,
 )
-from utils.project_backup import export_project_zip_bytes, import_project_from_zip
+from utils.project_backup import (
+    backup_download_slug,
+    export_project_zip_bytes,
+    import_project_from_zip,
+)
+from utils.projects import (
+    create_project,
+    delete_project,
+    ensure_migrated,
+    find_project_id_for_map,
+    get_project,
+    first_map_id_with_image_for_preview,
+    list_projects,
+    list_projects_for_cards,
+    map_image_path_in_project,
+    set_project_name,
+)
 from utils.storage import (
-    TOKENS_AVATARS_DIR,
     create_new_map,
     delete_map,
-    get_all_maps_with_token,  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
+    get_all_maps_with_token,
+    get_all_maps_with_token_all_projects,
     get_image_filepath,
     get_token_avatar_url,
     list_maps,
@@ -148,7 +165,10 @@ def _build_player_data(map_id, data):
     }
     if data.get("has_image"):
         image_path = get_image_filepath(map_id)
-        pd["image_url"] = versioned_url(f"/api/map/image/{map_id}", image_path)
+        if image_path:
+            pd["image_url"] = versioned_url(
+                f"/api/map/image/{map_id}", image_path
+            )
     return pd
 
 
@@ -161,52 +181,167 @@ token_avatars_dir = os.path.join(data_dir, "token_avatars")
 # Создаем папки
 os.makedirs(data_dir, exist_ok=True)
 os.makedirs(token_avatars_dir, exist_ok=True)
-
-
-# Пробуем создать тестовый файл
-test_file = os.path.join(token_avatars_dir, "test.txt")
-try:
-    with open(test_file, "w") as f:
-        f.write("test")
-    os.remove(test_file)
-
-except Exception as e:
-    print(f"✗ Failed to create test file: {e}")
+ensure_migrated()
 
 
 @app.route("/")
 def index():
-    maps = list_maps()
+    ensure_migrated()
+    pid = session.get("data_project_id")
+    if pid and not get_project(pid):
+        session.pop("data_project_id", None)
+        pid = None
+
+    if not pid:
+        return redirect(url_for("projects_list_page"))
+
+    maps = []
     current_map_id = None
+    if pid:
+        maps = list_maps()
+        if maps:
+            current_map_id = session.get("current_map_id")
+            if not current_map_id or not any(
+                m["id"] == current_map_id for m in maps
+            ):
+                current_map_id = maps[0]["id"]
+            session["current_map_id"] = current_map_id
+        else:
+            session["current_map_id"] = None
 
-    # Если есть карты, выбираем первую
-    if maps:
-        current_map_id = maps[0]["id"]
-        session["current_map_id"] = current_map_id
-    else:
-        session["current_map_id"] = None
-
-    return render_template("index.html", maps=maps, current_map=current_map_id)
+    meta = get_project(pid) if pid else None
+    return render_template(
+        "index.html",
+        maps=maps,
+        current_map=current_map_id,
+        current_project_id=pid,
+        current_project_name=(meta.get("name") if meta else "") or "",
+    )
 
 
 @app.route("/api/maps", methods=["GET"])
 def get_maps():
     """Получить список всех карт"""
+    if not session.get("data_project_id"):
+        return jsonify([])
     return jsonify(list_maps())
+
+
+@app.route("/api/projects", methods=["GET"])
+def api_projects_list():
+    ensure_migrated()
+    return jsonify(list_projects())
+
+
+@app.route("/api/projects", methods=["POST"])
+def api_projects_create():
+    ensure_migrated()
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "Новый проект").strip() or "Новый проект"
+    entry = create_project(name)
+    return jsonify(entry)
+
+
+@app.route("/api/projects/open", methods=["POST"])
+def api_projects_open():
+    """Активен только один проект на сессию — id в session перезаписывается."""
+    ensure_migrated()
+    body = request.get_json(silent=True) or {}
+    pid = body.get("id")
+    if not pid or not get_project(pid):
+        return jsonify({"error": "Проект не найден"}), 404
+    session["data_project_id"] = pid
+    return jsonify({"ok": True, "id": pid})
+
+
+@app.route("/api/projects/leave", methods=["POST"])
+def api_projects_leave():
+    session.pop("data_project_id", None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/projects/<project_id>", methods=["PATCH"])
+def api_projects_rename(project_id):
+    ensure_migrated()
+    if not get_project(project_id):
+        return jsonify({"error": "Проект не найден"}), 404
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Укажите название"}), 400
+    set_project_name(project_id, name)
+    return jsonify({"ok": True, "name": name})
+
+
+@app.route("/api/projects/<project_id>", methods=["DELETE"])
+def api_projects_delete(project_id):
+    ensure_migrated()
+    if not delete_project(project_id):
+        return jsonify({"error": "Проект не найден"}), 404
+    if session.get("data_project_id") == project_id:
+        session.pop("data_project_id", None)
+    return jsonify({"ok": True})
+
+
+@app.route("/projects")
+def projects_list_page():
+    ensure_migrated()
+    return render_template(
+        "projects.html",
+        projects=list_projects_for_cards(),
+        current_project_id=session.get("data_project_id"),
+    )
+
+
+@app.route("/projects/open/<project_id>")
+def open_project_redirect(project_id):
+    """В сессии хранится ровно один активный проект — при открытии другого предыдущий заменяется."""
+    ensure_migrated()
+    if not get_project(project_id):
+        return redirect(url_for("projects_list_page"))
+    session["data_project_id"] = project_id
+    return redirect(url_for("index"))
+
+
+@app.route("/projects/new", methods=["POST"])
+def projects_create_redirect():
+    ensure_migrated()
+    name = (request.form.get("name") or "").strip() or "Новый проект"
+    entry = create_project(name)
+    session["data_project_id"] = entry["id"]
+    return redirect(url_for("index"))
 
 
 @app.route("/api/project/export", methods=["GET"])
 def project_export():
-    """Скачать все данные из data/ как ZIP с расширением .mdma."""
-    payload = export_project_zip_bytes()
+    """Скачать все данные из data/ как ZIP (.mdma). Имя файла и манифест — по выбранному проекту."""
+    ensure_migrated()
+    q_pid = request.args.get("project_id")
+    if q_pid and not get_project(q_pid):
+        q_pid = None
+    pid = q_pid or session.get("data_project_id")
+    meta = get_project(pid) if pid else None
+    if not meta:
+        plist = list_projects()
+        if plist:
+            meta = plist[0]
+            pid = meta.get("id")
+    focus_name = None
+    if meta:
+        focus_name = (meta.get("name") or "").strip() or meta.get("id") or "Проект"
+    slug = backup_download_slug(focus_name if meta else "dnd-data")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    payload = export_project_zip_bytes(
+        focus_project_id=pid if meta else None,
+        focus_project_name=focus_name if meta else None,
+    )
     buf = io.BytesIO(payload)
     buf.seek(0)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return send_file(
         buf,
         mimetype="application/octet-stream",
         as_attachment=True,
-        download_name=f"dnd-master-backup-{stamp}.mdma",
+        download_name=f"{slug}-{stamp}.mdma",
     )
 
 
@@ -643,7 +778,7 @@ def get_token_avatar(token_id):
 
     image_path = get_token_avatar_filepath(token_id)
 
-    if os.path.exists(image_path):
+    if image_path and os.path.exists(image_path):
         resp = send_file(image_path, mimetype="image/png", conditional=True)
         resp.cache_control.public = True
         resp.cache_control.max_age = 31536000
@@ -711,7 +846,7 @@ def copy_token_avatar(source_token_id):
         from utils.storage import get_token_avatar_filepath, save_token_avatar
 
         source_path = get_token_avatar_filepath(source_token_id)
-        if not os.path.exists(source_path):
+        if not source_path or not os.path.exists(source_path):
             return jsonify({"error": "Source avatar not found"}), 404
 
         # Читаем исходный файл
@@ -815,18 +950,29 @@ def favicon():
 
 @app.route("/player")
 def player_view():
+    ensure_migrated()
+    project_id = request.args.get("project_id")
     map_id = request.args.get("map_id")
-    if not map_id:
-        # Если map_id не передан, берем текущую карту из сессии мастера
-        map_id = session.get("current_map_id")
+    if project_id and get_project(project_id):
+        session["data_project_id"] = project_id
+    elif map_id:
+        found = find_project_id_for_map(map_id)
+        if found:
+            session["data_project_id"] = found
 
-        # Если и в сессии нет, берем первую из списка
+    if not map_id:
+        map_id = session.get("current_map_id")
         if not map_id:
             maps = list_maps()
             map_id = maps[0]["id"] if maps else None
 
-    # Передаем map_id в шаблон
-    return render_template("player.html", map_id=map_id)
+    player_project = session.get("data_project_id")
+    return render_template(
+        "player.html",
+        map_id=map_id,
+        project_id=player_project,
+        master_active=is_master_active(),
+    )
 
 
 @app.route("/api/zone", methods=["POST"])
@@ -1596,31 +1742,30 @@ def delete_token(token_id):
 @app.route("/api/token/cleanup-avatars", methods=["POST"])
 def cleanup_token_avatars():
     """Очистить аватары токенов, которые нигде не используются"""
-    from utils.storage import TOKENS_AVATARS_DIR, get_all_maps_with_token
+    from utils.projects import iter_token_avatars_dirs_all_projects
+    from utils.storage import get_all_maps_with_token_all_projects
 
     deleted_count = 0
     kept_count = 0
 
-    # Получаем все файлы аватаров
-    if os.path.exists(TOKENS_AVATARS_DIR):
-        for filename in os.listdir(TOKENS_AVATARS_DIR):
-            if filename.endswith(".png"):
-                token_id = filename[:-4]  # убираем .png
-
-                # Проверяем, используется ли токен на каких-либо картах
-                maps_with_token = get_all_maps_with_token(token_id)
-
-                if not maps_with_token:
-                    # Токен нигде не используется - удаляем аватар
-                    filepath = os.path.join(TOKENS_AVATARS_DIR, filename)
-                    try:
-                        os.remove(filepath)
-                        deleted_count += 1
-                        print(f"Cleaned up unused avatar: {filename}")
-                    except Exception as e:
-                        print(f"Error deleting {filename}: {e}")
-                else:
-                    kept_count += 1
+    for av_dir in iter_token_avatars_dirs_all_projects():
+        if not os.path.isdir(av_dir):
+            continue
+        for filename in os.listdir(av_dir):
+            if not filename.endswith(".png"):
+                continue
+            token_id = filename[:-4]
+            maps_with_token = get_all_maps_with_token_all_projects(token_id)
+            filepath = os.path.join(av_dir, filename)
+            if not maps_with_token:
+                try:
+                    os.remove(filepath)
+                    deleted_count += 1
+                    print(f"Cleaned up unused avatar: {filepath}")
+                except Exception as e:
+                    print(f"Error deleting {filepath}: {e}")
+            else:
+                kept_count += 1
 
     return jsonify(
         {"status": "ok", "deleted": deleted_count, "kept": kept_count}
@@ -1835,9 +1980,9 @@ def delete_bank_character(char_id):
     """Удалить персонажа из банка"""
     try:
         # Проверяем, используется ли этот персонаж на картах
-        from utils.storage import get_all_maps_with_token
+        from utils.storage import get_all_maps_with_token_all_projects
 
-        maps_with_token = get_all_maps_with_token(char_id)
+        maps_with_token = get_all_maps_with_token_all_projects(char_id)
 
         print(
             f"Deleting bank character {char_id}, used on {len(maps_with_token)} maps"
@@ -1845,10 +1990,13 @@ def delete_bank_character(char_id):
 
         # Если персонаж используется на картах, предупреждаем
         if maps_with_token:
-            map_names = [m["map_name"] for m in maps_with_token]
+            labels = [
+                f"{m['map_name']} ({m.get('project_name', '')})"
+                for m in maps_with_token
+            ]
             return jsonify(
                 {
-                    "error": f"Character is used on maps: {', '.join(map_names)}. Remove from maps first or delete maps."
+                    "error": f"Персонаж на картах: {', '.join(labels)}. Сначала уберите с карт."
                 }
             ), 400
 
@@ -2009,51 +2157,64 @@ def update_map(map_id):
         return jsonify({"error": str(e)}), 500
 
 
+def _build_map_thumbnail_io(image_path):
+    """Миниатюра до 300px; возвращает (BytesIO, mimetype)."""
+    img = Image.open(image_path)
+    img_copy = img.copy()
+    img_copy.thumbnail((300, 300), Image.Resampling.LANCZOS)
+    img_io = io.BytesIO()
+    low = image_path.lower()
+    if img_copy.mode == "RGBA" or low.endswith(".png"):
+        img_copy.save(img_io, "PNG", optimize=False, compress_level=0)
+        mimetype = "image/png"
+    else:
+        if img_copy.mode in ("RGBA", "LA", "P"):
+            rgb_img = Image.new("RGB", img_copy.size, (255, 255, 255))
+            if img_copy.mode == "RGBA":
+                rgb_img.paste(img_copy, mask=img_copy.split()[3])
+            else:
+                rgb_img.paste(img_copy)
+            img_copy = rgb_img
+        img_copy.save(img_io, "JPEG", quality=95, optimize=False)
+        mimetype = "image/jpeg"
+    img_io.seek(0)
+    return img_io, mimetype
+
+
 @app.route("/api/map/thumbnail/<map_id>")
 def get_map_thumbnail(map_id):
     """Получить миниатюру карты с сохранением качества"""
     from utils.storage import get_image_filepath
-    from PIL import Image
-    import io
 
     image_path = get_image_filepath(map_id)
-    if not os.path.exists(image_path):
+    if not image_path or not os.path.isfile(image_path):
         return "", 404
 
     try:
-        # Открываем изображение
-        img = Image.open(image_path)
-
-        # Создаем копию для миниатюры, не изменяя оригинал
-        img_copy = img.copy()
-
-        # Увеличиваем размер миниатюры для лучшего качества
-        img_copy.thumbnail((300, 300), Image.Resampling.LANCZOS)
-
-        # Сохраняем с максимальным качеством
-        img_io = io.BytesIO()
-
-        # Сохраняем в том же формате
-        if img_copy.mode == "RGBA" or image_path.endswith(".png"):
-            img_copy.save(img_io, "PNG", optimize=False, compress_level=0)
-            mimetype = "image/png"
-        else:
-            # Для JPEG используем максимальное качество
-            if img_copy.mode in ("RGBA", "LA", "P"):
-                rgb_img = Image.new("RGB", img_copy.size, (255, 255, 255))
-                if img_copy.mode == "RGBA":
-                    rgb_img.paste(img_copy, mask=img_copy.split()[3])
-                else:
-                    rgb_img.paste(img_copy)
-                img_copy = rgb_img
-            img_copy.save(img_io, "JPEG", quality=95, optimize=False)
-            mimetype = "image/jpeg"
-
-        img_io.seek(0)
+        img_io, mimetype = _build_map_thumbnail_io(image_path)
         return send_file(img_io, mimetype=mimetype)
-
     except Exception as e:
         print(f"Error creating thumbnail: {e}")
+        return "", 500
+
+
+@app.route("/api/projects/<project_id>/preview")
+def project_preview_thumb(project_id):
+    """Превью проекта по последней карте с изображением (без привязки к сессии)."""
+    ensure_migrated()
+    if not get_project(project_id):
+        return "", 404
+    mid = first_map_id_with_image_for_preview(project_id)
+    if not mid:
+        return "", 404
+    path = map_image_path_in_project(project_id, mid)
+    if not path or not os.path.isfile(path):
+        return "", 404
+    try:
+        img_io, mimetype = _build_map_thumbnail_io(path)
+        return send_file(img_io, mimetype=mimetype)
+    except Exception as e:
+        print(f"Error creating project preview: {e}")
         return "", 500
 
 
@@ -2109,9 +2270,9 @@ def check_master_access():
     if request.path == "/player":
         return None
 
-    # Проверяем, является ли запрос к мастер-интерфейсу
+    # Проверяем, является ли запрос к мастер-интерфейсу (главная и все /projects/*)
     if (
-        request.path == "/"
+        (request.path == "/" or request.path.startswith("/projects"))
         and not request.headers.get("X-Requested-With") == "XMLHttpRequest"
     ):
         # Получаем текущего мастера
@@ -2184,9 +2345,7 @@ def release_master():
 
 if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
-    os.makedirs("data/maps", exist_ok=True)
-    os.makedirs("data/images", exist_ok=True)
-    os.makedirs("data/token_avatars", exist_ok=True)
+    ensure_migrated()
 
     socketio.run(
         app,

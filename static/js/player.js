@@ -673,6 +673,73 @@ if (
     mapId = null;
 }
 
+let playerMapBootStarted = false;
+
+function beginMapLoadForPlayer() {
+    if (mapId) {
+        mapImage = new Image();
+        fetchMap();
+    } else {
+        resizeCanvasToDisplaySize();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "24px Inter";
+        ctx.fillStyle = "#666";
+        ctx.textAlign = "center";
+        ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
+        if (playerExplicitNoMap || isMiniMap) {
+            // остаёмся без mapId
+        } else {
+            fetch("/api/maps")
+                .then(res => res.json())
+                .then(maps => {
+                    if (!maps || maps.length === 0) return;
+                    mapId = maps[0].id;
+                    window.playerMapId = mapId;
+                    if (socket && socket.connected) {
+                        socket.emit("join_map", { map_id: mapId });
+                        socket.emit("request_drawings", { map_id: mapId });
+                        socket.emit("request_map_sync", { map_id: mapId });
+                    }
+                    fetchMap();
+                })
+                .catch(() => {});
+        }
+    }
+}
+
+function ensurePlayerMapBootStarted() {
+    if (playerMapBootStarted || isMiniMap) return;
+    playerMapBootStarted = true;
+    preloadAllAssets();
+    beginMapLoadForPlayer();
+}
+
+function applyPlayerMasterGate(absent) {
+    if (isMiniMap) return;
+    const gate = document.getElementById("player-master-absent");
+    const main = document.getElementById("main");
+    if (absent) {
+        if (gate) gate.style.display = "flex";
+        if (main) main.style.visibility = "hidden";
+        hideLoadingOverlay();
+    } else {
+        if (gate) gate.style.display = "none";
+        if (main) main.style.visibility = "";
+        ensurePlayerMapBootStarted();
+    }
+}
+
+function pollMasterPresence() {
+    if (isMiniMap) return;
+    fetch("/api/master/status")
+        .then(r => r.json())
+        .then(data => {
+            const active = !!(data && data.active);
+            applyPlayerMasterGate(!active);
+        })
+        .catch(() => {});
+}
+
 socket.on('connect', () => {
     if (mapId) {
         socket.emit('join_map', { map_id: mapId });
@@ -686,48 +753,17 @@ let masterCanvasHeight = 1080;
 
 window.playerMapId = mapId;
 
-// Запускаем предзагрузку ВСЕХ ассетов с прогрессом
-// (для мини-карты только инициализируем кеш без UI)
 if (isMiniMap) {
-    // В мини-карте (iframe) только тихо инициализируем кеш
     dndCache.init();
+    beginMapLoadForPlayer();
 } else {
-    // В полноэкранном режиме — загрузочный экран + предзагрузка всего
-    preloadAllAssets();
-}
-
-if (mapId) {
-    mapImage = new Image();
-    fetchMap();
-} else {
-    resizeCanvasToDisplaySize();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "24px Inter";
-    ctx.fillStyle = "#666";
-    ctx.textAlign = "center";
-    ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
-
-    // Мастер явно указал «карт нет» (iframe) или мини-карта без id — не подставляем случайную карту.
-    if (playerExplicitNoMap || isMiniMap) {
-        // остаёмся без mapId
-    } else {
-        fetch("/api/maps")
-            .then(res => res.json())
-            .then(maps => {
-                if (!maps || maps.length === 0) return;
-                mapId = maps[0].id;
-                window.playerMapId = mapId;
-
-                if (socket && socket.connected) {
-                    socket.emit("request_drawings", { map_id: mapId });
-                    socket.emit("request_map_sync", { map_id: mapId });
-                }
-                fetchMap();
-            })
-            .catch(() => {
-                // Оставляем "Карта не выбрана"
-            });
-    }
+    const initial =
+        typeof window.__DND_INITIAL_MASTER_ACTIVE__ === "boolean"
+            ? window.__DND_INITIAL_MASTER_ACTIVE__
+            : false;
+    applyPlayerMasterGate(!initial);
+    pollMasterPresence();
+    setInterval(pollMasterPresence, 3000);
 }
 
 function resizeCanvasToDisplaySize() {

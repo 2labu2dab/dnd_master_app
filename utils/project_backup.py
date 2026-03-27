@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -10,26 +11,51 @@ from datetime import datetime, timezone
 from utils.storage import DATA_DIR
 
 MANIFEST_NAME = "mdma_manifest.json"
+
+
+def backup_download_slug(name):
+    """Безопасный фрагмент имени файла (Unicode допускается, убираем символы Windows)."""
+    s = (name or "").strip() or "dnd-data"
+    for ch in '\\/:*?"<>|\x00':
+        s = s.replace(ch, "")
+    s = re.sub(r"\s+", "-", s).strip("-") or "dnd-data"
+    if len(s) > 80:
+        s = s[:80].rstrip("-")
+    return s
 SKIP_EXPORT_FILES = {"master_lock.json"}
 SKIP_EXPORT_DIRS = {".git", "__pycache__"}
 
 
-def _build_manifest():
-    return {
+def _build_manifest(focus_project_id=None, focus_project_name=None):
+    m = {
         "format": "mdma",
         "version": 1,
         "app": "maps-dungeon-master-app",
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }
+    if focus_project_id and focus_project_name:
+        m["export_focus_project_id"] = focus_project_id
+        m["export_focus_project_name"] = focus_project_name
+    return m
 
 
-def export_project_zip_bytes():
-    """Собрать ZIP со всем содержимым data/, кроме master_lock.json."""
+def export_project_zip_bytes(focus_project_id=None, focus_project_name=None):
+    """Собрать ZIP со всем содержимым data/, кроме master_lock.json.
+
+    В манифест пишутся имя и id проекта для подписи бэкапа и восстановления названия при импорте.
+    """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             MANIFEST_NAME,
-            json.dumps(_build_manifest(), indent=2, ensure_ascii=False),
+            json.dumps(
+                _build_manifest(
+                    focus_project_id=focus_project_id,
+                    focus_project_name=focus_project_name,
+                ),
+                indent=2,
+                ensure_ascii=False,
+            ),
         )
         data_abs = os.path.abspath(DATA_DIR)
         if not os.path.isdir(data_abs):
@@ -83,9 +109,40 @@ def _is_valid_mdma_zip(zf):
         u = n.replace("\\", "/")
         if u.startswith("maps/") or u.startswith("token_avatars/"):
             return True
+        if u.startswith("projects/"):
+            return True
+        if u == "projects.json":
+            return True
         if u == "character_bank.db" or u.endswith("/character_bank.db"):
             return True
     return False
+
+
+def _apply_manifest_project_name_after_import(data_abs):
+    """После распаковки: имя проекта из манифеста (по id или единственный проект в реестре)."""
+    mp = os.path.join(data_abs, MANIFEST_NAME)
+    if not os.path.isfile(mp):
+        return
+    try:
+        with open(mp, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+    pid = manifest.get("export_focus_project_id")
+    pname = manifest.get("export_focus_project_name")
+    if not isinstance(pname, str):
+        return
+    pname = pname.strip()
+    if not pname:
+        return
+    from utils.projects import ensure_migrated, list_projects, set_project_name
+
+    ensure_migrated()
+    if pid and set_project_name(pid, pname):
+        return
+    plist = list_projects()
+    if len(plist) == 1:
+        set_project_name(plist[0].get("id"), pname)
 
 
 def import_project_from_zip(file_storage, data_dir=None):
@@ -158,5 +215,7 @@ def import_project_from_zip(file_storage, data_dir=None):
                 f.write(lock_backup)
         except OSError:
             pass
+
+    _apply_manifest_project_name_after_import(data_abs)
 
     return True, "Импорт выполнен"

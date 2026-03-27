@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Проекты — D&D Map Master</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+</head>
+
+<body class="projects-hub-body">
+  <input type="file" id="projectsHubImportInput" accept=".mdma,application/zip,application/x-zip-compressed"
+    style="display: none;" />
+  <div class="projects-hub">
+    <header class="projects-hub-header">
+      <div class="projects-hub-header-text">
+        <h1 class="projects-hub-title">Подземелья</h1>
+      </div>
+      <button type="button" class="projects-hub-new-btn" id="projectsHubNewBtn">+ Новый проект</button>
+    </header>
+
+    {% if projects %}
+    <div class="projects-hub-grid">
+      {% for p in projects %}
+      <div class="project-card-wrap {% if current_project_id and p.id == current_project_id %}project-card-wrap--current{% endif %}">
+        <a class="project-card" href="{{ url_for('open_project_redirect', project_id=p.id) }}">
+          <div class="project-card-preview">
+            {% if p.has_preview %}
+            <img src="{{ url_for('project_preview_thumb', project_id=p.id) }}" alt="" loading="lazy" />
+            {% else %}
+            <div class="project-card-placeholder" aria-hidden="true">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            {% endif %}
+          </div>
+          <div class="project-card-body">
+            {% if current_project_id and p.id == current_project_id %}
+            <span class="project-card-badge">Сейчас открыт</span>
+            {% endif %}
+            <h2 class="project-card-name">{{ p.name }}</h2>
+            <p class="project-card-meta">
+              {% set n = p.map_count %}{% set m10 = n % 10 %}{% set m100 = n % 100 %}
+              {% if m10 == 1 and m100 != 11 %}{{ n }} карта
+              {% elif m10 in (2, 3, 4) and m100 not in (12, 13, 14) %}{{ n }} карты
+              {% else %}{{ n }} карт{% endif %}
+            </p>
+          </div>
+        </a>
+        <div class="project-card-floating-btns">
+          <button type="button" class="project-card-icon-btn project-card-icon-btn--export"
+            data-project-id="{{ p.id }}"
+            title="Экспорт всех data в .mdma с подписью этого проекта" aria-label="Экспорт">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+          <button type="button" class="project-card-icon-btn project-card-icon-btn--import"
+            title="Импорт .mdma — заменит всю папку data" aria-label="Импорт">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          </button>
+          <button type="button" class="project-card-icon-btn project-card-icon-btn--rename"
+            data-project-id="{{ p.id }}" data-project-name="{{ p.name | e }}"
+            title="Переименовать проект" aria-label="Переименовать">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+          <button type="button" class="project-card-icon-btn project-card-icon-btn--delete"
+            data-project-id="{{ p.id }}" data-project-name="{{ p.name | e }}"
+            title="Удалить проект" aria-label="Удалить проект">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="projects-hub-empty">
+      <p class="projects-hub-empty-text">Пока нет проектов. Создайте первый или импортируйте .mdma.</p>
+      <button type="button" class="project-card-icon-btn project-card-icon-btn--import projects-hub-empty-import"
+        title="Импорт .mdma — заменит всю папку data" aria-label="Импорт .mdma">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="renameProjectModalHub" class="modal" style="display: none;">
+    <div class="modal-content small-modal projects-hub-modal-shell">
+      <span class="close" id="renameProjectModalHubClose">&times;</span>
+      <h3>Переименовать проект</h3>
+      <div class="projects-hub-modal-form">
+        <input type="hidden" id="renameProjectIdHub" value="" />
+        <label class="projects-hub-modal-label" for="renameProjectNameHub">Новое название</label>
+        <input type="text" id="renameProjectNameHub" class="projects-hub-modal-input" placeholder="Название кампании"
+          autocomplete="off" />
+        <div class="projects-hub-modal-actions">
+          <button type="button" class="save-btn projects-hub-modal-submit" id="renameProjectSubmitHub">Сохранить</button>
+          <button type="button" class="cancel-btn projects-hub-modal-cancel" id="renameProjectCancelHub">Отмена</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="newProjectModalHub" class="modal" style="display: none;">
+    <div class="modal-content small-modal projects-hub-modal-shell">
+      <span class="close" id="newProjectModalHubClose">&times;</span>
+      <h3>Новый проект</h3>
+      <form method="post" action="{{ url_for('projects_create_redirect') }}" class="projects-hub-modal-form">
+        <label class="projects-hub-modal-label" for="newProjectNameHub">Название</label>
+        <input type="text" name="name" id="newProjectNameHub" class="projects-hub-modal-input"
+          placeholder="Название кампании" autocomplete="off" />
+        <div class="projects-hub-modal-actions">
+          <button type="submit" class="save-btn projects-hub-modal-submit">Создать и открыть</button>
+          <button type="button" class="cancel-btn projects-hub-modal-cancel" id="newProjectModalHubCancel">Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById("projectsHubNewBtn");
+      var modal = document.getElementById("newProjectModalHub");
+      var closeBtn = document.getElementById("newProjectModalHubClose");
+      var cancelBtn = document.getElementById("newProjectModalHubCancel");
+      var inp = document.getElementById("newProjectNameHub");
+      var importInp = document.getElementById("projectsHubImportInput");
+
+      function openM() {
+        if (modal) modal.style.display = "flex";
+        if (inp) { inp.value = ""; setTimeout(function () { inp.focus(); }, 50); }
+      }
+      function closeM() {
+        if (modal) modal.style.display = "none";
+      }
+      if (btn) btn.addEventListener("click", openM);
+      if (closeBtn) closeBtn.addEventListener("click", closeM);
+      if (cancelBtn) cancelBtn.addEventListener("click", closeM);
+
+      var renameModal = document.getElementById("renameProjectModalHub");
+      var renameClose = document.getElementById("renameProjectModalHubClose");
+      var renameCancel = document.getElementById("renameProjectCancelHub");
+      var renameSubmit = document.getElementById("renameProjectSubmitHub");
+      var renameIdInp = document.getElementById("renameProjectIdHub");
+      var renameNameInp = document.getElementById("renameProjectNameHub");
+      function closeRenameModal() {
+        if (renameModal) renameModal.style.display = "none";
+      }
+      if (renameClose) renameClose.addEventListener("click", closeRenameModal);
+      if (renameCancel) renameCancel.addEventListener("click", closeRenameModal);
+      function submitRename() {
+        var id = renameIdInp && renameIdInp.value;
+        var name = (renameNameInp && renameNameInp.value || "").trim();
+        if (!id) return;
+        if (!name) {
+          alert("Введите название");
+          return;
+        }
+        fetch("/api/projects/" + encodeURIComponent(id), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name })
+        })
+          .then(function (r) { return r.json().then(function (d) { return { r: r, d: d }; }); })
+          .then(function (x) {
+            if (!x.r.ok) {
+              alert(x.d.error || "Не удалось переименовать");
+              return;
+            }
+            window.location.reload();
+          })
+          .catch(function () { alert("Ошибка сети"); });
+      }
+      if (renameSubmit) renameSubmit.addEventListener("click", submitRename);
+      if (renameNameInp) {
+        renameNameInp.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            submitRename();
+          }
+        });
+      }
+      document.querySelectorAll(".project-card-icon-btn--rename").forEach(function (b) {
+        b.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!renameModal || !renameIdInp || !renameNameInp) return;
+          renameIdInp.value = b.getAttribute("data-project-id") || "";
+          renameNameInp.value = b.getAttribute("data-project-name") || "";
+          renameModal.style.display = "flex";
+          setTimeout(function () {
+            renameNameInp.focus();
+            renameNameInp.select();
+          }, 50);
+        });
+      });
+
+      function runExport(pid) {
+        if (!pid) return;
+        var url = "/api/project/export?project_id=" + encodeURIComponent(pid);
+        fetch(url)
+          .then(function (r) {
+            if (!r.ok) throw new Error();
+            return r.blob().then(function (blob) {
+              return { blob: blob, cd: r.headers.get("Content-Disposition") || "" };
+            });
+          })
+          .then(function (o) {
+            var name = "backup.mdma";
+            var m = /filename\*?=(?:UTF-8'')?["']?([^";\n]+)/i.exec(o.cd);
+            if (m) {
+              try {
+                name = decodeURIComponent(m[1].replace(/["']/g, "").trim());
+              } catch (e) {
+                name = m[1].replace(/["']/g, "").trim();
+              }
+            }
+            var a = document.createElement("a");
+            a.href = URL.createObjectURL(o.blob);
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(a.href);
+          })
+          .catch(function () { alert("Не удалось экспортировать"); });
+      }
+
+      function runImportPrompt() {
+        if (!confirm("Импорт заменит всё содержимое data (карты, проекты, банк персонажей) данными из файла. Текущие данные будут удалены (кроме активной блокировки мастера, если её нет в архиве).\n\nПродолжить?")) return;
+        if (importInp) importInp.click();
+      }
+
+      document.querySelectorAll(".project-card-icon-btn--export").forEach(function (b) {
+        b.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          runExport(b.getAttribute("data-project-id"));
+        });
+      });
+      document.querySelectorAll(".project-card-icon-btn--import").forEach(function (b) {
+        b.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          runImportPrompt();
+        });
+      });
+      var emptyImport = document.querySelector(".projects-hub-empty-import");
+      if (emptyImport) {
+        emptyImport.addEventListener("click", function () { runImportPrompt(); });
+      }
+
+      if (importInp) {
+        importInp.addEventListener("change", function () {
+          var file = this.files && this.files[0];
+          this.value = "";
+          if (!file) return;
+          var fd = new FormData();
+          fd.append("file", file);
+          fetch("/api/project/import", { method: "POST", body: fd })
+            .then(function (r) { return r.json().then(function (d) { return { r: r, d: d }; }); })
+            .then(function (x) {
+              if (!x.r.ok) {
+                alert(x.d.error || "Ошибка импорта");
+                return;
+              }
+              window.location.reload();
+            })
+            .catch(function () { alert("Ошибка сети при импорте"); });
+        });
+      }
+
+      document.querySelectorAll(".project-card-icon-btn--delete").forEach(function (delBtn) {
+        delBtn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var id = delBtn.getAttribute("data-project-id");
+          if (!id) return;
+          var nm = delBtn.getAttribute("data-project-name") || "";
+          if (!confirm("Удалить проект «" + nm + "» безвозвратно? Все карты и данные проекта будут стёрты.")) return;
+          fetch("/api/projects/" + encodeURIComponent(id), { method: "DELETE" })
+            .then(function (r) {
+              if (!r.ok) throw new Error();
+              window.location.reload();
+            })
+            .catch(function () { alert("Не удалось удалить проект"); });
+        });
+      });
+    })();
+  </script>
+</body>
+
+</html>

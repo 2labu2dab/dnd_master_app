@@ -22,14 +22,50 @@ from utils.character_bank import (
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 DATA_DIR = "data"
-MAPS_DIR = os.path.join(DATA_DIR, "maps")
-IMAGES_DIR = os.path.join(DATA_DIR, "images")  # Новая папка для изображений
-TOKENS_AVATARS_DIR = os.path.join(
-    DATA_DIR, "token_avatars"
-)  # Папка для аватаров токенов
-PORTRAITS_DIR = os.path.join("data", "portrait_images")
 BANK_AVATARS_DIR = os.path.join(DATA_DIR, "bank_avatars")
-DRAWINGS_DIR = os.path.join(DATA_DIR, "drawings")
+
+
+def get_active_project_id():
+    try:
+        from flask import has_request_context, session
+
+        if has_request_context():
+            return session.get("data_project_id")
+    except ImportError:
+        pass
+    return None
+
+
+def _project_data_home():
+    pid = get_active_project_id()
+    if not pid:
+        return None
+    return os.path.join(DATA_DIR, "projects", pid)
+
+
+def get_maps_dir():
+    h = _project_data_home()
+    return os.path.join(h, "maps") if h else None
+
+
+def get_images_dir():
+    h = _project_data_home()
+    return os.path.join(h, "images") if h else None
+
+
+def get_token_avatars_dir():
+    h = _project_data_home()
+    return os.path.join(h, "token_avatars") if h else None
+
+
+def get_portraits_dir():
+    h = _project_data_home()
+    return os.path.join(h, "portrait_images") if h else None
+
+
+def get_drawings_dir():
+    h = _project_data_home()
+    return os.path.join(h, "drawings") if h else None
 TOKEN_SIZE_SCALES = {
     "tiny": 0.25,
     "small": 1.0,
@@ -131,10 +167,14 @@ def sync_token_across_maps(token_id, updates):
 
     print(f"\n=== Syncing token {token_id} across all maps ===")
 
-    for filename in os.listdir(MAPS_DIR):
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return updated_maps
+
+    for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
             map_id = filename[:-5]
-            filepath = os.path.join(MAPS_DIR, filename)
+            filepath = os.path.join(maps_dir, filename)
 
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
@@ -245,14 +285,18 @@ def propagate_token_stats_to_other_maps(source_map_id, tokens):
     touched_token_ids = set()
     src_mid = str(source_map_id)
 
-    for filename in os.listdir(MAPS_DIR):
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return [], set()
+
+    for filename in os.listdir(maps_dir):
         if not filename.endswith(".json"):
             continue
         map_id = filename[:-5]
         if str(map_id) == src_mid:
             continue
 
-        filepath = os.path.join(MAPS_DIR, filename)
+        filepath = os.path.join(maps_dir, filename)
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -299,10 +343,12 @@ def propagate_token_stats_to_other_maps(source_map_id, tokens):
 def ensure_dirs():
     """Создать необходимые директории"""
     os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(MAPS_DIR, exist_ok=True)
-    os.makedirs(IMAGES_DIR, exist_ok=True)
-    os.makedirs(TOKENS_AVATARS_DIR, exist_ok=True)
-    os.makedirs(PORTRAITS_DIR, exist_ok=True)
+    os.makedirs(BANK_AVATARS_DIR, exist_ok=True)
+    home = _project_data_home()
+    if not home:
+        return
+    for sub in ("maps", "images", "token_avatars", "portrait_images", "drawings"):
+        os.makedirs(os.path.join(home, sub), exist_ok=True)
 
 
 def get_all_maps_with_token(token_id):
@@ -311,9 +357,9 @@ def get_all_maps_with_token(token_id):
     Возвращает список словарей с информацией о картах
     """
     maps_with_token = []
-    maps_dir = "data/maps"
+    maps_dir = get_maps_dir()
 
-    if not os.path.exists(maps_dir):
+    if not maps_dir or not os.path.isdir(maps_dir):
         return maps_with_token
 
     print(f"Searching for token {token_id} in maps...")
@@ -341,13 +387,53 @@ def get_all_maps_with_token(token_id):
     return maps_with_token
 
 
+def get_all_maps_with_token_all_projects(token_id):
+    """Все карты во всех проектах, где встречается токен (для банка и очистки)."""
+    from utils.projects import get_project, list_project_ids, project_maps_dir
+
+    maps_with_token = []
+    for pid in list_project_ids():
+        mdir = project_maps_dir(pid)
+        if not os.path.isdir(mdir):
+            continue
+        proj_name = None
+        meta = get_project(pid)
+        if meta:
+            proj_name = meta.get("name", pid)
+        for filename in os.listdir(mdir):
+            if not filename.endswith(".json"):
+                continue
+            map_id = filename[:-5]
+            filepath = os.path.join(mdir, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if "tokens" not in data:
+                continue
+            for token in data["tokens"]:
+                if str(token.get("id")) == str(token_id):
+                    maps_with_token.append(
+                        {
+                            "map_id": map_id,
+                            "map_name": data.get("name", "Без названия"),
+                            "project_id": pid,
+                            "project_name": proj_name or pid,
+                        }
+                    )
+                    break
+    return maps_with_token
+
+
 def get_all_maps_with_character(character_id):
     """Найти все карты, в списке персонажей (портреты) которых есть character_id."""
     maps_with_char = []
-    if not os.path.exists(MAPS_DIR):
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
         return maps_with_char
 
-    for filename in os.listdir(MAPS_DIR):
+    for filename in os.listdir(maps_dir):
         if not filename.endswith(".json"):
             continue
         map_id = filename[:-5]
@@ -369,7 +455,10 @@ def get_all_maps_with_character(character_id):
 
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
-    return os.path.join(TOKENS_AVATARS_DIR, f"{token_id}.png")
+    d = get_token_avatars_dir()
+    if not d:
+        return None
+    return os.path.join(d, f"{token_id}.png")
 
 
 def save_token_avatar(image_data, token_id):
@@ -394,6 +483,8 @@ def save_token_avatar(image_data, token_id):
 
         # Сохраняем оригинальный размер - НИЧЕГО НЕ ИЗМЕНЯЕМ
         img_path = get_token_avatar_filepath(token_id)
+        if not img_path:
+            return False
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
         
         # Lossless PNG сжатие (уменьшаем размер для сети).
@@ -417,7 +508,7 @@ def save_token_avatar(image_data, token_id):
 def load_token_avatar(token_id):
     """Загрузить аватар токена и вернуть base64 для отображения"""
     img_path = get_token_avatar_filepath(token_id)
-    if os.path.exists(img_path):
+    if img_path and os.path.exists(img_path):
         try:
             with open(img_path, "rb") as f:
                 img_bytes = f.read()
@@ -433,9 +524,13 @@ def get_all_tokens_from_maps():
     all_tokens = []
     seen_ids = set()  # Для предотвращения дубликатов
 
-    for filename in os.listdir(MAPS_DIR):
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return []
+
+    for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
-            filepath = os.path.join(MAPS_DIR, filename)
+            filepath = os.path.join(maps_dir, filename)
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -501,7 +596,7 @@ def get_all_tokens_from_maps():
 def delete_token_avatar(token_id):
     """Удалить аватар токена"""
     img_path = get_token_avatar_filepath(token_id)
-    if os.path.exists(img_path):
+    if img_path and os.path.exists(img_path):
         try:
             os.remove(img_path)
             print(f"✓ Deleted avatar file: {img_path}")
@@ -528,23 +623,32 @@ def get_token_avatar_url(token_id, force_timestamp=False):
 
 def get_map_filepath(map_id):
     """Получить путь к файлу карты"""
-    return os.path.join(MAPS_DIR, f"{map_id}.json")
+    maps_dir = get_maps_dir()
+    if not maps_dir:
+        return None
+    return os.path.join(maps_dir, f"{map_id}.json")
 
 
 def get_image_filepath(map_id):
     """Получить путь к файлу изображения карты"""
-    png_path = os.path.join(IMAGES_DIR, f"{map_id}.png")
+    idir = get_images_dir()
+    if not idir:
+        return None
+    png_path = os.path.join(idir, f"{map_id}.png")
     if os.path.exists(png_path):
         return png_path
-    jpg_path = os.path.join(IMAGES_DIR, f"{map_id}.jpg")
+    jpg_path = os.path.join(idir, f"{map_id}.jpg")
     if os.path.exists(jpg_path):
         return jpg_path
-    return os.path.join(IMAGES_DIR, f"{map_id}.png")
+    return os.path.join(idir, f"{map_id}.png")
 
 
 def get_player_image_filepath(map_id):
     """Путь к сжатой версии изображения для игроков (JPEG)"""
-    return os.path.join(IMAGES_DIR, f"{map_id}_player.jpg")
+    idir = get_images_dir()
+    if not idir:
+        return None
+    return os.path.join(idir, f"{map_id}_player.jpg")
 
 
 def create_player_image(map_id):
@@ -555,9 +659,11 @@ def create_player_image(map_id):
     Возвращает True при успехе.
     """
     src_path = get_image_filepath(map_id)
-    if not os.path.exists(src_path):
+    if not src_path or not os.path.exists(src_path):
         return False
     dst_path = get_player_image_filepath(map_id)
+    if not dst_path:
+        return False
     try:
         img = Image.open(src_path)
         # Конвертируем в RGB (JPEG не поддерживает alpha)
@@ -615,6 +721,9 @@ def save_map_image(image_data, map_id):
 
         # Путь для сохранения
         img_path = get_image_filepath(map_id)
+        if not img_path:
+            print("save_map_image: нет активного проекта")
+            return False
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
 
         # Сохраняем в оригинальном формате с максимальным качеством
@@ -669,7 +778,7 @@ def save_map_image(image_data, map_id):
 def load_map_image(map_id):
     """Загрузить изображение карты и вернуть base64 без потерь"""
     img_path = get_image_filepath(map_id)
-    if os.path.exists(img_path):
+    if img_path and os.path.exists(img_path):
         try:
             with open(img_path, "rb") as f:
                 img_bytes = f.read()
@@ -689,8 +798,11 @@ def load_map_image(map_id):
 def delete_map_image(map_id):
     """Удалить изображения карты: PNG/JPEG оригинал и сжатую копию для игрока."""
     removed = False
+    idir = get_images_dir()
+    if not idir:
+        return False
     for suffix in (f"{map_id}.png", f"{map_id}.jpg"):
-        p = os.path.join(IMAGES_DIR, suffix)
+        p = os.path.join(idir, suffix)
         if os.path.exists(p):
             try:
                 os.remove(p)
@@ -698,7 +810,7 @@ def delete_map_image(map_id):
             except OSError as e:
                 print(f"✗ Error removing map image {p}: {e}")
     player_path = get_player_image_filepath(map_id)
-    if os.path.exists(player_path):
+    if player_path and os.path.exists(player_path):
         try:
             os.remove(player_path)
             removed = True
@@ -712,11 +824,15 @@ def list_maps():
     ensure_dirs()
     maps = []
 
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return maps
+
     # Читаем все JSON файлы из папки maps
-    for filename in os.listdir(MAPS_DIR):
+    for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
             map_id = filename[:-5]  # убираем .json
-            filepath = os.path.join(MAPS_DIR, filename)
+            filepath = os.path.join(maps_dir, filename)
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -796,6 +912,8 @@ def delete_map(map_id):
     упоминаются ни на одной другой карте.
     """
     filepath = get_map_filepath(map_id)
+    if not filepath:
+        return False
     map_data = None
     if os.path.exists(filepath):
         try:
@@ -837,6 +955,8 @@ def load_map_data(map_id):
     """Загрузить данные карты"""
     ensure_dirs()
     filepath = get_map_filepath(map_id)
+    if not filepath:
+        return None
 
     if os.path.exists(filepath):
         try:
@@ -845,7 +965,8 @@ def load_map_data(map_id):
 
             # Добавляем флаг наличия изображения если его нет
             if "has_image" not in data:
-                data["has_image"] = os.path.exists(get_image_filepath(map_id))
+                ip = get_image_filepath(map_id)
+                data["has_image"] = bool(ip and os.path.exists(ip))
 
             # Убеждаемся, что все необходимые поля есть
             if "tokens" not in data:
@@ -873,9 +994,13 @@ def get_all_heroes_from_maps():
     heroes = []
     seen_ids = set()  # Для отслеживания уникальных ID
 
-    for filename in os.listdir(MAPS_DIR):
+    maps_dir = get_maps_dir()
+    if not maps_dir or not os.path.isdir(maps_dir):
+        return heroes
+
+    for filename in os.listdir(maps_dir):
         if filename.endswith(".json"):
-            filepath = os.path.join(MAPS_DIR, filename)
+            filepath = os.path.join(maps_dir, filename)
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -929,6 +1054,9 @@ def save_map_data(data, map_id):
 
     ensure_dirs()
     filepath = get_map_filepath(map_id)
+    if not filepath:
+        print("save_map_data: нет активного проекта")
+        return
 
     # Добавляем/обновляем метаданные
     data["modified"] = datetime.now().isoformat()
@@ -938,7 +1066,7 @@ def save_map_data(data, map_id):
     # Сохраняем информацию о формате изображения
     if data.get("has_image"):
         img_path = get_image_filepath(map_id)
-        if os.path.exists(img_path):
+        if img_path and os.path.exists(img_path):
             data["image_format"] = (
                 "png" if img_path.endswith(".png") else "jpg"
             )
@@ -987,8 +1115,11 @@ PORTRAIT_FILE_SUFFIXES = (
 
 def find_portrait_file(portrait_id):
     """Найти файл портрета с любым из поддерживаемых расширений."""
+    pdir = get_portraits_dir()
+    if not pdir:
+        return None
     for suf in PORTRAIT_FILE_SUFFIXES:
-        p = os.path.join(PORTRAITS_DIR, f"{portrait_id}{suf}")
+        p = os.path.join(pdir, f"{portrait_id}{suf}")
         if os.path.exists(p):
             return p
     return None
@@ -1033,7 +1164,10 @@ def save_portrait_upload(raw_bytes, portrait_id, content_type=None, filename=Non
         )
 
         delete_portrait_image(portrait_id)
-        os.makedirs(PORTRAITS_DIR, exist_ok=True)
+        pdir = get_portraits_dir()
+        if not pdir:
+            return None
+        os.makedirs(pdir, exist_ok=True)
 
         if is_vid:
             if fn.endswith(".webm") or "webm" in ct:
@@ -1044,14 +1178,14 @@ def save_portrait_upload(raw_bytes, portrait_id, content_type=None, filename=Non
                 ext = ".m4v"
             else:
                 ext = ".mp4"
-            path = os.path.join(PORTRAITS_DIR, f"{portrait_id}{ext}")
+            path = os.path.join(pdir, f"{portrait_id}{ext}")
             with open(path, "wb") as f:
                 f.write(raw_bytes)
             print(f"Portrait video saved {path} ({len(raw_bytes)} bytes)")
             return {"ok": True, "media": "video", "ext": ext}
 
         if is_gif:
-            path = os.path.join(PORTRAITS_DIR, f"{portrait_id}.gif")
+            path = os.path.join(pdir, f"{portrait_id}.gif")
             with open(path, "wb") as f:
                 f.write(raw_bytes)
             print(f"Portrait GIF saved {path} ({len(raw_bytes)} bytes)")
@@ -1077,7 +1211,7 @@ def save_portrait_upload(raw_bytes, portrait_id, content_type=None, filename=Non
             rgba.paste(img, (0, 0))
             img = rgba
 
-        filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
+        filepath = os.path.join(pdir, f"{portrait_id}.png")
         try:
             img.save(filepath, "PNG", optimize=True, compress_level=6)
         except OSError:
@@ -1105,7 +1239,10 @@ def get_portrait_filepath(portrait_id):
     Путь к PNG по умолчанию (для обратной совместимости).
     Для фактической отдачи файла используйте find_portrait_file.
     """
-    return os.path.join(PORTRAITS_DIR, f"{portrait_id}.png")
+    pdir = get_portraits_dir()
+    if not pdir:
+        return None
+    return os.path.join(pdir, f"{portrait_id}.png")
 
 
 def get_portrait_url(portrait_id):
@@ -1123,18 +1260,25 @@ def get_portrait_url(portrait_id):
 
 def ensure_drawings_dir():
     """Создать папку для рисунков если её нет"""
-    os.makedirs(DRAWINGS_DIR, exist_ok=True)
+    ddir = get_drawings_dir()
+    if ddir:
+        os.makedirs(ddir, exist_ok=True)
 
 
 def get_drawings_filepath(map_id):
     """Получить путь к файлу с рисунками для карты"""
     ensure_drawings_dir()
-    return os.path.join(DRAWINGS_DIR, f"{map_id}.json")
+    ddir = get_drawings_dir()
+    if not ddir:
+        return None
+    return os.path.join(ddir, f"{map_id}.json")
 
 
 def save_drawings_layer(map_id, layer_id, strokes):
     """Сохранить слой рисунков"""
     filepath = get_drawings_filepath(map_id)
+    if not filepath:
+        return False
 
     # Проверяем структуру перед сохранением
     print(f"Saving {len(strokes)} strokes")
@@ -1161,6 +1305,9 @@ def save_drawings_layer(map_id, layer_id, strokes):
 def load_drawings_layer(map_id):
     """Загрузить слой рисунков"""
     filepath = get_drawings_filepath(map_id)
+    if not filepath:
+        layer_id = f"layer_{uuid.uuid4().hex[:8]}"
+        return [], layer_id
 
     if not os.path.exists(filepath):
         # Создаём новый слой
@@ -1184,7 +1331,7 @@ def load_drawings_layer(map_id):
 def delete_drawings_layer(map_id):
     """Удалить слой рисунков"""
     filepath = get_drawings_filepath(map_id)
-    if os.path.exists(filepath):
+    if filepath and os.path.exists(filepath):
         try:
             os.remove(filepath)
             print(f"✓ Drawings deleted for map {map_id}")
@@ -1200,8 +1347,11 @@ def delete_portrait_image(portrait_id):
     """
     try:
         removed = False
+        pdir = get_portraits_dir()
+        if not pdir:
+            return False
         for suf in PORTRAIT_FILE_SUFFIXES:
-            filepath = os.path.join(PORTRAITS_DIR, f"{portrait_id}{suf}")
+            filepath = os.path.join(pdir, f"{portrait_id}{suf}")
             if os.path.exists(filepath):
                 os.remove(filepath)
                 print(f"✓ Portrait deleted: {filepath}")

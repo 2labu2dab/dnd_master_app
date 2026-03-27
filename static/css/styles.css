@@ -149,23 +149,56 @@ details[open] > summary::after {
   overflow-x: hidden;
 }
 
-#sidebar h2 {
-  font-size: 18px;
-  margin: 0 0 4px 0;
-  color: #f9fafb;
+.sidebar-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 2px 0;
+  min-width: 0;
 }
 
-#sidebar h2::after {
-  content: "Мастер карты";
-  display: block;
-  font-size: 11px;
-  font-weight: 400;
-  color: #9ca3af;
-  margin-top: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.sidebar-projects-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #4c5bef 0%, #4338ca 100%);
+  color: #fff;
+  font-size: 13px;
+  font-family: Inter, sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.15s;
 }
 
+.sidebar-projects-btn:hover {
+  background: linear-gradient(135deg, #5b67f0 0%, #4f46e5 100%);
+}
+
+.sidebar-projects-btn:active {
+  opacity: 0.92;
+}
+
+.sidebar-projects-btn svg {
+  flex-shrink: 0;
+  stroke: currentColor;
+}
+
+.sidebar-project-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px 0 4px 4px;
+}
 
 #canvas-container {
   width: 60.48%;
@@ -1824,7 +1857,7 @@ body.sidebar-collapsed-right #canvas-container,
 body.sidebar-collapsed-both #canvas-container {
     width: calc(100% - 120px) !important;
 }
-/* Горизонтальный список карт */
+/* Блок «Карты» в сайдбаре */
 .maps-panel {
   padding-bottom: 15px;
 }
@@ -1868,74 +1901,76 @@ body.sidebar-collapsed-both #canvas-container {
   height: 20px;
 }
 
-/* Горизонтальный скролл список */
+/* Горизонтальный ряд карточек карт (скролл по X) */
 .maps-list {
   display: flex;
   flex-direction: row;
-  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 2px 8px 2px;
+  padding: 6px 2px 12px 2px;
   scrollbar-width: thin;
-  min-height: 90px;
-  align-items: center;
+  scrollbar-color: #4c5bef #1e293b;
+  min-height: 104px;
 }
 
 .maps-list::-webkit-scrollbar {
-  height: 4px;
+  height: 5px;
 }
 
 .maps-list::-webkit-scrollbar-track {
-  background: #2a2a3b;
-  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.6);
+  border-radius: 6px;
 }
 
 .maps-list::-webkit-scrollbar-thumb {
-  background: #4C5BEF;
-  border-radius: 4px;
+  background: #4c5bef;
+  border-radius: 6px;
 }
 
-/* Карточка карты без фона */
+/* Колонка: превью + подпись, фиксированная ширина для ровной сетки */
 .map-card {
   flex: 0 0 auto;
-  width: 50px;
-  background: transparent; /* Убрали фон */
-  border-radius: 6px;
-  padding: 4px;
+  width: 76px;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 10px;
+  padding: 8px 6px 10px;
   cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
+  border: 1px solid rgba(71, 85, 105, 0.45);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 8px;
   position: relative;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 
 .map-card:hover {
-  background: transparent; /* Прозрачный при наведении */
-  border-color: #4C5BEF;
-  transform: translateY(-1px);
-  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); убрали тень */
+  background: rgba(30, 41, 59, 0.88);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
 }
 
 .map-card.active {
-  background: transparent; /* Прозрачный для активной */
-  border: 2px solid #4C5BEF;
+  background: rgba(49, 46, 129, 0.38);
+  border-color: rgba(129, 140, 248, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.22);
 }
 
-/* Миниатюра */
 .map-thumbnail {
-  width: 42px;
-  height: 42px;
-  border-radius: 4px;
-  background: #1a1f2e;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  background: #0f172a;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.22);
 }
 
 .map-thumbnail img {
@@ -1945,41 +1980,48 @@ body.sidebar-collapsed-both #canvas-container {
 }
 
 .map-thumbnail svg {
-  width: 20px;
-  height: 20px;
-  stroke: #666;
+  width: 22px;
+  height: 22px;
+  stroke: #64748b;
 }
 
-/* Название карты */
 .map-name {
+  width: 100%;
+  margin: 0;
+  padding: 0 1px;
+  font-family: Inter, sans-serif;
   font-size: 11px;
   font-weight: 500;
-  color: #fff;
-  width: 100%;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: #cbd5e1;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 1px 0;
 }
 
-/* Кнопка меню */
+.map-card.active .map-name {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
 .map-more-btn {
   position: absolute;
-  top: 1px;
-  right: 1px;
+  top: 5px;
+  right: 5px;
   opacity: 0;
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
-  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: opacity 0.2s, background 0.2s, border-color 0.2s, color 0.2s;
   padding: 0;
 }
 
@@ -1988,44 +2030,57 @@ body.sidebar-collapsed-both #canvas-container {
 }
 
 .map-more-btn:hover {
-  background: #4C5BEF;
-  transform: scale(1.1);
+  background: #4c5bef;
+  border-color: #4c5bef;
+  color: #fff;
 }
 
 .map-more-btn svg {
-  width: 8px;
-  height: 8px;
-  stroke: white;
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
 }
 
-/* Пустое состояние */
+/* Пустое состояние (в строке со списком) */
 .empty-maps {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  min-height: 80px;
-  color: #666;
+  flex: 1 1 auto;
+  min-width: 140px;
+  min-height: 96px;
+  padding: 14px 16px;
   text-align: center;
   gap: 6px;
+  border-radius: 10px;
+  border: 1px dashed rgba(100, 116, 139, 0.45);
+  background: rgba(15, 23, 42, 0.35);
+  box-sizing: border-box;
 }
 
 .empty-maps svg {
-  width: 30px;
-  height: 30px;
-  stroke: #666;
+  width: 28px;
+  height: 28px;
+  stroke: #64748b;
 }
 
 .empty-maps p {
   margin: 0;
+  font-family: Inter, sans-serif;
   font-size: 12px;
-  color: #999;
+  font-weight: 600;
+  color: #94a3b8;
+  line-height: 1.3;
 }
 
 .empty-maps small {
-  font-size: 10px;
-  color: #666;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.35;
+  max-width: 200px;
 }
 
 #mapContextMenu {
@@ -3068,4 +3123,419 @@ canvas.erase-mode {
 .combat-modal-row .combat-row-exclude:hover {
   border-color: #f87171;
   color: #fca5a5;
+}
+
+.project-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.88);
+  backdrop-filter: blur(6px);
+  padding: 24px;
+}
+
+.project-picker-card {
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(165deg, #1e1b4b 0%, #0f172a 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.project-picker-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.project-picker-hint {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.project-picker-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  color: #e2e8f0;
+  font-size: 15px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.project-picker-item:hover {
+  border-color: #6366f1;
+  background: rgba(49, 46, 129, 0.35);
+}
+
+.project-picker-create-btn {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: none;
+  background: #4c5bef;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.project-picker-create-btn:hover {
+  background: #3e4cd4;
+  transform: translateY(-1px);
+}
+
+/* Страница выбора проектов (/projects) */
+.projects-hub-body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0f172a 0%, #1e1b4b 40%, #0f172a 100%);
+  color: #e2e8f0;
+  font-family: Inter, sans-serif;
+}
+
+.projects-hub {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.projects-hub-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.projects-hub-header-text {
+  flex: 1;
+  min-width: min(100%, 280px);
+  max-width: 640px;
+}
+
+.projects-hub-title {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.projects-hub-sub {
+  margin: 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.projects-hub-new-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #4c5bef;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.projects-hub-new-btn:hover {
+  background: #3e4cd4;
+  transform: translateY(-1px);
+}
+
+.projects-hub-empty {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 15px;
+  margin-top: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.projects-hub-empty-text {
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.projects-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: 20px;
+}
+
+.project-card-wrap {
+  position: relative;
+}
+
+.project-card-wrap--current .project-card {
+  border-color: rgba(129, 140, 248, 0.75);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35);
+}
+
+/* Плавающие кнопки на превью, как раньше «удалить» */
+.project-card-floating-btns {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.project-card-floating-btns .project-card-icon-btn {
+  pointer-events: auto;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+/* Только обводка + иконка (без заливки) */
+.project-card-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid rgba(226, 232, 240, 0.45);
+  color: #e2e8f0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.15s ease;
+}
+
+.project-card-icon-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.project-card-icon-btn--export,
+.project-card-icon-btn--import,
+.project-card-icon-btn--rename {
+  background: rgba(2, 6, 23, 0.82);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+.project-card-icon-btn--export:hover,
+.project-card-icon-btn--import:hover,
+.project-card-icon-btn--rename:hover {
+  background: rgba(99, 102, 241, 0.42);
+  border-color: #a5b4fc;
+  color: #e0e7ff;
+  box-shadow:
+    0 0 0 1px rgba(165, 180, 252, 0.45),
+    0 4px 14px rgba(30, 27, 75, 0.55);
+  transform: scale(1.05);
+}
+
+.project-card-icon-btn--export:active,
+.project-card-icon-btn--import:active,
+.project-card-icon-btn--rename:active {
+  transform: scale(0.95);
+}
+
+.project-card-icon-btn--delete {
+  background: rgba(2, 6, 23, 0.82);
+  border-color: #991b1b;
+  color: #dc2626;
+}
+
+.project-card-icon-btn--delete:hover {
+  background: rgba(127, 29, 29, 0.95);
+  border-color: #f87171;
+  color: #fecaca;
+  box-shadow:
+    0 0 0 1px rgba(252, 165, 165, 0.45),
+    0 4px 14px rgba(127, 29, 29, 0.5);
+  transform: scale(1.05);
+}
+
+.project-card-icon-btn--delete:active {
+  transform: scale(0.95);
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(71, 85, 105, 0.45);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.project-card:hover {
+  border-color: rgba(99, 102, 241, 0.55);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.project-card-wrap--current .project-card:hover {
+  border-color: rgba(165, 180, 252, 0.85);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.45), 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.project-card-preview {
+  aspect-ratio: 16 / 10;
+  background: #020617;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.project-card-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-card-placeholder {
+  color: #475569;
+  opacity: 0.85;
+}
+
+.project-card-body {
+  padding: 14px 16px 16px;
+}
+
+.project-card-name {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.3;
+}
+
+.project-card-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.project-card-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a5b4fc;
+  margin-bottom: 6px;
+}
+
+/* Модалка «Новый проект» на /projects */
+.projects-hub-modal-shell {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.projects-hub-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.projects-hub-modal-label {
+  display: block;
+  font-size: 14px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.projects-hub-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #020617;
+  color: #f1f5f9;
+  font-size: 15px;
+  font-family: Inter, sans-serif;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.projects-hub-modal-input:focus {
+  border-color: rgba(99, 102, 241, 0.65);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.projects-hub-modal-input::placeholder {
+  color: #64748b;
+}
+
+.projects-hub-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.projects-hub-modal-submit {
+  flex: 1 1 200px;
+  min-width: min(100%, 200px);
+  padding: 12px 22px !important;
+  font-size: 15px !important;
+  border-radius: 9999px;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+}
+
+.projects-hub-modal-cancel {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  font-size: 14px;
 }
