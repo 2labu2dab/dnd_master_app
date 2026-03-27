@@ -196,6 +196,8 @@ function preloadPortraits(characters) {
 let portraitsContainer = document.getElementById('portrait-list');
 let portraitSidebar = document.getElementById('portrait-sidebar');
 let lastCharactersHash = ''; // Для отслеживания изменений
+/** Последняя карта, для которой подтянули полные данные — смена сбрасывает кэш портретов */
+let playerLastSyncedMapId = null;
 let updateTimeout = null;
 
 // Функция для создания хеша персонажей (чтобы определять реальные изменения)
@@ -796,15 +798,25 @@ socket.on("map_updated", (data) => {
         mapData = {};
     }
 
+    if (playerLastSyncedMapId !== data.map_id) {
+        portraitImageCache.clear();
+        lastCharactersHash = '';
+        playerLastSyncedMapId = data.map_id;
+    }
+
     const oldHasImage = mapData.has_image;
     const oldCharacters = mapData.characters || [];
 
     invalidateZoneBlurCache();
+    const mergedCharacters = Object.prototype.hasOwnProperty.call(data, "characters")
+        ? (data.characters || [])
+        : oldCharacters;
+
     Object.assign(mapData, {
         tokens: data.tokens || [],
         zones: data.zones || [],
         finds: data.finds || [],
-        characters: data.characters || oldCharacters,
+        characters: mergedCharacters,
         grid_settings: data.grid_settings || mapData.grid_settings,
         ruler_visible_to_players: data.ruler_visible_to_players,
         ruler_start: data.ruler_start,
@@ -961,6 +973,9 @@ socket.on("master_switched_map", (data) => {
     if (data.map_id && mapId !== data.map_id) {
         mapId = data.map_id;
         window.playerMapId = data.map_id;
+
+        portraitImageCache.clear();
+        lastCharactersHash = '';
 
         // Если карта уже в кеше — берём сразу, иначе начинаем загрузку
         if (!mapImageCache.has(mapId) && data.image_url) {
@@ -1969,6 +1984,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             if (mapData.ruler_visible_to_players === undefined)
                 mapData.ruler_visible_to_players = false;
             if (!mapData.characters) mapData.characters = [];
+            playerLastSyncedMapId = mapId;
             preloadPortraits(mapData.characters);
 
             const disabledImg = document.getElementById("mapDisabledImage");

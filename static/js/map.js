@@ -1629,6 +1629,184 @@ function createCharacterContextMenu() {
     return menu;
 }
 
+/** Состояние DnD списков зон/токенов/находок — тот же UX, что у портретов (полоски .drop-zone). */
+const masterSidebarListDnD = {
+    draggedItem: null,
+    draggedIndex: -1,
+    draggedUl: null,
+    draggedMapKey: null,
+    activeDropZone: null,
+    lastDropTargetIndex: null,
+};
+
+function removeMasterSidebarDropZones() {
+    if (masterSidebarListDnD.draggedUl) {
+        masterSidebarListDnD.draggedUl.querySelectorAll(".drop-zone").forEach((z) => z.remove());
+    }
+    masterSidebarListDnD.activeDropZone = null;
+    masterSidebarListDnD.lastDropTargetIndex = null;
+}
+
+function getMasterSidebarDropTargetIndex(ul, e) {
+    const rect = ul.getBoundingClientRect();
+    const mouseY = e.clientY;
+    if (mouseY < rect.top || mouseY > rect.bottom) return null;
+    const items = ul.querySelectorAll(":scope > li");
+    if (items.length === 0) return 0;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const itemRect = item.getBoundingClientRect();
+        if (mouseY <= itemRect.bottom) {
+            if (i === 0 && mouseY < itemRect.top + itemRect.height / 2) {
+                return 0;
+            }
+            if (mouseY > itemRect.top + itemRect.height / 2) {
+                return i + 1;
+            }
+            return i;
+        }
+    }
+    return items.length;
+}
+
+function updateMasterSidebarDropZone(e) {
+    if (!masterSidebarListDnD.draggedItem || !masterSidebarListDnD.draggedUl) return;
+    const ul = masterSidebarListDnD.draggedUl;
+    const targetIndex = getMasterSidebarDropTargetIndex(ul, e);
+    if (targetIndex === null) {
+        removeMasterSidebarDropZones();
+        return;
+    }
+    if (
+        masterSidebarListDnD.lastDropTargetIndex === targetIndex &&
+        masterSidebarListDnD.activeDropZone
+    ) {
+        return;
+    }
+    removeMasterSidebarDropZones();
+    const items = ul.querySelectorAll(":scope > li");
+    const dropZone = document.createElement("div");
+    dropZone.className = "drop-zone active";
+    dropZone.dataset.targetIndex = String(targetIndex);
+    dropZone.style.height = "8px";
+    dropZone.style.background = "#4C5BEF";
+    dropZone.style.margin = "4px 0";
+    dropZone.style.boxShadow = "0 0 10px #4C5BEF";
+    dropZone.style.borderRadius = "4px";
+    dropZone.style.width = "100%";
+    dropZone.style.transition = "all 0.2s ease";
+    masterSidebarListDnD.lastDropTargetIndex = targetIndex;
+    masterSidebarListDnD.activeDropZone = dropZone;
+
+    if (items.length === 0) {
+        ul.appendChild(dropZone);
+    } else if (targetIndex === 0) {
+        ul.insertBefore(dropZone, items[0]);
+    } else if (targetIndex >= items.length) {
+        ul.appendChild(dropZone);
+    } else {
+        ul.insertBefore(dropZone, items[targetIndex]);
+    }
+}
+
+function completeMasterSidebarListDrag(e) {
+    const di = masterSidebarListDnD.draggedItem;
+    const idx = masterSidebarListDnD.draggedIndex;
+    const lt = masterSidebarListDnD.lastDropTargetIndex;
+    const mk = masterSidebarListDnD.draggedMapKey;
+    if (di && lt !== null && idx !== -1 && mk) {
+        if (e) e.preventDefault();
+        let newIndex = lt;
+        if (idx < newIndex) newIndex -= 1;
+        if (idx !== newIndex) {
+            const arr = mapData[mk];
+            if (Array.isArray(arr) && idx >= 0 && idx < arr.length) {
+                const [removed] = arr.splice(idx, 1);
+                arr.splice(newIndex, 0, removed);
+                saveMapData();
+                updateSidebar();
+                render();
+            }
+        }
+    }
+    removeMasterSidebarDropZones();
+    if (di) di.classList.remove("dragging");
+    masterSidebarListDnD.draggedItem = null;
+    masterSidebarListDnD.draggedIndex = -1;
+    masterSidebarListDnD.draggedUl = null;
+    masterSidebarListDnD.draggedMapKey = null;
+    masterSidebarListDnD.activeDropZone = null;
+    masterSidebarListDnD.lastDropTargetIndex = null;
+}
+
+function masterSidebarListDocumentDragOver(e) {
+    if (!masterSidebarListDnD.draggedItem) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    updateMasterSidebarDropZone(e);
+}
+
+function masterSidebarListDocumentDragEnd(e) {
+    if (!masterSidebarListDnD.draggedItem) return;
+    completeMasterSidebarListDrag(e);
+}
+
+function initMasterSidebarListsDragOnce() {
+    if (window.__masterSidebarListsPortraitDnD) return;
+
+    const configs = [
+        { id: "zoneList", key: "zones" },
+        { id: "tokenList", key: "tokens" },
+        { id: "findList", key: "finds" },
+    ];
+    const anyUl = configs.some(({ id }) => document.getElementById(id));
+    if (!anyUl) return;
+
+    window.__masterSidebarListsPortraitDnD = true;
+
+    document.addEventListener("dragover", masterSidebarListDocumentDragOver);
+    document.addEventListener("dragend", masterSidebarListDocumentDragEnd);
+
+    configs.forEach(({ id, key }) => {
+        const ul = document.getElementById(id);
+        if (!ul) return;
+
+        ul.addEventListener("dragstart", (e) => {
+            const li = e.target.closest("li");
+            if (!li || li.parentElement !== ul) return;
+            const fromIndex = parseInt(li.dataset.sidebarIndex, 10);
+            if (Number.isNaN(fromIndex)) return;
+            masterSidebarListDnD.draggedItem = li;
+            masterSidebarListDnD.draggedIndex = fromIndex;
+            masterSidebarListDnD.draggedUl = ul;
+            masterSidebarListDnD.draggedMapKey = key;
+            li.classList.add("dragging");
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.dropEffect = "move";
+            e.dataTransfer.setData(
+                "text/plain",
+                li.dataset.zoneId || li.dataset.tokenId || li.dataset.findId || ""
+            );
+            e.dataTransfer.setDragImage(new Image(), 0, 0);
+        });
+
+        ul.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (masterSidebarListDnD.draggedItem) {
+                updateMasterSidebarDropZone(e);
+            }
+        });
+
+        ul.addEventListener("dragleave", () => {});
+
+        ul.addEventListener("drop", (e) => {
+            e.preventDefault();
+            completeMasterSidebarListDrag(e);
+        });
+    });
+}
+
 // Обновляем существующую updateSidebar для добавления data-атрибутов
 // static/js/map.js - Исправленная функция updateSidebar()
 
@@ -1637,11 +1815,12 @@ function updateSidebar() {
     const zoneList = document.getElementById("zoneList");
     zoneList.innerHTML = "";
 
-    mapData.zones.forEach(zone => {
+    mapData.zones.forEach((zone, index) => {
         const li = document.createElement("li");
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
+        li.dataset.sidebarIndex = String(index);
 
         // Только один стиль выделения - цвет фона
         if (selectedZoneId === zone.id) {
@@ -1654,8 +1833,10 @@ function updateSidebar() {
 
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
-        li.style.marginBottom = "4px";
-        li.style.cursor = "pointer";
+        li.style.marginBottom = "0";
+        li.style.cursor = "grab";
+        li.style.position = "relative";
+        li.draggable = true;
         li.dataset.zoneId = zone.id;
 
         const nameSpan = document.createElement("span");
@@ -1669,6 +1850,7 @@ function updateSidebar() {
         const eye = document.createElement("span");
         eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
         eye.style.cursor = "pointer";
+        eye.style.flexShrink = "0";
         eye.title = "Показать/скрыть зону";
         eye.onclick = (e) => {
             e.stopPropagation();
@@ -1699,12 +1881,13 @@ function updateSidebar() {
     const tokenList = document.getElementById("tokenList");
     tokenList.innerHTML = "";
 
-    mapData.tokens.forEach(token => {
+    mapData.tokens.forEach((token, index) => {
         const li = document.createElement("li");
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
         li.style.gap = "8px";
+        li.dataset.sidebarIndex = String(index);
 
         // Единый стиль выделения для токенов
         if (selectedTokens.has(token.id)) {
@@ -1723,8 +1906,11 @@ function updateSidebar() {
 
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
+        li.style.marginBottom = "0";
         li.style.color = "#ccc";
-        li.style.cursor = "pointer";
+        li.style.cursor = "grab";
+        li.style.position = "relative";
+        li.draggable = true;
         li.dataset.tokenId = token.id;
 
         const dot = document.createElement("span");
@@ -1770,6 +1956,7 @@ function updateSidebar() {
         const eye = document.createElement("span");
         eye.innerHTML = token.is_visible !== false ? getOpenEyeSVG() : getClosedEyeSVG();
         eye.style.cursor = "pointer";
+        eye.style.flexShrink = "0";
         eye.title = "Видимость для игроков";
         eye.onclick = (e) => {
             e.stopPropagation();
@@ -1822,11 +2009,12 @@ function updateSidebar() {
     const findList = document.getElementById("findList");
     findList.innerHTML = "";
 
-    mapData.finds.forEach(find => {
+    mapData.finds.forEach((find, index) => {
         const li = document.createElement("li");
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
+        li.dataset.sidebarIndex = String(index);
 
         // Единый стиль выделения для находок
         if (selectedFindId === find.id) {
@@ -1839,8 +2027,10 @@ function updateSidebar() {
 
         li.style.padding = "6px 10px";
         li.style.borderRadius = "4px";
-        li.style.marginBottom = "4px";
-        li.style.cursor = "pointer";
+        li.style.marginBottom = "0";
+        li.style.cursor = "grab";
+        li.style.position = "relative";
+        li.draggable = true;
         li.dataset.findId = find.id;
 
         const nameSpan = document.createElement("span");
@@ -1958,6 +2148,7 @@ function updateSidebar() {
     //     li.appendChild(eye);
     //     characterList.appendChild(li);
     // });
+    initMasterSidebarListsDragOnce();
     initCharacterDragAndDrop();
     // Настраиваем контекстные меню
     setupSidebarContextMenus();
@@ -2083,6 +2274,7 @@ function switchMap(mapId) {
             console.log(`Restored position: zoom=${zoomLevel}, pan=(${panX}, ${panY})`);
 
             updateSidebar();
+            refreshPortraits();
 
             // Синхронизируем поля ввода с cell_count
             const gridCount = mapData.grid_settings.cell_count || 20;
@@ -2725,6 +2917,8 @@ function fetchMap() {
             if (currentOption && data.name) {
                 currentOption.textContent = data.name;
             }
+
+            refreshPortraits();
 
             return data;
         })
@@ -5422,6 +5616,30 @@ window.onload = () => {
     setupEnterHandler("contextAcInput", "contextApplyAc");
 
     const toggleBtn = document.getElementById("togglePlayerMini");
+    const openPlayerPageBtn = document.getElementById("openPlayerPageBtn");
+
+    function getPlayerPageUrl() {
+        const pid = window.__DND_PROJECT_ID__;
+        if (currentMapId && pid) {
+            return `/player?map_id=${encodeURIComponent(currentMapId)}&project_id=${encodeURIComponent(pid)}`;
+        }
+        if (currentMapId) {
+            return `/player?map_id=${encodeURIComponent(currentMapId)}`;
+        }
+        return "/player?no_map=1";
+    }
+
+    function openPlayerPageInNewTab() {
+        window.open(getPlayerPageUrl(), "_blank", "noopener,noreferrer");
+    }
+    window.openPlayerPageInNewTab = openPlayerPageInNewTab;
+
+    if (openPlayerPageBtn) {
+        openPlayerPageBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openPlayerPageInNewTab();
+        });
+    }
 
     function updateMiniToggleIcon() {
         const btn = document.getElementById("togglePlayerMini");
@@ -5429,7 +5647,7 @@ window.onload = () => {
     }
     window.updateMiniToggleIcon = updateMiniToggleIcon;
 
-    toggleBtn.addEventListener("click", () => {
+    if (toggleBtn) toggleBtn.addEventListener("click", () => {
         const mapIdToUse =
             currentMapId ||
             document.getElementById("mapSelect")?.value ||

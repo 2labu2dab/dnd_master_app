@@ -16,7 +16,6 @@ body.player-dnd #main {
   src:
     local("Vinque Regular"),
     local("Vinque"),
-    url("../fonts/Vinque-Regular.woff2") format("woff2"),
     url("../fonts/Vinque-Regular.ttf") format("truetype");
 }
 

@@ -755,7 +755,7 @@ body.mini-map .portrait-item {
   box-sizing: border-box !important;
 }
 
-#togglePlayerMini.mini-toggle-btn {
+#playerCornerButtons > .mini-toggle-btn {
   background: #2a2a3b;
   color: white;
   border: none;
@@ -771,11 +771,11 @@ body.mini-map .portrait-item {
   justify-content: center;
   transition: background-color 0.2s ease;
 }
-#togglePlayerMini.mini-toggle-btn:hover {
+#playerCornerButtons > .mini-toggle-btn:hover {
   background: #3a3a4f;
 }
 
-#togglePlayerMini.mini-toggle-btn:active {
+#playerCornerButtons > .mini-toggle-btn:active {
   transform: scale(0.95);
 }
 
@@ -1413,6 +1413,15 @@ canvas.map-panning {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
+/* Левые списки мастера — как портреты: колонка с зазором */
+#zoneList,
+#tokenList,
+#findList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 #characterList {
     display: flex;
     flex-direction: column;
@@ -1442,8 +1451,20 @@ canvas.map-panning {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Легкая тень для глубины */
 }
 
-/* Стиль для перетаскиваемого портрета */
-#characterList li.dragging {
+/* Те же «карточки» для зон / токенов / находок (отступы остаются из inline в map.js как у createCharacterListItem) */
+#zoneList > li,
+#tokenList > li,
+#findList > li {
+    user-select: none;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Стиль для перетаскиваемого портрета и строк зон/токенов/находок */
+#characterList li.dragging,
+#zoneList > li.dragging,
+#tokenList > li.dragging,
+#findList > li.dragging {
     opacity: 0.5;
     transform: scale(0.98);
     box-shadow: 0 8px 16px rgba(0,0,0,0.4); /* Усилим тень при перетаскивании */
@@ -1480,18 +1501,36 @@ canvas.map-panning {
 
 /* Запрещаем стандартный курсор "нельзя" при перетаскивании */
 #characterList,
-#characterList * {
+#characterList *,
+#zoneList,
+#zoneList *,
+#tokenList,
+#tokenList *,
+#findList,
+#findList * {
     -webkit-user-drag: element;
     user-drag: element;
 }
 
 #characterList .drop-zone,
-#characterList .drop-zone * {
+#characterList .drop-zone *,
+#zoneList .drop-zone,
+#zoneList .drop-zone *,
+#tokenList .drop-zone,
+#tokenList .drop-zone *,
+#findList .drop-zone,
+#findList .drop-zone * {
     cursor: default;
 }
 
 #characterList .drop-zone.active,
-#characterList .drop-zone.active * {
+#characterList .drop-zone.active *,
+#zoneList .drop-zone.active,
+#zoneList .drop-zone.active *,
+#tokenList .drop-zone.active,
+#tokenList .drop-zone.active *,
+#findList .drop-zone.active,
+#findList .drop-zone.active * {
     cursor: copy;
 }
 
