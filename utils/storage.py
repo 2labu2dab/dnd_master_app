@@ -1272,8 +1272,9 @@ def save_map_data(data, map_id):
 
     _sync_character_portrait_flags(data.get("characters"))
 
+    # Без отступов — меньше объём и быстрее запись (важно при частом сохранении / дубликатах).
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
 
     print(f"Map data saved for {map_id}")
 

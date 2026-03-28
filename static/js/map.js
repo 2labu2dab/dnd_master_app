@@ -5647,8 +5647,10 @@ document.addEventListener("keydown", (e) => {
     }
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') {
         e.preventDefault();
-        copySelectedToken();
-        pasteToken();
+        if (selectedTokenId) {
+            const tok = mapData.tokens.find((t) => t.id === selectedTokenId);
+            if (tok) duplicateToken(tok);
+        }
     }
 });
 
@@ -6984,7 +6986,7 @@ function copySelectedToken() {
     const token = mapData.tokens.find(t => t.id === selectedTokenId);
     if (!token) return;
 
-    // Создаем копию без ID
+    // Создаем копию без ID (без toDataURL — при вставке сервер копирует файл по copy_avatar_from_token_id)
     copiedToken = {
         name: token.name,
         armor_class: token.armor_class,
@@ -6996,22 +6998,10 @@ function copySelectedToken() {
         avatar_url: token.avatar_url,
         size: token.size,
         is_dead: token.is_dead,
-        is_visible: token.is_visible // ДОБАВЬТЕ ЭТУ СТРОКУ
+        is_visible: token.is_visible,
+        avatar_source_token_id: token.has_avatar ? token.id : null,
+        avatar_data: null,
     };
-
-    // Если у токена есть аватар, пытаемся получить его данные
-    if (token.has_avatar) {
-        const cachedImg = avatarCache.get(token.id);
-        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-            // Конвертируем в base64 для копирования
-            const canvas = document.createElement('canvas');
-            canvas.width = cachedImg.width;
-            canvas.height = cachedImg.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(cachedImg, 0, 0);
-            copiedToken.avatar_data = canvas.toDataURL('image/png');
-        }
-    }
 
     showNotification('Токен скопирован', 'success');
 }
@@ -7062,9 +7052,13 @@ function pasteToken() {
 
     const requestBody = {
         ...newToken,
-        avatar_data: copiedToken.avatar_data || null,
-        map_id: currentMapId
+        map_id: currentMapId,
     };
+    if (copiedToken.avatar_source_token_id) {
+        requestBody.copy_avatar_from_token_id = copiedToken.avatar_source_token_id;
+    } else if (copiedToken.avatar_data) {
+        requestBody.avatar_data = copiedToken.avatar_data;
+    }
 
     fetch("/api/token", {
         method: "POST",
@@ -7080,19 +7074,28 @@ function pasteToken() {
         .then(data => {
             if (data.avatar_url) {
                 newToken.avatar_url = data.avatar_url;
+                newToken.has_avatar = true;
+            } else {
+                newToken.has_avatar = false;
+                delete newToken.avatar_url;
             }
 
             if (!mapData.tokens) mapData.tokens = [];
             mapData.tokens.push(newToken);
 
-            // Загружаем аватар в кэш
             if (newToken.has_avatar && newToken.avatar_url) {
-                const img = new Image();
-                img.onload = () => {
-                    avatarCache.set(newTokenId, img);
-                    render();
-                };
-                img.src = newToken.avatar_url;
+                const srcId = copiedToken.avatar_source_token_id;
+                const srcImg = srcId && avatarCache.get(srcId);
+                if (srcImg instanceof HTMLImageElement && srcImg.complete) {
+                    avatarCache.set(newTokenId, srcImg);
+                } else {
+                    const img = new Image();
+                    img.onload = () => {
+                        avatarCache.set(newTokenId, img);
+                        render();
+                    };
+                    img.src = newToken.avatar_url;
+                }
             }
 
             selectedTokenId = newTokenId;
