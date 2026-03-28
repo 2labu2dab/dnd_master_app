@@ -2,6 +2,19 @@
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 
+/** Логические размеры канваса (CSS px); буфер = эти значения × canvasDpr для чёткости на Retina / ТВ. */
+let canvasDpr = 1;
+function getCanvasCssPixels() {
+    return {
+        w: Math.max(1, Math.round(canvas.clientWidth)),
+        h: Math.max(1, Math.round(canvas.clientHeight)),
+    };
+}
+function measureCanvasDevicePixelRatio() {
+    const r = window.devicePixelRatio || 1;
+    return Math.min(Math.max(r, 1), 3);
+}
+
 // ─── RAF-планировщик ────────────────────────────────────────────────────────
 let _rafPending = false;
 function scheduleRender() {
@@ -26,8 +39,9 @@ function invalidateBg() { _bgDirty = true; }
 
 function _getBgKey() {
     if (!mapImage || !mapData) return '';
+    const { w: lw, h: lh } = getCanvasCssPixels();
     return `${currentMapId}|${zoomLevel}|${panX}|${panY}|` +
-           `${canvas.width}|${canvas.height}|` +
+           `${lw}|${lh}|${canvasDpr}|` +
            `${mapData.grid_settings.visible}|${mapData.grid_settings.cell_size}|` +
            `${mapData.grid_settings.color}`;
 }
@@ -46,24 +60,30 @@ function _renderBg(offsetX, offsetY, scale) {
     _bgDirty = false;
     _bgKey = key;
 
+    const { w: lw, h: lh } = getCanvasCssPixels();
+    _bgCtx.setTransform(1, 0, 0, 1, 0, 0);
     _bgCtx.clearRect(0, 0, _bgCanvas.width, _bgCanvas.height);
+    _bgCtx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+    _bgCtx.clearRect(0, 0, lw, lh);
 
     if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
         _bgCtx.drawImage(mapImage, offsetX, offsetY, mapImage.width * scale, mapImage.height * scale);
     }
 
     if (mapData && mapData.grid_settings && mapData.grid_settings.visible && mapImage) {
-        _drawGridToCtx(_bgCtx, offsetX, offsetY, scale);
+        _drawGridToCtx(_bgCtx, offsetX, offsetY, scale, lw, lh);
     }
+    _bgCtx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 // Рисует сетку в произвольный 2d-контекст (используется offscreen и основной)
-function _drawGridToCtx(c, offsetX, offsetY, scale) {
+// maxLogicalW/maxLogicalH — границы в логических (CSS) пикселях при ctx.scale(DPR)
+function _drawGridToCtx(c, offsetX, offsetY, scale, maxLogicalW, maxLogicalH) {
     const cell = mapData.grid_settings.cell_size;
     const clipX1 = Math.max(0, offsetX);
     const clipY1 = Math.max(0, offsetY);
-    const clipX2 = Math.min(c.canvas.width, offsetX + mapImage.width * scale);
-    const clipY2 = Math.min(c.canvas.height, offsetY + mapImage.height * scale);
+    const clipX2 = Math.min(maxLogicalW, offsetX + mapImage.width * scale);
+    const clipY2 = Math.min(maxLogicalH, offsetY + mapImage.height * scale);
 
     c.save();
     c.strokeStyle = mapData.grid_settings.color;
@@ -72,13 +92,13 @@ function _drawGridToCtx(c, offsetX, offsetY, scale) {
 
     for (let x = 0; x <= mapImage.width; x += cell) {
         const sx = offsetX + x * scale;
-        if (sx < 0 || sx > c.canvas.width) continue;
+        if (sx < 0 || sx > maxLogicalW) continue;
         c.moveTo(sx, clipY1);
         c.lineTo(sx, clipY2);
     }
     for (let y = 0; y <= mapImage.height; y += cell) {
         const sy = offsetY + y * scale;
-        if (sy < 0 || sy > c.canvas.height) continue;
+        if (sy < 0 || sy > maxLogicalH) continue;
         c.moveTo(clipX1, sy);
         c.lineTo(clipX2, sy);
     }
@@ -92,15 +112,7 @@ const rightSidebar = document.getElementById("right-sidebar");
 const playerRulerToggle = document.getElementById("playerRulerToggle");
 const rulerToggle = document.getElementById("rulerToggle");
 (function initMasterCanvasSize() {
-    const container = document.getElementById('canvas-container');
-    const c = document.getElementById('mapCanvas');
-    if (container && c) {
-        c.width = Math.max(1, Math.round(container.clientWidth));
-        c.height = Math.max(1, Math.round(container.clientHeight));
-    } else if (c && sidebar && rightSidebar) {
-        c.width = Math.max(1, Math.round(window.innerWidth - sidebar.offsetWidth - rightSidebar.offsetWidth));
-        c.height = Math.max(1, Math.round(window.innerHeight));
-    }
+    resizeCanvas();
 })();
 let mapsList = [];
 /** Единая история Ctrl+Z / Ctrl+Y: снимок рисунков + зон на каждом шаге */
@@ -2232,13 +2244,16 @@ function setMasterMapIdGlobal() {
 
 function checkMapExists() {
     if (!currentMapId) {
-        // Показываем сообщение о необходимости создать карту
+        const { w: lw, h: lh } = getCanvasCssPixels();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+        ctx.clearRect(0, 0, lw, lh);
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
         ctx.fillText("Нет активной карты. Создайте новую или загрузите изображение",
-            canvas.width / 2, canvas.height / 2);
+            lw / 2, lh / 2);
         return false;
     }
     return true;
@@ -2986,14 +3001,18 @@ function fetchMap() {
 }
 
 function render() {
+    const { w: lw, h: lh } = getCanvasCssPixels();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+    ctx.clearRect(0, 0, lw, lh);
 
     if (!currentMapId) {
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
         ctx.fillText("Нет активной карты. Создайте новую или загрузите изображение",
-            canvas.width / 2, canvas.height / 2);
+            lw / 2, lh / 2);
         syncCombatToolbarButton();
         updateMasterInitiativeStrip();
         return;
@@ -3003,7 +3022,7 @@ function render() {
         ctx.font = "20px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Загрузите изображение карты", canvas.width / 2, canvas.height / 2);
+        ctx.fillText("Загрузите изображение карты", lw / 2, lh / 2);
         syncCombatToolbarButton();
         updateMasterInitiativeStrip();
         return;
@@ -3013,7 +3032,7 @@ function render() {
 
     // Фон (карта + сетка) — рисуем из кеша, пересчитываем только при необходимости
     _renderBg(offsetX, offsetY, scale);
-    ctx.drawImage(_bgCanvas, 0, 0);
+    ctx.drawImage(_bgCanvas, 0, 0, lw, lh);
 
     // Динамические слои (меняются чаще: зоны, рисунки, токены, находки)
     mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
@@ -3782,7 +3801,8 @@ function getMapCoordinates(event, offsetX, offsetY, scale) {
 }
 
 function getTransform() {
-    const baseScale = Math.min(canvas.width / mapImage.width, canvas.height / mapImage.height);
+    const { w: lw, h: lh } = getCanvasCssPixels();
+    const baseScale = Math.min(lw / mapImage.width, lh / mapImage.height);
     const scale = baseScale * zoomLevel;
     return {
         scale,
@@ -4469,13 +4489,14 @@ canvas.addEventListener("mousemove", (e) => {
 
         clearTimeout(zoomSyncTimeout);
         zoomSyncTimeout = setTimeout(() => {
+            const { w: lw, h: lh } = getCanvasCssPixels();
             socket.emit("zoom_update", {
                 map_id: currentMapId,
                 zoom_level: zoomLevel,
                 pan_x: panX,
                 pan_y: panY,
-                canvas_width: canvas.width,
-                canvas_height: canvas.height
+                canvas_width: lw,
+                canvas_height: lh
             });
         }, 200);
 
@@ -5196,14 +5217,15 @@ canvas.addEventListener("wheel", (e) => {
 
     clearTimeout(zoomSyncTimeout);
     zoomSyncTimeout = setTimeout(() => {
+        const { w: lw, h: lh } = getCanvasCssPixels();
         // Отправляем данные о масштабе на сервер
         socket.emit("zoom_update", {
             map_id: currentMapId,  // Убедитесь, что currentMapId определен
             zoom_level: zoomLevel,
             pan_x: panX,
             pan_y: panY,
-            canvas_width: canvas.width,
-            canvas_height: canvas.height
+            canvas_width: lw,
+            canvas_height: lh
         });
     }, 200);
 });
@@ -7335,9 +7357,10 @@ function centerMap() {
         return;
     }
 
+    const { w: lw, h: lh } = getCanvasCssPixels();
     // Вычисляем масштаб, чтобы карта поместилась полностью
-    const scaleX = canvas.width / mapImage.width;
-    const scaleY = canvas.height / mapImage.height;
+    const scaleX = lw / mapImage.width;
+    const scaleY = lh / mapImage.height;
     const baseScale = Math.min(scaleX, scaleY);
 
     // Устанавливаем zoomLevel в базовый масштаб (без дополнительного увеличения)
@@ -7345,8 +7368,8 @@ function centerMap() {
 
     // Вычисляем смещения для центрирования
     const newScale = baseScale * zoomLevel;
-    panX = (canvas.width - mapImage.width * newScale) / 2;
-    panY = (canvas.height - mapImage.height * newScale) / 2;
+    panX = (lw - mapImage.width * newScale) / 2;
+    panY = (lh - mapImage.height * newScale) / 2;
 
     // Сохраняем позицию в данных карты
     mapData.zoom_level = zoomLevel;
@@ -7365,8 +7388,8 @@ function centerMap() {
         zoom_level: zoomLevel,
         pan_x: panX,
         pan_y: panY,
-        canvas_width: canvas.width,
-        canvas_height: canvas.height
+        canvas_width: lw,
+        canvas_height: lh
     });
 
     console.log("Map centered:", { zoomLevel, panX, panY });
@@ -8639,16 +8662,20 @@ function initSidebarCollapse() {
 }
 function resizeCanvas() {
     const canvasContainer = document.getElementById('canvas-container');
-    const canvas = document.getElementById('mapCanvas');
+    const canvasEl = document.getElementById('mapCanvas');
 
-    if (!canvas || !canvasContainer) return;
+    if (!canvasEl || !canvasContainer) return;
 
     const w = Math.max(1, Math.round(canvasContainer.clientWidth));
     const h = Math.max(1, Math.round(canvasContainer.clientHeight));
-    if (canvas.width === w && canvas.height === h) return;
+    const dpr = measureCanvasDevicePixelRatio();
+    const bw = Math.max(1, Math.round(w * dpr));
+    const bh = Math.max(1, Math.round(h * dpr));
+    if (canvasEl.width === bw && canvasEl.height === bh && canvasDpr === dpr) return;
 
-    canvas.width = w;
-    canvas.height = h;
+    canvasDpr = dpr;
+    canvasEl.width = bw;
+    canvasEl.height = bh;
     invalidateBg();
 }
 window.addEventListener('resize', function () {

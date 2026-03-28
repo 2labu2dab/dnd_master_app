@@ -206,8 +206,9 @@ body.player-dnd:not(.player-embed) #portrait-sidebar {
   min-height: 0;
 }
 
-/* ─── Мобильные (только страница игрока, без iframe мини-карты) ─── */
-@media (max-width: 768px) {
+/* ─── Мобильные + телефон в альбоме (ширина часто >768px) ─── */
+@media (max-width: 768px),
+  ((max-height: 520px) and (orientation: landscape) and (max-width: 1024px)) {
   /*
    * 100svh для высоты body давал чёрную полосу снизу: при скрытии UI браузера видимая
    * область становится выше «small» viewport, а разметка оставалась по svh.
@@ -231,9 +232,10 @@ body.player-dnd:not(.player-embed) #portrait-sidebar {
     overflow: hidden;
   }
 
+  /* Карта слева, портреты справа (как на десктопе), не полоса снизу */
   body.player-dnd:not(.player-embed) #main {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     height: 100%;
     min-height: 0;
     width: 100%;
@@ -244,83 +246,91 @@ body.player-dnd:not(.player-embed) #portrait-sidebar {
 
   body.player-dnd:not(.player-embed) #map-container {
     flex: 1 1 0%;
+    min-width: 0;
     min-height: 0;
-    width: 100%;
-    height: auto;
+    width: auto;
+    height: 100%;
     max-height: none;
   }
 
-  /* Без жёсткого min-height: иначе карта + полоса портретов > экрана и низ обрезается */
   body.player-dnd:not(.player-embed) #map {
     min-height: 0;
-    flex: 1 1 auto;
     height: 100%;
   }
 
   body.player-dnd:not(.player-embed) #portrait-sidebar {
-    height: auto;
+    height: 100%;
     max-height: none;
-    border-left: none;
-    border-top: 2px solid rgba(12, 8, 6, 0.9);
-    box-shadow:
-      inset 0 10px 80px rgba(0, 0, 0, 0.42),
-      0 -6px 20px rgba(0, 0, 0, 0.45);
     flex: 0 0 auto;
-    width: 100% !important;
-    max-width: none !important;
+    width: 0;
     min-width: 0 !important;
+    border-left: none;
+    border-top: none;
+    box-shadow:
+      inset 0 0 100px rgba(0, 0, 0, 0.42),
+      -6px 0 20px rgba(0, 0, 0, 0.45);
   }
 
   body.player-dnd:not(.player-embed) #portrait-sidebar.visible {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    padding: 10px 12px 10px;
-    /* Полоса портретов + запас; safe-area уже на body */
-    max-height: min(36dvh, 260px);
+    width: min(40vw, 220px) !important;
+    min-width: 108px !important;
+    max-width: 240px !important;
+    height: 100%;
+    max-height: none;
+    padding: 10px 8px 10px 10px;
+    border-left: 2px solid rgba(12, 8, 6, 0.9);
+    border-top: none;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   body.player-dnd:not(.player-embed) #portrait-list {
-    overflow-x: auto;
-    overflow-y: hidden;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    flex: 0 0 auto;
-    max-height: none;
+    overscroll-behavior-y: contain;
     scrollbar-width: thin;
   }
 
-  /* Одна строка портретов, прокрутка по горизонтали (перебивает inline display:grid из JS) */
+  /* Одна колонка, прокрутка по вертикали внутри #portrait-list */
   body.player-dnd:not(.player-embed) .portrait-grid {
     display: flex !important;
-    flex-direction: row;
+    flex-direction: column;
     flex-wrap: nowrap;
-    width: max-content;
-    min-width: min(100%, max-content);
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
     height: auto;
-    align-items: flex-end;
     gap: 12px !important;
-    padding: 2px 4px 4px 0;
+    padding: 2px 0 8px;
     box-sizing: border-box;
   }
 
   body.player-dnd:not(.player-embed) .portrait-item {
-    width: auto;
+    width: 100%;
+    max-width: 100%;
     flex: 0 0 auto;
   }
 
   body.player-dnd:not(.player-embed) .portrait-nameplate {
-    font-size: clamp(11px, 3.2vw, 16px) !important;
-    padding: 3px 5px !important;
+    font-size: clamp(13px, 3.8vw, 18px) !important;
+    padding: 4px 6px !important;
+    min-height: 1.35em;
   }
 }
 
-/* Узкий экран в альбомной ориентации: чуть больше места карте */
+/* Узкий экран в альбомной ориентации: уже колонка портретов */
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
   body.player-dnd:not(.player-embed) #portrait-sidebar.visible {
-    max-height: min(32dvh, 200px);
-    padding-top: 6px;
-    padding-bottom: 6px;
+    width: min(34vw, 180px) !important;
+    min-width: 96px !important;
+    max-width: 200px !important;
+    padding: 6px 6px 6px 8px;
   }
 }
 

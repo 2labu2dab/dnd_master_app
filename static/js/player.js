@@ -1,6 +1,29 @@
 // static/js/player.js
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
+
+/** Буфер канваса = CSS-размер × DPR (чёткость на телефонах и ТВ). */
+let playerCanvasDpr = 1;
+function getPlayerCanvasCssPixels() {
+    return {
+        w: Math.max(1, Math.round(canvas.clientWidth)),
+        h: Math.max(1, Math.round(canvas.clientHeight)),
+    };
+}
+function measurePlayerCanvasDevicePixelRatio() {
+    const r = window.devicePixelRatio || 1;
+    return Math.min(Math.max(r, 1), 3);
+}
+/** Сброс матрицы, очистка битмапа, ctx в логических (CSS) пикселях. */
+function playerCanvasBeginFrame() {
+    const { w: lw, h: lh } = getPlayerCanvasCssPixels();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(playerCanvasDpr, 0, 0, playerCanvasDpr, 0, 0);
+    ctx.clearRect(0, 0, lw, lh);
+    return { lw, lh };
+}
+
 const isEmbeddedPreview = window !== window.parent;
 let mapData = null;
 let zoomLevel = 1;
@@ -39,7 +62,10 @@ if (document.body && isMiniMap) {
     document.body.classList.add('player-embed');
 }
 
-const PLAYER_MOBILE_MQ = window.matchMedia('(max-width: 768px)');
+/* Телефон в альбоме часто >768px по ширине — иначе включается десктопная сетка и колонки становятся крошечными */
+const PLAYER_MOBILE_MQ = window.matchMedia(
+    '(max-width: 768px), ((max-height: 520px) and (orientation: landscape) and (max-width: 1024px))'
+);
 
 function isPlayerMobileLayout() {
     return !isMiniMap && PLAYER_MOBILE_MQ.matches;
@@ -328,9 +354,12 @@ function performUpdatePortraits() {
 
     if (shouldBeVisible) {
         portraitSidebar.classList.add('visible');
+        // Два rAF: после flex + min-height полосы у стабильного clientHeight (мобильный Chrome).
         requestAnimationFrame(() => {
-            renderPortraits(visibleCharacters);
-            requestRender();
+            requestAnimationFrame(() => {
+                renderPortraits(visibleCharacters);
+                requestRender();
+            });
         });
     } else {
         portraitSidebar.classList.remove('visible');
@@ -345,7 +374,7 @@ function performUpdatePortraits() {
  * Резерв под табличку имени (margin + padding + строка текста + border).
  * Должен быть ≥ фактической высоте .portrait-nameplate в player-theme.css.
  */
-const PORTRAIT_NAME_BLOCK_PX = 42;
+const PORTRAIT_NAME_BLOCK_PX = 48;
 /** Запас по высоте списка, чтобы нижний ряд не обрезался из‑за округлений и скролла */
 const PORTRAIT_LIST_HEIGHT_BUFFER_PX = 10;
 
@@ -366,9 +395,10 @@ function renderPortraits(characters) {
     const mobile = isPlayerMobileLayout();
     let cols = gridConfig.cols;
     let rows = gridConfig.rows;
+    /* Узкий сайдбар справа: одна колонка, прокрутка по вертикали (не полоса снизу) */
     if (mobile && !isMiniMap && count > 0) {
-        cols = count;
-        rows = 1;
+        cols = 1;
+        rows = count;
     }
 
     const sidebarStyle = window.getComputedStyle(portraitSidebar);
@@ -400,11 +430,17 @@ function renderPortraits(characters) {
         gapSize = 10;
     }
 
+    const padding = isMiniMap ? 10 : mobile ? 24 : 16;
+    const availableWidth = sidebarWidth - padding;
+
     const totalGapHeight = (rows - 1) * gapSize;
     const nameBlock = isMiniMap ? 0 : PORTRAIT_NAME_BLOCK_PX;
     const availableForPortraits = availableHeight - totalGapHeight - rows * nameBlock;
 
-    let portraitHeight = Math.floor(availableForPortraits / rows);
+    let portraitHeight =
+        mobile && !isMiniMap && count > 0
+            ? Math.max(52, Math.floor(availableWidth * 0.92))
+            : Math.floor(availableForPortraits / rows);
 
     let maxPortraitSize;
 
@@ -427,19 +463,20 @@ function renderPortraits(characters) {
     portraitHeight = Math.min(maxPortraitSize, portraitHeight);
     portraitHeight = Math.max(isMiniMap ? 35 : 44, portraitHeight);
 
-    const padding = isMiniMap ? 10 : mobile ? 24 : 16;
-    const availableWidth = sidebarWidth - padding;
     const totalGapWidth = (cols - 1) * gapSize;
     const columnWidth = (availableWidth - totalGapWidth) / cols;
 
     let finalPortraitSize;
     if (mobile && !isMiniMap) {
-        const hCap = Math.floor(
-            (availableHeight - (rows - 1) * gapSize - rows * nameBlock) / rows
-        );
-        const pxCap = Math.min(120, Math.max(56, hCap));
-        finalPortraitSize = Math.min(portraitHeight, pxCap);
-        finalPortraitSize = Math.max(48, finalPortraitSize);
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        const vw = window.visualViewport?.width ?? window.innerWidth;
+        const wBudget =
+            count > 0
+                ? Math.floor((availableWidth - (cols - 1) * gapSize) / cols)
+                : 80;
+        const softCap = Math.min(168, Math.round(Math.min(vw, vh) * 0.26));
+        const mobS = Math.min(wBudget, softCap, portraitHeight);
+        finalPortraitSize = Math.max(44, mobS);
     } else {
         finalPortraitSize = Math.min(portraitHeight, columnWidth);
         finalPortraitSize = Math.max(isMiniMap ? 30 : 44, finalPortraitSize);
@@ -450,7 +487,7 @@ function renderPortraits(characters) {
         if (finalPortraitSize > maxAllowedWidth) {
             finalPortraitSize = maxAllowedWidth - 2;
         }
-    } else {
+    } else if (!mobile) {
         const minPortrait = 32;
         const fitHeight = Math.max(0, availableHeight - 4);
         const gridTotalH = () => rows * (finalPortraitSize + nameBlock) + (rows - 1) * gapSize;
@@ -459,7 +496,7 @@ function renderPortraits(characters) {
             finalPortraitSize -= 1;
             h = gridTotalH();
         }
-        const minGap = mobile ? 4 : !isMiniMap && count >= 3 && count <= 6 ? 8 : 2;
+        const minGap = !isMiniMap && count >= 3 && count <= 6 ? 8 : 2;
         while (h > fitHeight && gapSize > minGap) {
             gapSize -= 1;
             h = gridTotalH();
@@ -468,12 +505,10 @@ function renderPortraits(characters) {
             finalPortraitSize -= 1;
             h = gridTotalH();
         }
-        if (!mobile) {
-            const tgw = (cols - 1) * gapSize;
-            const cw = Math.floor((availableWidth - tgw) / cols);
-            if (finalPortraitSize > cw) {
-                finalPortraitSize = Math.max(minPortrait, cw);
-            }
+        const tgw = (cols - 1) * gapSize;
+        const cw = Math.floor((availableWidth - tgw) / cols);
+        if (finalPortraitSize > cw) {
+            finalPortraitSize = Math.max(minPortrait, cw);
         }
         h = gridTotalH();
         while (h > fitHeight && finalPortraitSize > minPortrait) {
@@ -493,7 +528,7 @@ function renderPortraits(characters) {
     gridContainer.style.gap = `${gapSize}px`;
     gridContainer.style.width = '100%';
     gridContainer.style.height = 'auto';
-    gridContainer.style.maxHeight = '100%';
+    gridContainer.style.maxHeight = mobile && !isMiniMap ? 'none' : '100%';
     gridContainer.style.alignContent = 'start';
     gridContainer.style.padding = '0';
     gridContainer.style.margin = '0';
@@ -683,11 +718,11 @@ function beginMapLoadForPlayer() {
         fetchMap();
     } else {
         resizeCanvasToDisplaySize();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const { lw, lh } = playerCanvasBeginFrame();
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
+        ctx.fillText("Карта не выбрана", lw / 2, lh / 2);
         if (playerExplicitNoMap || isMiniMap) {
             // остаёмся без mapId
         } else {
@@ -775,14 +810,15 @@ if (isMiniMap) {
 }
 
 function resizeCanvasToDisplaySize() {
-    const displayWidth = canvas.clientWidth;
-    const displayHeight = canvas.clientHeight;
-
-    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-        canvas.width = displayWidth;
-        canvas.height = displayHeight;
+    const { w, h } = getPlayerCanvasCssPixels();
+    const dpr = measurePlayerCanvasDevicePixelRatio();
+    const bw = Math.max(1, Math.round(w * dpr));
+    const bh = Math.max(1, Math.round(h * dpr));
+    if (canvas.width !== bw || canvas.height !== bh || playerCanvasDpr !== dpr) {
+        playerCanvasDpr = dpr;
+        canvas.width = bw;
+        canvas.height = bh;
         requestRender();
-        // При изменении размера окна обновляем портреты
         setTimeout(updatePortraits, 100);
     }
 }
@@ -1008,13 +1044,15 @@ socket.on("master_switched_map", (data) => {
 });
 
 function render() {
+    resizeCanvasToDisplaySize();
+
     // 1. Базовые проверки
     if (!mapId || !mapData) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const { lw, lh } = playerCanvasBeginFrame();
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
+        ctx.fillText("Карта не выбрана", lw / 2, lh / 2);
         return;
     }
 
@@ -1038,18 +1076,13 @@ function render() {
     canvas.style.height = '100%';
     canvas.style.backgroundColor = 'transparent';
 
-    // 4. Проверка изображения
-    resizeCanvasToDisplaySize();
-
-    // Сбрасываем трансформацию и очищаем с темным фоном
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { lw, lh } = playerCanvasBeginFrame();
 
     if (!mapData.has_image) {
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Нет изображения карты", canvas.width / 2, canvas.height / 2);
+        ctx.fillText("Нет изображения карты", lw / 2, lh / 2);
         return;
     }
 
@@ -1063,7 +1096,7 @@ function render() {
         ctx.font = "24px Inter";
         ctx.fillStyle = "#666";
         ctx.textAlign = "center";
-        ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
+        ctx.fillText("Загрузка карты...", lw / 2, lh / 2);
         return;
     }
 
@@ -1071,31 +1104,24 @@ function render() {
     const mapW = mapImage.naturalWidth || mapImage.width;
     const mapH = mapImage.naturalHeight || mapImage.height;
 
-    // 6. Вычисляем масштаб для игрока
-    const playerBaseScale = Math.min(canvas.width / mapW, canvas.height / mapH);
+    // 6. Вычисляем масштаб для игрока (логические пиксели вида)
+    const playerBaseScale = Math.min(lw / mapW, lh / mapH);
     const playerScale = playerBaseScale * zoomLevel;
 
     // 7. Центрируем карту на экране игрока
-    // Используем те же мировые координаты, что и у мастера
-    // Для этого нам нужно знать, какой размер канваса у мастера
     const masterScale = Math.min(masterCanvasWidth / mapW, masterCanvasHeight / mapH) * zoomLevel;
     const worldCenterX = (masterCanvasWidth / 2 - panX) / masterScale;
     const worldCenterY = (masterCanvasHeight / 2 - panY) / masterScale;
 
-    // Вычисляем смещение для игрока
-    const offsetX = canvas.width / 2 - worldCenterX * playerScale;
-    const offsetY = canvas.height / 2 - worldCenterY * playerScale;
+    const offsetX = lw / 2 - worldCenterX * playerScale;
+    const offsetY = lh / 2 - worldCenterY * playerScale;
 
-    // 8. Рисуем изображение
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(mapImage, offsetX, offsetY, mapW * playerScale, mapH * playerScale);
 
-    // Рисуем остальные слои
-    drawLayers(offsetX, offsetY, playerScale);
+    drawLayers(offsetX, offsetY, playerScale, lw, lh);
 
-    // Рисуем линейку если нужно
     if (mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
-        drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, playerScale);
+        drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, playerScale, lw, lh);
     }
 }
 socket.on("map_sync", (data) => {
@@ -1206,13 +1232,13 @@ function updatePlayerInitiativeStrip() {
     }
 }
 
-function drawLayers(offsetX, offsetY, scale) {
+function drawLayers(offsetX, offsetY, scale, lw, lh) {
     const imageLoaded = mapImage && mapImage.complete && mapImage.naturalWidth > 0;
 
     if (imageLoaded &&
         mapData.grid_settings &&
         mapData.grid_settings.visible_to_players === true) {
-        drawGrid(offsetX, offsetY, scale);
+        drawGrid(offsetX, offsetY, scale, lw, lh);
     }
 
     // Рисуем рисунки мастера - ЭТУ СТРОКУ НУЖНО ДОБАВИТЬ
@@ -1236,7 +1262,7 @@ function drawLayers(offsetX, offsetY, scale) {
     }
 }
 
-function drawGrid(offsetX, offsetY, scale) {
+function drawGrid(offsetX, offsetY, scale, lw, lh) {
     // Получаем количество клеток из настроек
     let cellsCount = mapData.grid_settings.cell_count || 20; // По умолчанию 20 клеток
 
@@ -1271,10 +1297,10 @@ function drawGrid(offsetX, offsetY, scale) {
     for (let i = 0; i <= cellsCount; i++) {
         const x = i * cellSizeInPixels; // Позиция в пикселях на карте
         const sx = offsetX + x * scale;
-        if (sx < 0 || sx > canvas.width) continue;
+        if (sx < 0 || sx > lw) continue;
 
         ctx.moveTo(sx, Math.max(mapTop, 0));
-        ctx.lineTo(sx, Math.min(mapBottom, canvas.height));
+        ctx.lineTo(sx, Math.min(mapBottom, lh));
     }
 
     // Рисуем горизонтальные линии - их количество = cellsCount * (высота/ширина)
@@ -1284,10 +1310,10 @@ function drawGrid(offsetX, offsetY, scale) {
     for (let i = 0; i <= horizontalCells; i++) {
         const y = i * cellSizeInPixels; // Позиция в пикселях на карте
         const sy = offsetY + y * scale;
-        if (sy < 0 || sy > canvas.height) continue;
+        if (sy < 0 || sy > lh) continue;
 
         ctx.moveTo(Math.max(mapLeft, 0), sy);
-        ctx.lineTo(Math.min(mapRight, canvas.width), sy);
+        ctx.lineTo(Math.min(mapRight, lw), sy);
     }
 
     ctx.stroke();
@@ -1390,7 +1416,7 @@ function drawToken(token, offsetX, offsetY, scale) {
     ctx.stroke();
 }
 
-function drawMasterRuler(start, end, offsetX, offsetY, scale) {
+function drawMasterRuler(start, end, offsetX, offsetY, scale, lw, lh) {
     if (!start || !end) return;
 
     const [x1, y1] = start;
@@ -1406,7 +1432,7 @@ function drawMasterRuler(start, end, offsetX, offsetY, scale) {
     const minY = Math.min(sy1, sy2);
     const maxY = Math.max(sy1, sy2);
 
-    if (maxX < 0 || minX > canvas.width || maxY < 0 || minY > canvas.height) {
+    if (maxX < 0 || minX > lw || maxY < 0 || minY > lh) {
         return;
     }
 
@@ -1896,11 +1922,11 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
     if (!canvas || !ctx) return Promise.resolve(null);
 
     resizeCanvasToDisplaySize();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let _fm = playerCanvasBeginFrame();
     ctx.font = "24px Inter";
     ctx.fillStyle = "#666";
     ctx.textAlign = "center";
-    ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
+    ctx.fillText("Загрузка карты...", _fm.lw / 2, _fm.lh / 2);
 
     if (!mapId) {
         try {
@@ -1921,11 +1947,11 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
         } catch (err) { /* cross-origin */ }
 
         if (!mapId) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            _fm = playerCanvasBeginFrame();
             ctx.font = "24px Inter";
             ctx.fillStyle = "#666";
             ctx.textAlign = "center";
-            ctx.fillText("Карта не выбрана", canvas.width / 2, canvas.height / 2);
+            ctx.fillText("Карта не выбрана", _fm.lw / 2, _fm.lh / 2);
             return Promise.reject("No map ID");
         }
     }
@@ -2056,11 +2082,11 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
                     socket.emit("request_map_sync", { map_id: mapId });
                 } catch (e) { /* silent */ }
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                _fm = playerCanvasBeginFrame();
                 ctx.font = "24px Inter";
                 ctx.fillStyle = "#666";
                 ctx.textAlign = "center";
-                ctx.fillText("Загрузка карты...", canvas.width / 2, canvas.height / 2);
+                ctx.fillText("Загрузка карты...", _fm.lw / 2, _fm.lh / 2);
                 return;
             }
 
@@ -2068,34 +2094,34 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
 
             // Проверяем тип ошибки
             if (err.name === 'AbortError') {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                _fm = playerCanvasBeginFrame();
                 ctx.font = "24px Inter";
                 ctx.fillStyle = "#f44336";
                 ctx.textAlign = "center";
-                ctx.fillText("Таймаут загрузки карты", canvas.width / 2, canvas.height / 2 - 20);
+                ctx.fillText("Таймаут загрузки карты", _fm.lw / 2, _fm.lh / 2 - 20);
                 ctx.font = "16px Inter";
                 ctx.fillStyle = "#4C5BEF";
-                ctx.fillText("Проверьте соединение с сервером", canvas.width / 2, canvas.height / 2 + 20);
+                ctx.fillText("Проверьте соединение с сервером", _fm.lw / 2, _fm.lh / 2 + 20);
             } else if (err.message?.includes("Failed to fetch")) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                _fm = playerCanvasBeginFrame();
                 ctx.font = "24px Inter";
                 ctx.fillStyle = "#f44336";
                 ctx.textAlign = "center";
-                ctx.fillText("Сервер недоступен", canvas.width / 2, canvas.height / 2 - 20);
+                ctx.fillText("Сервер недоступен", _fm.lw / 2, _fm.lh / 2 - 20);
                 ctx.font = "16px Inter";
                 ctx.fillStyle = "#4C5BEF";
-                ctx.fillText("Проверьте, запущен ли сервер", canvas.width / 2, canvas.height / 2 + 20);
+                ctx.fillText("Проверьте, запущен ли сервер", _fm.lw / 2, _fm.lh / 2 + 20);
             }
 
             // Повторная попытка
             if (retryCount < maxRetries && !err.message?.includes("404") && err.name !== 'AbortError') {
                 console.log(`Retrying fetchMap (${retryCount + 1}/${maxRetries})...`);
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                _fm = playerCanvasBeginFrame();
                 ctx.font = "20px Inter";
                 ctx.fillStyle = "#666";
                 ctx.textAlign = "center";
                 ctx.fillText(`Повторная попытка загрузки... (${retryCount + 1}/${maxRetries})`,
-                    canvas.width / 2, canvas.height / 2);
+                    _fm.lw / 2, _fm.lh / 2);
 
                 return new Promise(resolve => {
                     setTimeout(() => {
@@ -2107,7 +2133,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             // Показываем кнопку для повторной попытки
             ctx.font = "16px Inter";
             ctx.fillStyle = "#4C5BEF";
-            ctx.fillText("Нажмите для повторной попытки", canvas.width / 2, canvas.height / 2 + 60);
+            ctx.fillText("Нажмите для повторной попытки", _fm.lw / 2, _fm.lh / 2 + 60);
 
             const clickHandler = () => {
                 canvas.removeEventListener('click', clickHandler);
