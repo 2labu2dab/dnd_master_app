@@ -112,12 +112,33 @@ let masterPingInterval = null;
 let currentMapImageFile = null;
 let allTokensFromMaps = [];
 let allCharactersFromMaps = [];
+
+function tokensForImportList(tokens) {
+    if (!tokens || !tokens.length) return [];
+    if (!currentMapId) return tokens.slice();
+    return tokens.filter((t) => String(t.source_map_id) !== String(currentMapId));
+}
+
+function charactersForImportList(chars) {
+    if (!chars || !chars.length) return [];
+    if (!currentMapId) return chars.slice();
+    return chars.filter((c) => String(c.source_map_id) !== String(currentMapId));
+}
 let selectedImportToken = null;
 let isSwitchingMap = false;
 /** Инкрементируется при каждой смене карты / сбросе — отбрасываем устаревшие ответы fetch. */
 let _switchMapGen = 0;
 let selectedCharacterId = null;
 let spawnPosition = null;
+
+/** Центр карты в мировых координатах — для спавна из банка и импорта с других карт. */
+function getDefaultTokenSpawnPosition() {
+    if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
+        return [mapImage.width / 2, mapImage.height / 2];
+    }
+    return [500, 500];
+}
+
 let isClick = true; // Флаг для определения клика vs перетаскивания
 let clickTimer = null; // Таймер для определения задержки
 let allBankCharacters = [];
@@ -1201,19 +1222,16 @@ function refreshCharacterList() {
 }
 
 function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
-    const centerX = mapImage.width ? mapImage.width / 2 : 500;
-    const centerY = mapImage.height ? mapImage.height / 2 : 500;
+    const pos = getDefaultTokenSpawnPosition();
+    const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-    const tokenId = `token_${Date.now()}`;
-
-    // Получаем выбранный размер
     const avatarUrl = avatarData ? `/api/token/avatar/${tokenId}` : null;
 
     const token = {
         id: tokenId,
         name,
-        position: [centerX, centerY],
-        size: tokenSize,  // Сохраняем строковый идентификатор размера
+        position: pos,
+        size: tokenSize,
         is_dead: false,
         is_player: type === "player",
         is_npc: type === "npc",
@@ -1232,6 +1250,24 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
         characterId = `char_${Date.now() + 1}`;
     }
 
+    if (!mapData.tokens) mapData.tokens = [];
+    mapData.tokens.push(token);
+
+    if (avatarData) {
+        const img = new Image();
+        img.onload = () => {
+            avatarCache.set(tokenId, img);
+            render();
+        };
+        img.onerror = () => console.warn(`Failed to decode avatar preview for ${tokenId}`);
+        img.src = avatarData;
+    }
+
+    selectedTokenId = tokenId;
+    render();
+    updateSidebar();
+    closeTokenModal(true);
+
     const requestBody = {
         ...token,
         avatar_data: avatarData,
@@ -1245,7 +1281,7 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
             type: type,
             armor_class: ac,
             max_health: hp,
-            size: tokenSize,  // ВАЖНО: передаём размер в банк
+            size: tokenSize,
             has_avatar: !!avatarData
         };
 
@@ -1277,19 +1313,19 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
                 token.avatar_url = data.avatar_url;
             }
 
-            if (!mapData.tokens) mapData.tokens = [];
-            mapData.tokens.push(token);
-
             if (avatarData && token.avatar_url) {
-                const img = new Image();
-                img.onload = () => {
-                    avatarCache[tokenId] = img;
-                    render();
-                };
-                img.onerror = () => {
-                    console.warn(`Failed to load avatar for new token ${tokenId}`);
-                };
-                img.src = token.avatar_url;
+                const cached = avatarCache.get(tokenId);
+                if (!(cached instanceof HTMLImageElement && cached.complete)) {
+                    const img = new Image();
+                    img.onload = () => {
+                        avatarCache.set(tokenId, img);
+                        render();
+                    };
+                    img.onerror = () => {
+                        console.warn(`Failed to load avatar for new token ${tokenId}`);
+                    };
+                    img.src = token.avatar_url;
+                }
             }
 
             render();
@@ -1313,10 +1349,14 @@ function createNewToken(name, ac, hp, type, avatarData, addToBank, tokenSize) {
         })
         .then(() => {
             endTokenModalSave();
-            closeTokenModal();
         })
         .catch(error => {
             console.error('Error:', error);
+            mapData.tokens = (mapData.tokens || []).filter((t) => t.id !== tokenId);
+            avatarCache.delete(tokenId);
+            if (selectedTokenId === tokenId) selectedTokenId = null;
+            render();
+            updateSidebar();
             alert('Ошибка при создании токена: ' + error.message);
         })
         .finally(() => endTokenModalSave());
@@ -1618,27 +1658,25 @@ function createCharacterContextMenu() {
     // Обработчик удаления
     document.getElementById("contextDeleteCharacter").addEventListener("click", function () {
         if (window.currentContextCharacter && confirm(`Удалить портрет "${window.currentContextCharacter.name}"?`)) {
-            // Удаляем файл аватара с сервера
-            fetch(`/api/portrait/${window.currentContextCharacter.id}`, {
-                method: 'DELETE'
-            }).catch(err => console.error('Error deleting portrait:', err));
-
-            // Удаляем из локальных данных
-            mapData.characters = mapData.characters.filter(c => c.id !== window.currentContextCharacter.id);
+            const removedPortraitId = window.currentContextCharacter.id;
+            mapData.characters = mapData.characters.filter(c => c.id !== removedPortraitId);
             selectedCharacterId = null;
 
-            // Сохраняем изменения
-            saveMapData().then(() => {
-                render();
-                updateSidebar();
-                initCharacterDragAndDrop();
-
-                // Уведомляем игроков
-                socket.emit("characters_updated", {
-                    map_id: currentMapId,
-                    characters: mapData.characters
-                });
-            });
+            // Сначала сохраняем карту без портрета — иначе сервер при DELETE ещё видит старый JSON
+            saveMapData()
+                .then(() => {
+                    fetch(`/api/portrait/${removedPortraitId}`, { method: "DELETE" }).catch((err) =>
+                        console.error("Error deleting portrait file:", err)
+                    );
+                    render();
+                    updateSidebar();
+                    initCharacterDragAndDrop();
+                    socket.emit("characters_updated", {
+                        map_id: currentMapId,
+                        characters: mapData.characters
+                    });
+                })
+                .catch((err) => console.error("Failed to save map after removing portrait:", err));
 
             menu.style.display = "none";
         }
@@ -4029,8 +4067,8 @@ function handleAvatarUpload(ev) {
     input.value = "";
 }
 
-function closeTokenModal() {
-    if (window.tokenModalSaveInProgress) return;
+function closeTokenModal(force) {
+    if (window.tokenModalSaveInProgress && force !== true) return;
     document.getElementById("tokenModal").style.display = "none";
     document.getElementById("tokenName").value = "";
     document.getElementById("tokenAC").value = 10;
@@ -4753,6 +4791,41 @@ function renderTokenContextMenu(token, x, y) {
     menu.style.display = "block";
 }
 
+/** Завершить чертёж зоны (ПКМ по холсту или Enter): минимум 3 вершины — открыть модалку. */
+function finalizeActiveZoneDrawing() {
+    if (!drawingZone || !currentMapId || !mapData) return false;
+
+    if (currentZoneVertices.length < 3) {
+        alert("Зона должна иметь минимум 3 точки.");
+        drawingZone = false;
+        currentZoneVertices = [];
+        updateCanvasCursor();
+        const hint = document.getElementById("drawing-hint");
+        if (hint) hint.remove();
+        render();
+        return true;
+    }
+
+    pendingZoneVertices = [...currentZoneVertices];
+    drawingZone = false;
+    currentZoneVertices = [];
+    updateCanvasCursor();
+
+    const hint = document.getElementById("drawing-hint");
+    if (hint) hint.remove();
+
+    document.getElementById("zoneName").value = "";
+    document.getElementById("zoneDescription").value = "";
+    document.getElementById("zoneModalTitle").textContent = "Создание зоны";
+    document.getElementById("zoneModal").style.display = "flex";
+    document.getElementById("zoneVisibleCheckbox").checked = false;
+
+    // Иначе на холсте остаётся последний кадр с drawTempZone, пока не будет нового render()
+    render();
+
+    return true;
+}
+
 canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     hideInitiativeStripContextMenu();
@@ -4874,41 +4947,7 @@ canvas.addEventListener("contextmenu", (e) => {
 
     // Если кликнули не по объекту, проверяем режим рисования зоны
     if (drawingZone) {
-        if (currentZoneVertices.length < 3) {
-            alert("Зона должна иметь минимум 3 точки.");
-            drawingZone = false;
-            currentZoneVertices = [];
-            updateCanvasCursor();
-
-            const hint = document.getElementById('drawing-hint');
-            if (hint) hint.remove();
-
-            return;
-        }
-
-        const newZoneVertices = [...currentZoneVertices];
-        pendingZoneVertices = [...currentZoneVertices];
-        drawingZone = false;
-        currentZoneVertices = [];
-        updateCanvasCursor();
-
-        const hint = document.getElementById('drawing-hint');
-        if (hint) hint.remove();
-
-        document.getElementById("zoneName").value = "";
-        document.getElementById("zoneDescription").value = "";
-        document.getElementById("zoneModalTitle").textContent = "Создание зоны";
-        document.getElementById("zoneModal").style.display = "flex";
-        document.getElementById("zoneVisibleCheckbox").checked = false;
-
-        const hasIntersection = mapData.zones.some(z =>
-            z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, newZoneVertices)
-        );
-
-        // if (hasIntersection) {
-        //   alert("Новая зона пересекается с существующей! Измените форму.");
-        //   return;
-        // }
+        finalizeActiveZoneDrawing();
         return;
     }
 });
@@ -5359,6 +5398,36 @@ document.addEventListener("keydown", (e) => {
         return; // Выходим, чтобы не обрабатывать другие клавиши
     }
 
+    if (e.key === "Enter") {
+        if (drawingZone && currentMapId && mapData) {
+            if (finalizeActiveZoneDrawing()) {
+                e.preventDefault();
+                return;
+            }
+        }
+
+        const ae = document.activeElement;
+        if (!ae || ae.tagName === "TEXTAREA" || ae.isContentEditable) {
+            // многострочные поля — Enter оставляем для новой строки
+        } else {
+            const openModal = Array.from(document.querySelectorAll(".modal")).find(
+                (m) => m.style.display === "flex"
+            );
+            if (openModal) {
+                const saveOv = openModal.querySelector(".map-modal-save-overlay");
+                if (saveOv && saveOv.style.display === "flex") {
+                    return;
+                }
+                const saveBtn = openModal.querySelector(".save-btn:not([disabled])");
+                if (saveBtn && saveBtn.offsetParent !== null) {
+                    e.preventDefault();
+                    saveBtn.click();
+                    return;
+                }
+            }
+        }
+    }
+
     // Если фокус на поле ввода - не перехватываем комбинации клавиш
     if (isInputActive) {
         return; // Позволяем стандартному поведению (включая Ctrl+V)
@@ -5432,6 +5501,7 @@ document.addEventListener("keydown", (e) => {
         }
 
         let changed = false;
+        let portraitIdToPruneFile = null;
 
         // Удаление нескольких выделенных токенов
         if (selectedTokens.size > 0) {
@@ -5518,10 +5588,7 @@ document.addEventListener("keydown", (e) => {
 
             const character = mapData.characters?.find(c => c.id === selectedCharacterId);
             if (character) {
-                fetch(`/api/portrait/${selectedCharacterId}`, {
-                    method: 'DELETE'
-                }).catch(err => console.error('Error deleting portrait:', err));
-
+                portraitIdToPruneFile = selectedCharacterId;
                 mapData.characters = mapData.characters.filter(c => c.id !== selectedCharacterId);
                 changed = true;
             }
@@ -5530,8 +5597,16 @@ document.addEventListener("keydown", (e) => {
 
         if (changed) {
             render();
-            saveMapData();
             updateSidebar();
+            saveMapData()
+                .then(() => {
+                    if (portraitIdToPruneFile) {
+                        fetch(`/api/portrait/${portraitIdToPruneFile}`, { method: "DELETE" }).catch((err) =>
+                            console.error("Error deleting portrait file:", err)
+                        );
+                    }
+                })
+                .catch((err) => console.error("Failed to save map:", err));
         }
     }
 
@@ -5586,6 +5661,9 @@ function closeZoneModal() {
     document.getElementById("zoneModal").style.display = "none";
     editingZoneId = null;
     pendingZoneVertices = null;
+    // Создание зоны отменено — убрать «залипший» чертёж; при редактировании просто перерисовать
+    render();
+    updateCanvasCursor();
 }
 
 function submitZone() {
@@ -6128,13 +6206,22 @@ function updateCanvasCursor() {
     }
 }
 
+const eraseCursorDataUrl =
+    `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
+            '<path d="M7 26 L20 11 L27 13 L17 27 Z" fill="#e8a0b0" stroke="#334155" stroke-width="1.2"/>' +
+            '<path d="M7 26 L7 30 L17 30 L17 26 Z" fill="#64748b" stroke="#334155" stroke-width="1.2"/>' +
+            '<path d="M10 28 L14 28" stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="round"/>' +
+            "</svg>"
+    )}") 10 28, crosshair`;
+
 const drawStyle = document.createElement('style');
 drawStyle.textContent = `
     canvas.draw-mode {
         cursor: crosshair !important;
     }
     canvas.erase-mode {
-        cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="white" stroke="red" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="red" stroke-width="2"/><line x1="18" y1="6" x2="6" y2="18" stroke="red" stroke-width="2"/></svg>') 12 12, auto !important;
+        cursor: ${eraseCursorDataUrl} !important;
     }
 `;
 document.head.appendChild(drawStyle);
@@ -6997,6 +7084,31 @@ function pasteToken() {
         });
 }
 
+/** Позиция для копии: сдвиг по диагонали сетки, без наложения на уже стоящие токены (удобно при серии копий). */
+function computeDuplicateTokenPosition(sourceToken) {
+    const cell = mapData.grid_settings?.cell_size || 20;
+    const sx = sourceToken.position[0];
+    const sy = sourceToken.position[1];
+    const minDist = cell * 0.45;
+    const maxRings = 40;
+    const w = mapImage.width;
+    const h = mapImage.height;
+    for (let ring = 1; ring <= maxRings; ring++) {
+        const nx = sx + cell * ring;
+        const ny = sy + cell * ring;
+        const px = Math.max(0, Math.min(nx, w));
+        const py = Math.max(0, Math.min(ny, h));
+        const clash = mapData.tokens.some(
+            (t) => Math.hypot(t.position[0] - px, t.position[1] - py) < minDist
+        );
+        if (!clash) return [px, py];
+    }
+    return [
+        Math.max(0, Math.min(sx + cell, w)),
+        Math.max(0, Math.min(sy + cell, h)),
+    ];
+}
+
 function duplicateToken(sourceToken) {
     if (!sourceToken) return;
 
@@ -7005,40 +7117,10 @@ function duplicateToken(sourceToken) {
         return;
     }
 
-    // Смещаем копию немного относительно оригинала
-    const offset = mapData.grid_settings.cell_size;
-    let newX = sourceToken.position[0] + offset;
-    let newY = sourceToken.position[1] + offset;
+    if (!mapData.tokens) mapData.tokens = [];
 
-    newX = Math.max(0, Math.min(newX, mapImage.width));
-    newY = Math.max(0, Math.min(newY, mapImage.height));
-
-    const newTokenId = `token_${Date.now()}`;
-
-    // Если у исходного токена есть аватар, получаем его с максимальным качеством
-    let avatarDataToSend = null;
-
-    if (sourceToken.has_avatar && sourceToken.avatar_url) {
-        const cachedImg = avatarCache.get(sourceToken.id);
-        if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-            // Конвертируем в base64 с оригинальным качеством
-            const canvas = document.createElement('canvas');
-            canvas.width = cachedImg.naturalWidth;
-            canvas.height = cachedImg.naturalHeight;
-            const ctx = canvas.getContext('2d');
-
-            // ОТКЛЮЧАЕМ СГЛАЖИВАНИЕ
-            ctx.imageSmoothingEnabled = false;
-
-            ctx.drawImage(cachedImg, 0, 0);
-
-            // Используем максимальное качество PNG
-            avatarDataToSend = canvas.toDataURL('image/png', 1.0);
-        } else {
-            // Если нет в кэше, загружаем с сервера
-            avatarDataToSend = sourceToken.avatar_data || null;
-        }
-    }
+    const [newX, newY] = computeDuplicateTokenPosition(sourceToken);
+    const newTokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
     const newToken = {
         id: newTokenId,
@@ -7056,11 +7138,24 @@ function duplicateToken(sourceToken) {
         is_visible: sourceToken.is_visible
     };
 
+    mapData.tokens.push(newToken);
+    if (sourceToken.has_avatar) {
+        const sourceImg = avatarCache.get(sourceToken.id);
+        if (sourceImg instanceof HTMLImageElement && sourceImg.complete) {
+            avatarCache.set(newTokenId, sourceImg);
+        }
+    }
+    selectedTokenId = newTokenId;
+    render();
+    updateSidebar();
+
     const requestBody = {
         ...newToken,
-        avatar_data: avatarDataToSend,
         map_id: currentMapId
     };
+    if (sourceToken.has_avatar) {
+        requestBody.copy_avatar_from_token_id = sourceToken.id;
+    }
 
     fetch("/api/token", {
         method: "POST",
@@ -7074,30 +7169,39 @@ function duplicateToken(sourceToken) {
             return response.json();
         })
         .then(data => {
+            const t = mapData.tokens.find((x) => x.id === newTokenId);
+            if (!t) return;
+
             if (data.avatar_url) {
-                newToken.avatar_url = data.avatar_url;
+                t.avatar_url = data.avatar_url;
+                t.has_avatar = true;
+            } else {
+                t.has_avatar = false;
+                delete t.avatar_url;
+                avatarCache.delete(newTokenId);
             }
 
-            mapData.tokens.push(newToken);
-
-            // Копируем аватар в кэш
-            if (sourceToken.has_avatar && avatarCache.get(sourceToken.id) instanceof HTMLImageElement) {
-                const sourceImg = avatarCache.get(sourceToken.id);
+            if (t.has_avatar && (data.avatar_url || t.avatar_url) && !avatarCache.get(newTokenId)) {
                 const newImg = new Image();
                 newImg.onload = () => {
                     avatarCache.set(newTokenId, newImg);
                     render();
                 };
-                newImg.src = data.avatar_url || newToken.avatar_url;
+                newImg.src = data.avatar_url || t.avatar_url;
             }
 
-            selectedTokenId = newTokenId;
             render();
             updateSidebar();
-            showNotification('Копия токена создана', 'success');
         })
-        .catch(error => {
+        .catch((error) => {
             console.error('Error duplicating token:', error);
+            mapData.tokens = mapData.tokens.filter((x) => x.id !== newTokenId);
+            avatarCache.delete(newTokenId);
+            if (selectedTokenId === newTokenId) {
+                selectedTokenId = sourceToken.id;
+            }
+            render();
+            updateSidebar();
             showNotification('Ошибка при создании копии', 'error');
         });
 }
@@ -7697,24 +7801,13 @@ function openBankModal() {
     const modal = document.getElementById("bankModal");
     modal.style.display = "flex";
 
-    // Сохраняем позицию курсора для спавна
-    if (lastMouseX && lastMouseY) {
-        const { scale, offsetX, offsetY } = getTransform();
-        spawnPosition = [
-            (lastMouseX - offsetX) / scale,
-            (lastMouseY - offsetY) / scale
-        ];
-    } else if (mapImage && mapImage.complete && mapImage.naturalWidth > 0) {
-        spawnPosition = [mapImage.width / 2, mapImage.height / 2];
-    } else {
-        spawnPosition = [500, 500];
-    }
+    spawnPosition = getDefaultTokenSpawnPosition();
 
     loadBankCharacters();
 }
 
-function closeBankModal() {
-    if (window.bankModalSpawnInProgress) return;
+function closeBankModal(force) {
+    if (window.bankModalSpawnInProgress && force !== true) return;
     document.getElementById("bankModal").style.display = "none";
     // Очищаем поле поиска
     const searchInput = document.getElementById("bankSearchInput");
@@ -7833,44 +7926,103 @@ function createBankCharacterItem(character) {
 function spawnBankCharacter(character) {
     if (window.bankModalSpawnInProgress) return;
 
-    const centerX = mapImage && mapImage.width ? mapImage.width / 2 : 500;
-    const centerY = mapImage && mapImage.height ? mapImage.height / 2 : 500;
-    const pos = spawnPosition || [centerX, centerY];
+    const pos = getDefaultTokenSpawnPosition();
+    const optimisticId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    const optimisticToken = {
+        id: optimisticId,
+        name: character.name,
+        position: pos,
+        size: character.size || "medium",
+        is_dead: false,
+        is_player: character.type === "player",
+        is_npc: character.type === "npc",
+        armor_class: character.armor_class,
+        health_points: character.max_health,
+        max_health_points: character.max_health,
+        has_avatar: !!character.has_avatar,
+        avatar_url: character.has_avatar
+            ? (character.avatar_url || `/api/bank/avatar/${character.id}`)
+            : null,
+        is_visible: true,
+    };
+
+    if (!mapData.tokens) mapData.tokens = [];
+    mapData.tokens.push(optimisticToken);
+    if (optimisticToken.has_avatar && optimisticToken.avatar_url) {
+        const img = new Image();
+        img.onload = () => {
+            avatarCache.set(optimisticId, img);
+            render();
+        };
+        img.src = optimisticToken.avatar_url;
+    }
+    selectedTokenId = optimisticId;
+    render();
+    updateSidebar();
 
     window.bankModalSpawnInProgress = true;
-    setBankModalSpawnProgress(true, {
-        indeterminate: true,
-        text: "Добавляем на карту…",
-    });
+    closeBankModal(true);
 
     fetch(`/api/bank/character/${character.id}/spawn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             map_id: currentMapId,
-            position: pos
-        })
+            position: pos,
+            client_token_id: optimisticId,
+        }),
     })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'ok') {
-                window.bankModalSpawnInProgress = false;
-                setBankModalSpawnProgress(false);
-                closeBankModal();
-
-                // Обновляем данные карты
-                if (!mapData.tokens) mapData.tokens = [];
-                mapData.tokens.push(data.token);
-
-                render();
-                updateSidebar();
-
-                showNotification(`Персонаж "${character.name}" добавлен на карту`, 'success');
-            }
+        .then(async (res) => {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || res.statusText || "spawn failed");
+            return data;
         })
-        .catch(err => {
+        .then((data) => {
+            if (data.status !== "ok" || !data.token) {
+                throw new Error(data.error || "spawn failed");
+            }
+            const serverToken = data.token;
+            const idx = mapData.tokens.findIndex((t) => t.id === optimisticId);
+            if (idx < 0) return;
+
+            if (serverToken.id !== optimisticId) {
+                const oldImg = avatarCache.get(optimisticId);
+                avatarCache.delete(optimisticId);
+                mapData.tokens[idx] = serverToken;
+                if (oldImg instanceof HTMLImageElement) {
+                    avatarCache.set(serverToken.id, oldImg);
+                }
+                if (selectedTokenId === optimisticId) selectedTokenId = serverToken.id;
+            } else {
+                Object.assign(mapData.tokens[idx], serverToken);
+            }
+
+            if (serverToken.has_avatar && serverToken.avatar_url) {
+                const sid = serverToken.id;
+                const cur = avatarCache.get(sid);
+                if (!(cur instanceof HTMLImageElement && cur.complete)) {
+                    const img = new Image();
+                    img.onload = () => {
+                        avatarCache.set(sid, img);
+                        render();
+                    };
+                    img.src = serverToken.avatar_url;
+                }
+            }
+
+            render();
+            updateSidebar();
+            showNotification(`Персонаж "${character.name}" добавлен на карту`, "success");
+        })
+        .catch((err) => {
             console.error("Error spawning character:", err);
-            showNotification("Ошибка при добавлении персонажа", 'error');
+            mapData.tokens = (mapData.tokens || []).filter((t) => t.id !== optimisticId);
+            avatarCache.delete(optimisticId);
+            if (selectedTokenId === optimisticId) selectedTokenId = null;
+            render();
+            updateSidebar();
+            showNotification("Ошибка при добавлении персонажа", "error");
         })
         .finally(() => {
             window.bankModalSpawnInProgress = false;
@@ -7945,51 +8097,19 @@ function openImportTokenModal() {
     const modal = document.getElementById("importTokenModal");
     modal.style.display = "flex";
 
-    // Сохраняем позицию курсора для спавна
-    if (lastMouseX && lastMouseY) {
-        const { scale, offsetX, offsetY } = getTransform();
-        spawnPosition = [
-            (lastMouseX - offsetX) / scale,
-            (lastMouseY - offsetY) / scale
-        ];
-    } else if (mapImage && mapImage.complete) {
-        spawnPosition = [mapImage.width / 2, mapImage.height / 2];
-    } else {
-        spawnPosition = [500, 500];
-    }
+    spawnPosition = getDefaultTokenSpawnPosition();
 
     loadAllTokens();
 }
 
-function closeImportTokenModal(force) {
+function closeImportTokenModal(force, options) {
+    const keepBusy = options && options.keepBusy;
     if (!force && window.importTokenModalBusy) return;
-    window.importTokenModalBusy = false;
+    if (!keepBusy) window.importTokenModalBusy = false;
     setImportTokenModalProgress(false);
     document.getElementById("importTokenModal").style.display = "none";
     document.getElementById("importTokenSearchInput").value = "";
     selectedImportToken = null;
-}
-
-function loadAllTokens() {
-    const list = document.getElementById("importTokenList");
-    list.innerHTML = '<div style="text-align: center; padding: 20px;">Загрузка...</div>';
-
-    fetch("/api/tokens/all")
-        .then(res => res.json())
-        .then(tokens => {
-            allTokensFromMaps = tokens;
-
-            if (tokens.length === 0) {
-                list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Нет токенов на других картах</div>';
-                return;
-            }
-
-            displayImportTokens(tokens);
-        })
-        .catch(err => {
-            console.error("Error loading tokens:", err);
-            list.innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Ошибка загрузки</div>';
-        });
 }
 
 function displayImportTokens(tokens) {
@@ -8000,28 +8120,6 @@ function displayImportTokens(tokens) {
         const item = createImportTokenItem(token);
         list.appendChild(item);
     });
-}
-
-function filterImportTokens() {
-    const searchText = document.getElementById("importTokenSearchInput").value.toLowerCase().trim();
-
-    if (!allTokensFromMaps || allTokensFromMaps.length === 0) return;
-
-    if (searchText === "") {
-        displayImportTokens(allTokensFromMaps);
-        return;
-    }
-
-    const filtered = allTokensFromMaps.filter(token =>
-        token.name.toLowerCase().includes(searchText)
-    );
-
-    displayImportTokens(filtered);
-
-    if (filtered.length === 0) {
-        const list = document.getElementById("importTokenList");
-        list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Ничего не найдено</div>';
-    }
 }
 
 function createImportTokenItem(token) {
@@ -8078,7 +8176,16 @@ function createImportTokenItem(token) {
 }
 
 function spawnImportedToken(sourceToken) {
-    if (!spawnPosition) return;
+    if (!currentMapId || !mapData) {
+        showNotification("Нет активной карты", "warning");
+        return;
+    }
+    if (!mapImage || !mapImage.complete || mapImage.naturalWidth === 0) {
+        showNotification("Карта ещё не загружена", "warning");
+        return;
+    }
+
+    const pos = getDefaultTokenSpawnPosition();
 
     // Проверяем, существует ли уже токен с таким ID на текущей карте
     const existingToken = mapData.tokens.find(t => t.id === sourceToken.id);
@@ -8098,7 +8205,7 @@ function spawnImportedToken(sourceToken) {
     const newToken = {
         id: sourceToken.id,  // ВАЖНО: используем оригинальный ID!
         name: sourceToken.name,
-        position: spawnPosition,
+        position: pos,
         size: sourceToken.size || mapData.grid_settings.cell_size,
         is_dead: sourceToken.is_dead || false,
         is_player: sourceToken.is_player || false,
@@ -8107,7 +8214,14 @@ function spawnImportedToken(sourceToken) {
         health_points: sourceToken.health_points || sourceToken.max_health_points || 10,
         max_health_points: sourceToken.max_health_points || sourceToken.health_points || 10,
         has_avatar: sourceToken.has_avatar || false,
-        is_visible: sourceToken.is_visible !== undefined ? sourceToken.is_visible : true
+        is_visible: sourceToken.is_visible !== undefined ? sourceToken.is_visible : true,
+        ...(sourceToken.has_avatar && sourceToken.id
+            ? {
+                avatar_url:
+                    sourceToken.avatar_url ||
+                    `/api/token/avatar/${sourceToken.id}`,
+            }
+            : {}),
     };
 
     // Логируем для отладки
@@ -8115,7 +8229,7 @@ function spawnImportedToken(sourceToken) {
 
     // Функция для создания токена с новым ID (как запасной вариант)
     function createTokenCopyWithNewId(sourceToken) {
-        const newId = `token_${Date.now()}`;
+        const newId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         const copyToken = {
             ...newToken,
             id: newId
@@ -8137,92 +8251,83 @@ function spawnImportedToken(sourceToken) {
             setImportTokenModalProgress(false);
         };
 
-        const createToken = (avatarData = null) => {
-            setImportTokenModalProgress(true, {
-                indeterminate: true,
-                text: "Создаём токен на карте…",
-            });
-            const requestBody = {
-                ...targetToken,
-                avatar_data: avatarData,
-                map_id: currentMapId
-            };
-
-            return fetch("/api/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestBody),
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.avatar_url) {
-                        targetToken.avatar_url = data.avatar_url;
-                    }
-
-                    mapData.tokens.push(targetToken);
-                    render();
-                    updateSidebar();
-                    closeImportTokenModal(true);
-
-                    syncTokenAcrossMaps(targetToken);
-
-                    // Показываем уведомление с учётом состояния
-                    const statusText = targetToken.is_dead ? " (мёртв)" : "";
-                    showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, 'success');
-                })
-                .catch(error => {
-                    console.error('Error importing token:', error);
-                    showNotification('Ошибка при импорте токена', 'error');
-                })
-                .finally(endImportBusy);
-        };
-
-        // Если у исходного токена есть аватар, пытаемся его скопировать
-        if (sourceToken.has_avatar && sourceToken.id) {
-            setImportTokenModalProgress(true, {
-                indeterminate: true,
-                text: "Копируем аватар…",
-            });
-
-            // Пытаемся получить аватар из кэша
-            const cachedImg = avatarCache.get(sourceToken.id);
-            if (cachedImg && cachedImg instanceof HTMLImageElement && cachedImg.complete) {
-                // Конвертируем в base64
-                const canvas = document.createElement('canvas');
-                canvas.width = cachedImg.width;
-                canvas.height = cachedImg.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(cachedImg, 0, 0);
-                const avatarData = canvas.toDataURL('image/png');
-                createToken(avatarData);
-            } else {
-                // Загружаем аватар с сервера
-                const avatarUrl = sourceToken.avatar_url || `/api/token/avatar/${sourceToken.id}`;
-
-                fetch(avatarUrl.split('?')[0])
-                    .then(res => {
-                        if (!res.ok) throw new Error('Failed to fetch avatar');
-                        return res.blob();
-                    })
-                    .then(blob => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            createToken(e.target.result);
-                        };
-                        reader.readAsDataURL(blob);
-                    })
-                    .catch(err => {
-                        console.warn('Could not copy avatar, creating without avatar:', err);
-                        createToken(null);
-                    });
-            }
-        } else {
-            // Создаем без аватара
-            createToken(null);
+        if (sourceToken.has_avatar && sourceToken.id && !targetToken.avatar_url) {
+            targetToken.avatar_url =
+                sourceToken.avatar_url ||
+                `/api/token/avatar/${sourceToken.id}`;
         }
+
+        if (!mapData.tokens) mapData.tokens = [];
+        mapData.tokens.push(targetToken);
+        if (sourceToken.has_avatar && sourceToken.id) {
+            const si = avatarCache.get(sourceToken.id);
+            if (si instanceof HTMLImageElement && si.complete) {
+                avatarCache.set(targetToken.id, si);
+            }
+        }
+        selectedTokenId = targetToken.id;
+        render();
+        updateSidebar();
+        closeImportTokenModal(true, { keepBusy: true });
+        setImportTokenModalProgress(false);
+
+        const requestBody = {
+            ...targetToken,
+            map_id: currentMapId,
+        };
+        if (sourceToken.has_avatar && sourceToken.id) {
+            requestBody.copy_avatar_from_token_id = sourceToken.id;
+        }
+
+        fetch("/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+        })
+            .then((response) => {
+                if (!response.ok) throw new Error("Network response was not ok");
+                return response.json();
+            })
+            .then((data) => {
+                if (data.avatar_url) {
+                    targetToken.avatar_url = data.avatar_url;
+                    targetToken.has_avatar = true;
+                } else {
+                    targetToken.has_avatar = false;
+                    delete targetToken.avatar_url;
+                    avatarCache.delete(targetToken.id);
+                }
+
+                if (
+                    targetToken.has_avatar &&
+                    (data.avatar_url || targetToken.avatar_url) &&
+                    !avatarCache.get(targetToken.id)
+                ) {
+                    const newImg = new Image();
+                    newImg.onload = () => {
+                        avatarCache.set(targetToken.id, newImg);
+                        render();
+                    };
+                    newImg.src = data.avatar_url || targetToken.avatar_url;
+                }
+
+                render();
+                updateSidebar();
+                syncTokenAcrossMaps(targetToken);
+
+                const statusText = targetToken.is_dead ? " (мёртв)" : "";
+                showNotification(`Токен "${sourceToken.name}"${statusText} импортирован`, "success");
+            })
+            .catch((error) => {
+                console.error("Error importing token:", error);
+                mapData.tokens = (mapData.tokens || []).filter((t) => t.id !== targetToken.id);
+                avatarCache.delete(targetToken.id);
+                if (selectedTokenId === targetToken.id) selectedTokenId = null;
+                render();
+                updateSidebar();
+                showNotification("Ошибка при импорте токена", "error");
+            })
+            .finally(endImportBusy);
     }
 
     // Запускаем процесс импорта с оригинальным ID
@@ -8264,10 +8369,16 @@ function loadAllCharactersForImport() {
             allCharactersFromMaps = Array.isArray(chars) ? chars : [];
             if (allCharactersFromMaps.length === 0) {
                 list.innerHTML =
-                    '<div style="text-align: center; padding: 20px; color: #aaa;">Нет портретов на других картах (или файлы ещё не загружены)</div>';
+                    '<div style="text-align: center; padding: 20px; color: #aaa;">Нет портретов для импорта (или файлы ещё не загружены)</div>';
                 return;
             }
-            displayImportPortraits(allCharactersFromMaps);
+            const usable = charactersForImportList(allCharactersFromMaps);
+            if (usable.length === 0) {
+                list.innerHTML =
+                    '<div style="text-align: center; padding: 20px; color: #aaa;">На этой карте уже все портреты из списка — показаны только персонажи с других карт.</div>';
+                return;
+            }
+            displayImportPortraits(usable);
         })
         .catch((err) => {
             console.error("Error loading characters for import:", err);
@@ -8291,11 +8402,17 @@ function filterImportPortraits() {
     if (!inp || !list) return;
     const q = inp.value.toLowerCase().trim();
     if (!allCharactersFromMaps || allCharactersFromMaps.length === 0) return;
-    if (q === "") {
-        displayImportPortraits(allCharactersFromMaps);
+    const base = charactersForImportList(allCharactersFromMaps);
+    if (base.length === 0) {
+        list.innerHTML =
+            '<div style="text-align: center; padding: 20px; color: #aaa;">На этой карте уже все портреты из списка — показаны только персонажи с других карт.</div>';
         return;
     }
-    const filtered = allCharactersFromMaps.filter((ch) => {
+    if (q === "") {
+        displayImportPortraits(base);
+        return;
+    }
+    const filtered = base.filter((ch) => {
         const n = (ch.name || "").toLowerCase();
         const m = (ch.source_map || "").toLowerCase();
         return n.includes(q) || m.includes(q);
@@ -9571,6 +9688,10 @@ function closeAllModals() {
     window.editingCharacterId = null;
     pendingZoneVertices = null;
 
+    // Если закрыли модалку зоны (черновик уже не в drawingZone), без render() «залипает» превью чертежа
+    render();
+    updateCanvasCursor();
+
     // Если было открыто окно создания персонажа в банке, сбрасываем форму
     resetBankAvatarPreview();
 
@@ -10518,12 +10639,24 @@ function filterImportTokensByType(type) {
 // Применение всех фильтров импорта (тип + поиск)
 function applyImportFilters() {
     const searchText = document.getElementById("importTokenSearchInput").value.toLowerCase().trim();
+    const list = document.getElementById("importTokenList");
 
     if (!allTokensFromMaps || allTokensFromMaps.length === 0) return;
 
-    // Фильтруем сначала по типу
-    let filtered = allTokensFromMaps;
+    let filtered = tokensForImportList(allTokensFromMaps);
+    if (filtered.length === 0) {
+        if (list) {
+            list.innerHTML =
+                '<div style="text-align: center; padding: 20px; color: #aaa;">' +
+                (allTokensFromMaps.length
+                    ? "На этой карте уже все токены из списка — показаны только токены с других карт."
+                    : "Нет токенов на других картах") +
+                "</div>";
+        }
+        return;
+    }
 
+    // Фильтруем сначала по типу
     if (currentImportTypeFilter !== 'all') {
         filtered = filtered.filter(token => {
             if (currentImportTypeFilter === 'player') return token.is_player === true;
@@ -10615,11 +10748,12 @@ function loadAllTokens() {
             allTokensFromMaps = tokens;
 
             if (tokens.length === 0) {
-                list.innerHTML = '<div style="text-align: center; padding: 20px; color: #aaa;">Нет токенов на других картах</div>';
+                list.innerHTML =
+                    '<div style="text-align: center; padding: 20px; color: #aaa;">Нет токенов для импорта</div>';
                 return;
             }
 
-            displayImportTokens(tokens);
+            applyImportFilters();
         })
         .catch(err => {
             console.error("Error loading tokens:", err);

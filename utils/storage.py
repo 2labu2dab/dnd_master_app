@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import time as time_stdlib
 from datetime import datetime
 import uuid
@@ -533,12 +534,78 @@ def get_all_maps_with_character(character_id):
     return maps_with_char
 
 
+def get_all_maps_with_character_all_projects(character_id):
+    """Все карты во всех проектах, где в characters есть character_id (портреты)."""
+    from utils.projects import get_project, list_project_ids, project_maps_dir
+
+    maps_with_char = []
+    for pid in list_project_ids():
+        mdir = project_maps_dir(pid)
+        if not os.path.isdir(mdir):
+            continue
+        proj_name = None
+        meta = get_project(pid)
+        if meta:
+            proj_name = meta.get("name", pid)
+        for filename in os.listdir(mdir):
+            if not _is_map_data_json(filename):
+                continue
+            map_id = filename[:-5]
+            filepath = os.path.join(mdir, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            for ch in data.get("characters") or []:
+                if str(ch.get("id")) == str(character_id):
+                    maps_with_char.append(
+                        {
+                            "map_id": map_id,
+                            "map_name": data.get("name", "Без названия"),
+                            "project_id": pid,
+                            "project_name": proj_name or pid,
+                        }
+                    )
+                    break
+    return maps_with_char
+
+
 def get_token_avatar_filepath(token_id):
     """Получить путь к файлу аватара токена"""
     d = get_token_avatars_dir()
     if not d:
         return None
     return os.path.join(d, f"{token_id}.png")
+
+
+def copy_token_avatar_file(source_token_id, target_token_id):
+    """Скопировать PNG аватара на диске без PIL (быстро для дубликата токена)."""
+    src = get_token_avatar_filepath(source_token_id)
+    dst = get_token_avatar_filepath(target_token_id)
+    if not src or not dst:
+        return False
+    try:
+        if not os.path.isfile(src):
+            return False
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        return True
+    except OSError:
+        return False
+
+
+def copy_filepath_to_token_avatar(source_path, target_token_id):
+    """Скопировать готовый PNG с произвольного пути в аватар токена (банк → карта), без PIL."""
+    dst = get_token_avatar_filepath(target_token_id)
+    if not dst or not source_path or not os.path.isfile(source_path):
+        return False
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(source_path, dst)
+        return True
+    except OSError:
+        return False
 
 
 def save_token_avatar(image_data, token_id):
@@ -1036,7 +1103,7 @@ def delete_map(map_id):
             delete_token_avatar(tid)
 
     for cid in character_ids:
-        if not get_all_maps_with_character(cid):
+        if not get_all_maps_with_character_all_projects(cid):
             delete_portrait_image(cid)
 
     remove_map_from_list_order(map_id)

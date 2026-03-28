@@ -68,6 +68,8 @@ from utils.storage import (
     save_map_image,
     save_map_list_order,
     save_token_avatar,
+    copy_token_avatar_file,
+    copy_filepath_to_token_avatar,
     save_drawings_layer,
     load_drawings_layer,
 )
@@ -862,18 +864,7 @@ def copy_token_avatar(source_token_id):
         if not target_token_id:
             return jsonify({"error": "No target token ID"}), 400
 
-        from utils.storage import get_token_avatar_filepath, save_token_avatar
-
-        source_path = get_token_avatar_filepath(source_token_id)
-        if not source_path or not os.path.exists(source_path):
-            return jsonify({"error": "Source avatar not found"}), 404
-
-        # Читаем исходный файл
-        with open(source_path, "rb") as f:
-            avatar_data = f.read()
-
-        # Сохраняем для нового токена
-        if save_token_avatar(avatar_data, target_token_id):
+        if copy_token_avatar_file(source_token_id, target_token_id):
             return jsonify({"status": "ok"})
 
         return jsonify({"error": "Failed to copy avatar"}), 500
@@ -920,6 +911,7 @@ def add_token():
         return jsonify({"error": "Invalid JSON"}), 400
 
     avatar_data = token.pop("avatar_data", None)
+    copy_avatar_from_token_id = token.pop("copy_avatar_from_token_id", None)
     token_size = token.get("size", "medium")
 
     map_id = token.pop("map_id", None) or session.get("current_map_id")
@@ -938,6 +930,30 @@ def add_token():
             token["has_avatar"] = True
             base = f"/api/token/avatar/{token['id']}"
             path = get_token_avatar_filepath(token["id"])
+            avatar_url = versioned_url(base, path)
+            token["avatar_url"] = avatar_url
+        else:
+            token["has_avatar"] = False
+    elif copy_avatar_from_token_id:
+        from utils.storage import get_token_avatar_filepath
+
+        tid = token["id"]
+        src_id = copy_avatar_from_token_id
+        path = get_token_avatar_filepath(tid)
+
+        # Импорт с тем же id: файл уже один и тот же — copy2(src, src) ломал бы сохранение.
+        if src_id == tid:
+            if path and os.path.isfile(path):
+                token["has_avatar"] = True
+                base = f"/api/token/avatar/{tid}"
+                avatar_url = versioned_url(base, path)
+                token["avatar_url"] = avatar_url
+            else:
+                token["has_avatar"] = False
+        elif copy_token_avatar_file(src_id, tid):
+            token["has_avatar"] = True
+            base = f"/api/token/avatar/{tid}"
+            path = get_token_avatar_filepath(tid)
             avatar_url = versioned_url(base, path)
             token["avatar_url"] = avatar_url
         else:
@@ -1811,12 +1827,24 @@ def get_portrait(portrait_id):
 
 @app.route("/api/portrait/<portrait_id>", methods=["DELETE"])
 def delete_portrait(portrait_id):
-    """Удалить портрет персонажа"""
-    from utils.storage import delete_portrait_image
+    """Удалить файлы портрета только если этот id больше ни на одной карте (ни в одном проекте)."""
+    from utils.storage import (
+        delete_portrait_image,
+        get_all_maps_with_character_all_projects,
+    )
 
-    if delete_portrait_image(portrait_id):
-        return jsonify({"status": "ok"})
-    return jsonify({"status": "error"}), 404
+    still_used = get_all_maps_with_character_all_projects(portrait_id)
+    if still_used:
+        return jsonify(
+            {
+                "status": "ok",
+                "deleted": False,
+                "still_on_maps": len(still_used),
+            }
+        )
+
+    removed = delete_portrait_image(portrait_id)
+    return jsonify({"status": "ok", "deleted": bool(removed)})
 
 
 @app.route("/api/portrait/upload", methods=["POST"])
@@ -2090,7 +2118,17 @@ def spawn_bank_character(char_id):
         if not map_data:
             return jsonify({"error": "Map not found"}), 404
 
-        token_id = f"token_{uuid.uuid4().hex[:8]}"
+        existing_ids = {t.get("id") for t in (map_data.get("tokens") or []) if t.get("id")}
+        req_tid = data.get("client_token_id")
+        if (
+            req_tid
+            and isinstance(req_tid, str)
+            and req_tid.startswith("token_")
+            and req_tid not in existing_ids
+        ):
+            token_id = req_tid
+        else:
+            token_id = f"token_{uuid.uuid4().hex[:8]}"
 
         token = {
             "id": token_id,
@@ -2108,18 +2146,16 @@ def spawn_bank_character(char_id):
         }
 
         if bank_char.get("has_avatar"):
-            from utils.storage import save_token_avatar, get_token_avatar_filepath
+            from utils.storage import get_token_avatar_filepath
             from utils.bank_storage import get_bank_avatar_filepath
 
             bank_avatar_path = get_bank_avatar_filepath(char_id)
-            if os.path.exists(bank_avatar_path):
-                with open(bank_avatar_path, "rb") as f:
-                    avatar_data = f.read()
-                save_token_avatar(avatar_data, token_id)
-                token["has_avatar"] = True
-                base = f"/api/token/avatar/{token_id}"
-                path = get_token_avatar_filepath(token_id)
-                token["avatar_url"] = versioned_url(base, path)
+            if bank_avatar_path and os.path.isfile(bank_avatar_path):
+                if copy_filepath_to_token_avatar(bank_avatar_path, token_id):
+                    token["has_avatar"] = True
+                    base = f"/api/token/avatar/{token_id}"
+                    path = get_token_avatar_filepath(token_id)
+                    token["avatar_url"] = versioned_url(base, path)
 
         map_data.setdefault("tokens", []).append(token)
         save_map_data(map_data, map_id)
