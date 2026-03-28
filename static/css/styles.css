@@ -3045,43 +3045,67 @@ canvas.erase-mode {
 
 /* Добавить в static/css/styles.css */
 
-/* Стили для селекта размера */
+/* Размер токена: селект под тёмную модалку, половина ширины блока модалки */
+.size-selector {
+    margin-bottom: 12px;
+}
+
+.token-size-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+}
+
+.token-size-select-wrap {
+    width: 50%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
 .size-select {
     width: 100%;
-    padding: 10px 12px;
-    background: #2a2a3b;
-    border: 1px solid #3f4555;
-    border-radius: 8px;
-    color: white;
-    font-size: 14px;
-    outline: none;
+    box-sizing: border-box;
+    padding: 9px 32px 9px 12px;
+    background-color: rgba(30, 41, 59, 0.75);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 10px;
+    color: #e2e8f0;
     font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+    outline: none;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 12px center;
-    background-size: 16px;
+    background-position: right 10px center;
+    background-size: 14px;
+    transition:
+        border-color 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
 .size-select:hover {
-    border-color: #4C5BEF;
+    border-color: rgba(76, 91, 239, 0.55);
+    background-color: rgba(51, 65, 85, 0.85);
 }
 
-.size-select:focus {
-    border-color: #4C5BEF;
-    box-shadow: 0 0 0 2px rgba(76, 91, 239, 0.2);
+.size-select:focus-visible {
+    border-color: #4c5bef;
+    box-shadow: 0 0 0 2px rgba(76, 91, 239, 0.3);
 }
 
 .size-select option {
-    background: #2a2a3b;
-    color: white;
+    background: #1e293b;
+    color: #e2e8f0;
     padding: 8px;
-}
-
-.size-buttons{
-  padding-top: 10px;
 }
 
 /* ─── Бой: полоса инициативы (фон полосы не виден; миниатюры по центру) ─── */
