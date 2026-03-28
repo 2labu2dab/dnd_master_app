@@ -505,6 +505,58 @@ large-modal {
   margin-bottom: 12px;
 }
 
+/* ─── Модалки находок и зоны: выравнивание полей, отступ у описания ─── */
+#findModal .token-fields,
+#zoneModal .token-fields {
+  min-width: 0;
+}
+
+#findModal .find-modal-field,
+#zoneModal .zone-modal-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+#findModal .find-modal-field--description,
+#zoneModal .zone-modal-field--description {
+  gap: 14px;
+}
+
+#findModal .find-modal-field input,
+#findModal .find-modal-textarea,
+#zoneModal .zone-modal-field input,
+#zoneModal .zone-modal-textarea {
+  margin-top: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#findModal .find-modal-textarea,
+#zoneModal .zone-modal-textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-family: Inter, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(71, 85, 105, 0.95);
+  background: #0f172a;
+  color: #f1f5f9;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#findModal .find-modal-textarea:focus,
+#zoneModal .zone-modal-textarea:focus {
+  border-color: rgba(76, 91, 239, 0.75);
+  box-shadow: 0 0 0 3px rgba(76, 91, 239, 0.18);
+}
+
 .flex-row {
   display: flex;
   gap: 20px;
