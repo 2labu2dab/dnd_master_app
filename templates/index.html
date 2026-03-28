@@ -443,9 +443,22 @@
         </div>
       </div>
       <div class="size-selector">
-        <label class="token-size-label" for="tokenSize">Размер на карте</label>
-        <div class="token-size-select-wrap">
-          <select id="tokenSize" class="size-select" aria-label="Размер токена на карте">
+        <label class="token-size-label" for="tokenSizeTrigger">Размер на карте</label>
+        <div class="token-size-select-wrap app-select">
+          <button type="button" class="app-select-trigger" id="tokenSizeTrigger" aria-haspopup="listbox"
+            aria-expanded="false" aria-controls="tokenSizeDropdown">
+            <span class="app-select-value" id="tokenSizeDisplay">Средний</span>
+            <span class="app-select-chevron" aria-hidden="true"></span>
+          </button>
+          <ul class="app-select-dropdown" id="tokenSizeDropdown" role="listbox" hidden>
+            <li role="option" tabindex="-1" data-value="tiny">Крошечный</li>
+            <li role="option" tabindex="-1" data-value="small">Маленький</li>
+            <li role="option" tabindex="-1" data-value="medium" aria-selected="true">Средний</li>
+            <li role="option" tabindex="-1" data-value="large">Большой</li>
+            <li role="option" tabindex="-1" data-value="huge">Огромный</li>
+            <li role="option" tabindex="-1" data-value="gargantuan">Гигантский</li>
+          </ul>
+          <select id="tokenSize" class="app-select-native" aria-hidden="true" tabindex="-1" title="">
             <option value="tiny">Крошечный</option>
             <option value="small">Маленький</option>
             <option value="medium" selected>Средний</option>
@@ -627,9 +640,22 @@
         </div>
       </div>
       <div class="size-selector">
-        <label class="token-size-label" for="bankCharacterSize">Размер на карте</label>
-        <div class="token-size-select-wrap">
-          <select id="bankCharacterSize" class="size-select" aria-label="Размер токена на карте">
+        <label class="token-size-label" for="bankCharacterSizeTrigger">Размер на карте</label>
+        <div class="token-size-select-wrap app-select">
+          <button type="button" class="app-select-trigger" id="bankCharacterSizeTrigger" aria-haspopup="listbox"
+            aria-expanded="false" aria-controls="bankCharacterSizeDropdown">
+            <span class="app-select-value" id="bankCharacterSizeDisplay">Средний</span>
+            <span class="app-select-chevron" aria-hidden="true"></span>
+          </button>
+          <ul class="app-select-dropdown" id="bankCharacterSizeDropdown" role="listbox" hidden>
+            <li role="option" tabindex="-1" data-value="tiny">Крошечный</li>
+            <li role="option" tabindex="-1" data-value="small">Маленький</li>
+            <li role="option" tabindex="-1" data-value="medium" aria-selected="true">Средний</li>
+            <li role="option" tabindex="-1" data-value="large">Большой</li>
+            <li role="option" tabindex="-1" data-value="huge">Огромный</li>
+            <li role="option" tabindex="-1" data-value="gargantuan">Гигантский</li>
+          </ul>
+          <select id="bankCharacterSize" class="app-select-native" aria-hidden="true" tabindex="-1" title="">
             <option value="tiny">Крошечный</option>
             <option value="small">Маленький</option>
             <option value="medium" selected>Средний</option>

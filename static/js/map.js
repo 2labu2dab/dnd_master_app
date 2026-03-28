@@ -1037,9 +1037,163 @@ let avatarChanged = false;
 
 const VALID_TOKEN_SIZES = ["tiny", "small", "medium", "large", "huge", "gargantuan"];
 
+function getAppSelectDropdown(root) {
+    return root._appSelectDropdown || root.querySelector(".app-select-dropdown");
+}
+
+function syncAppSelectUIFromNative(selectEl) {
+    if (!selectEl) return;
+    const root = selectEl.closest(".app-select");
+    if (!root) return;
+    const valueEl = root.querySelector(".app-select-value");
+    const opt = selectEl.options[selectEl.selectedIndex];
+    if (valueEl && opt) {
+        valueEl.textContent = opt.textContent;
+    }
+    const dd = getAppSelectDropdown(root);
+    if (!dd) return;
+    dd.querySelectorAll("[role='option']").forEach((li) => {
+        const on = li.dataset.value === selectEl.value;
+        li.classList.toggle("is-selected", on);
+        li.setAttribute("aria-selected", on ? "true" : "false");
+    });
+}
+
 function setTokenSizeSelect(selectEl, size) {
     if (!selectEl) return;
     selectEl.value = VALID_TOKEN_SIZES.includes(size) ? size : "medium";
+    syncAppSelectUIFromNative(selectEl);
+}
+
+function clearAppSelectDropdownPosition(dropdown) {
+    if (!dropdown) return;
+    dropdown.style.position = "";
+    dropdown.style.left = "";
+    dropdown.style.top = "";
+    dropdown.style.width = "";
+    dropdown.style.right = "";
+    dropdown.style.zIndex = "";
+    dropdown.style.margin = "";
+}
+
+function restoreAppSelectDropdownToRoot(root) {
+    const dropdown = getAppSelectDropdown(root);
+    if (!dropdown || !dropdown._appSelectAnchorParent) return;
+    if (dropdown.parentNode === dropdown._appSelectAnchorParent) return;
+    const parent = dropdown._appSelectAnchorParent;
+    const marker = dropdown._appSelectInsertBefore;
+    if (marker && marker.parentNode === parent) {
+        parent.insertBefore(dropdown, marker);
+    } else {
+        parent.appendChild(dropdown);
+    }
+}
+
+function placeAppSelectDropdown(root) {
+    const trigger = root.querySelector(".app-select-trigger");
+    const dropdown = getAppSelectDropdown(root);
+    if (!trigger || !dropdown) return;
+
+    if (!dropdown._appSelectAnchorParent) {
+        dropdown._appSelectAnchorParent = dropdown.parentNode;
+        dropdown._appSelectInsertBefore = dropdown.nextSibling;
+    }
+    if (dropdown.parentNode !== document.body) {
+        document.body.appendChild(dropdown);
+    }
+
+    const syncToTrigger = () => {
+        const r = trigger.getBoundingClientRect();
+        dropdown.style.position = "fixed";
+        dropdown.style.top = `${r.bottom + 4}px`;
+        dropdown.style.width = `${r.width}px`;
+        dropdown.style.right = "auto";
+        dropdown.style.margin = "0";
+        dropdown.style.zIndex = "1200";
+        let leftPx = r.left;
+        dropdown.style.left = `${leftPx}px`;
+        const d = dropdown.getBoundingClientRect();
+        const dx = r.left - d.left;
+        if (Math.abs(dx) > 0.25) {
+            leftPx += dx;
+            dropdown.style.left = `${leftPx}px`;
+        }
+    };
+
+    syncToTrigger();
+    requestAnimationFrame(() => {
+        syncToTrigger();
+    });
+}
+
+function closeAppSelect(root) {
+    if (!root) return;
+    const dd = getAppSelectDropdown(root);
+    const trig = root.querySelector(".app-select-trigger");
+    if (dd) {
+        dd.hidden = true;
+        clearAppSelectDropdownPosition(dd);
+        restoreAppSelectDropdownToRoot(root);
+    }
+    if (trig) trig.setAttribute("aria-expanded", "false");
+}
+
+function setupAppSelect(root) {
+    if (!root || root._appSelectSetup) return;
+    root._appSelectSetup = true;
+    const select = root.querySelector("select.app-select-native");
+    const trigger = root.querySelector(".app-select-trigger");
+    const dropdown = root.querySelector(".app-select-dropdown");
+    if (!select || !trigger || !dropdown) return;
+    root._appSelectDropdown = dropdown;
+
+    trigger.addEventListener("click", () => {
+        const wasOpen = !dropdown.hidden;
+        document.querySelectorAll(".app-select").forEach((r) => {
+            if (r !== root) closeAppSelect(r);
+        });
+        if (wasOpen) {
+            closeAppSelect(root);
+        } else {
+            dropdown.hidden = false;
+            trigger.setAttribute("aria-expanded", "true");
+            placeAppSelectDropdown(root);
+        }
+    });
+
+    dropdown.addEventListener("click", (e) => {
+        const item = e.target.closest("[role='option']");
+        if (!item || !dropdown.contains(item)) return;
+        select.value = item.dataset.value;
+        syncAppSelectUIFromNative(select);
+        closeAppSelect(root);
+    });
+
+    syncAppSelectUIFromNative(select);
+}
+
+function initAppSelectDropdowns() {
+    if (window._appSelectGlobalInit) return;
+    window._appSelectGlobalInit = true;
+    document.querySelectorAll(".app-select").forEach(setupAppSelect);
+    document.addEventListener("click", (e) => {
+        if (e.target.closest(".app-select")) return;
+        if (e.target.closest(".app-select-dropdown")) return;
+        document.querySelectorAll(".app-select").forEach(closeAppSelect);
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        document.querySelectorAll(".app-select").forEach(closeAppSelect);
+    });
+    const closeAllAppSelects = () => {
+        document.querySelectorAll(".app-select").forEach(closeAppSelect);
+    };
+    window.addEventListener("resize", closeAllAppSelects);
+    window.addEventListener(
+        "scroll",
+        closeAllAppSelects,
+        true
+    );
 }
 
 function submitToken() {
@@ -1183,7 +1337,13 @@ function editExistingToken(name, ac, hp, type, avatarData, addToBank, tokenSize)
             }
             return response.json();
         })
-        .then(() => {
+        .then((data) => {
+            if (data && data.avatar_url) {
+                token.avatar_url = data.avatar_url;
+            }
+            if (avatarChangedNow) {
+                reloadTokenAvatar(tokenId);
+            }
             syncTokenAcrossMaps(token);
 
             if (addToBank) {
@@ -2710,6 +2870,28 @@ function initiativeStripTypeClass(token) {
     return "initiative-strip-item--enemy";
 }
 
+function buildCombatModalTokenThumb(token) {
+    const wrap = document.createElement("div");
+    wrap.className = `combat-modal-token-thumb ${initiativeStripTypeClass(token)}`;
+    if (token.avatar_url) {
+        const img = document.createElement("img");
+        img.src = token.avatar_url;
+        img.alt = "";
+        wrap.appendChild(img);
+    } else if (token.has_avatar) {
+        const img = document.createElement("img");
+        img.src = `/api/token_avatar/${token.id}`;
+        img.alt = "";
+        wrap.appendChild(img);
+    } else {
+        const ph = document.createElement("span");
+        ph.className = "combat-modal-token-thumb-letter";
+        ph.textContent = (token.name || "?").slice(0, 1).toUpperCase();
+        wrap.appendChild(ph);
+    }
+    return wrap;
+}
+
 function fillInitiativeStrip(stripEl, data) {
     hideInitiativeStripContextMenu();
     if (!stripEl) return;
@@ -2790,6 +2972,8 @@ function openCombatSetupModal() {
         row.className = "combat-modal-row";
         row.dataset.tokenId = token.id;
         row.dataset.tieIndex = String(tieIdx);
+
+        row.appendChild(buildCombatModalTokenThumb(token));
 
         const name = document.createElement("span");
         name.className = "combat-modal-row-name";
@@ -7405,9 +7589,11 @@ document.addEventListener("click", (e) => {
 socket.on("token_avatar_updated", (data) => {
     console.log("Token avatar updated event received:", data);
 
-    if (data.map_id === currentMapId) {
+    if (String(data.map_id) === String(currentMapId)) {
         // Находим токен в данных
-        const token = mapData.tokens.find(t => t.id === data.token_id);
+        const token = mapData.tokens.find(
+            (t) => String(t.id) === String(data.token_id)
+        );
         if (token) {
             // Обновляем URL аватара с новым timestamp
             token.avatar_url = data.avatar_url;
@@ -8775,6 +8961,7 @@ function initMasterProjectUI() {
             window.location.href = "/projects";
         });
     }
+    initAppSelectDropdowns();
 }
 
 if (document.readyState === 'loading') {

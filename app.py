@@ -1660,7 +1660,10 @@ def update_token(token_id):
             {"map_id": map_id, "token_id": token_id, "avatar_url": versioned_url(base, path)},
         )
 
-    return jsonify({"status": "token updated"})
+    out = {"status": "token updated"}
+    if avatar_changed and token.get("avatar_url"):
+        out["avatar_url"] = token["avatar_url"]
+    return jsonify(out)
 
 
 @app.route("/api/bank/avatar/<character_id>")
