@@ -1376,9 +1376,12 @@ function getActiveFogWallSegmentsWorld() {
     const out = [];
     for (const w of walls) {
         const v = w.vertices;
-        for (let i = 0; i < v.length - 1; i++) {
+        const n = v.length;
+        const closed = w.closed === true && n >= 3;
+        const last = closed ? n : n - 1;
+        for (let i = 0; i < last; i++) {
             const a = v[i];
-            const b = v[i + 1];
+            const b = v[(i + 1) % n];
             out.push([a[0], a[1], b[0], b[1]]);
         }
     }

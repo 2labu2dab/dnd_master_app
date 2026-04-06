@@ -82,6 +82,14 @@
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               </button>
+              <button type="button" class="icon-button" id="fogWallWandButton" style="display: none;"
+                onclick="toggleFogWallWandMode()" title="Палочка: клик по области карты (скала/фон) — контур стены">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21h6M12 3v1M8.5 8.5 3 21l1.5-1.5M15.5 8.5 21 21l-1.5-1.5" />
+                  <path d="M12 4a4 4 0 0 1 4 4v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V8a4 4 0 0 1 4-4Z" />
+                </svg>
+              </button>
             </div>
           </summary>
           <div class="fog-of-war-panel">
@@ -108,6 +116,12 @@
                 Сбросить туман
               </button>
               <p class="fog-of-war-hint">Память открытых областей очистится; вокруг героев сразу снова появится обзор.</p>
+              <div id="fogWandToleranceRow" class="fog-of-war-field__row" style="display: none;">
+                <label class="fog-of-war-field__label" for="fogWandTolerance" style="flex: 1;">Чувствительность палочки (цвет)</label>
+                <input type="number" id="fogWandTolerance" class="fog-of-war-input" min="5" max="100" step="1" value="32"
+                  title="Больше — захватывает более разные оттенки рядом с точкой клика" />
+              </div>
+              <p id="fogWandHint" class="fog-of-war-hint" style="display: none;">Палочка у заголовка «Стены»: включите её, кликните по однородной области (например тёмная скала). Получится замкнутая стена; вершины можно двигать.</p>
             </div>
           </div>
           <ul id="zoneList"></ul>

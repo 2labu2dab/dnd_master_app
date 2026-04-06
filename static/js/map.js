@@ -5,9 +5,10 @@ const ctx = canvas.getContext("2d");
 /** Логические размеры канваса (CSS px); буфер = эти значения × canvasDpr для чёткости на Retina / ТВ. */
 let canvasDpr = 1;
 function getCanvasCssPixels() {
+    const dpr = Math.max(1e-9, canvasDpr || 1);
     return {
-        w: Math.max(1, Math.round(canvas.clientWidth)),
-        h: Math.max(1, Math.round(canvas.clientHeight)),
+        w: Math.max(1, Math.round(canvas.width / dpr)),
+        h: Math.max(1, Math.round(canvas.height / dpr)),
     };
 }
 function measureCanvasDevicePixelRatio() {
@@ -258,6 +259,9 @@ let panY = 0;
 let isPanning = false;
 let panStartMouseX = 0;
 let panStartMouseY = 0;
+/** Локальные координаты канваса (как clientToCanvasLocalXY) в начале панорамы СКМ */
+let panStartLocalX = 0;
+let panStartLocalY = 0;
 let panStartPanX = 0;
 let panStartPanY = 0;
 let mapImage = new Image();
@@ -282,6 +286,8 @@ let dragOffset = [0, 0];
 
 let drawingZone = false;
 let currentZoneVertices = [];
+/** Режим «волшебной палочки» для стен тумана: клик по карте → контур по цвету (только fog_of_war). */
+let fogWallWandMode = false;
 
 let avatarImage = null;
 let avatarData = null;
@@ -348,15 +354,21 @@ function closestPointOnSegmentWorld(px, py, x1, y1, x2, y2) {
     return { x: x1 + t * dx, y: y1 + t * dy, t };
 }
 
-/** Расстояние в пикселях экрана от точки до полилинии стены (только соседние вершины, без замыкания). */
+function fogWallIsClosed(w) {
+    return w && w.closed === true && w.vertices && w.vertices.length >= 3;
+}
+
+/** Расстояние в пикселях экрана от точки до полилинии стены (с замыканием last→first, если closed). */
 function screenDistToFogWallPolyline(mx, my, wall, scale, offsetX, offsetY) {
     if (!wall.vertices || wall.vertices.length < 2) return Infinity;
     let best = Infinity;
     const wx = (mx - offsetX) / scale;
     const wy = (my - offsetY) / scale;
-    for (let i = 0; i < wall.vertices.length - 1; i++) {
+    const n = wall.vertices.length;
+    const segCount = fogWallIsClosed(wall) ? n : n - 1;
+    for (let i = 0; i < segCount; i++) {
         const [x1, y1] = wall.vertices[i];
-        const [x2, y2] = wall.vertices[i + 1];
+        const [x2, y2] = wall.vertices[(i + 1) % n];
         const cp = closestPointOnSegmentWorld(wx, wy, x1, y1, x2, y2);
         const scx = cp.x * scale + offsetX;
         const scy = cp.y * scale + offsetY;
@@ -369,16 +381,17 @@ function screenDistToFogWallPolyline(mx, my, wall, scale, offsetX, offsetY) {
 const FOG_WALL_LINE_HIT_PX = 12;
 
 /** Точка подписи стены: середина по длине ломаной (экранные координаты). */
-function fogWallLabelPositionScreen(transformed) {
+function fogWallLabelPositionScreen(transformed, wall) {
     if (!transformed.length) return [0, 0];
     if (transformed.length === 1) return transformed[0];
+    const closed = fogWallIsClosed(wall);
     let total = 0;
     const lens = [];
-    for (let i = 0; i < transformed.length - 1; i++) {
-        const len = Math.hypot(
-            transformed[i + 1][0] - transformed[i][0],
-            transformed[i + 1][1] - transformed[i][1]
-        );
+    const n = transformed.length;
+    const lastIdx = closed ? n : n - 1;
+    for (let i = 0; i < lastIdx; i++) {
+        const j = (i + 1) % n;
+        const len = Math.hypot(transformed[j][0] - transformed[i][0], transformed[j][1] - transformed[i][1]);
         lens.push(len);
         total += len;
     }
@@ -393,8 +406,8 @@ function fogWallLabelPositionScreen(transformed) {
             const t = lens[i] > 0 ? remain / lens[i] : 0;
             const x0 = transformed[i][0];
             const y0 = transformed[i][1];
-            const x1 = transformed[i + 1][0];
-            const y1 = transformed[i + 1][1];
+            const x1 = transformed[(i + 1) % n][0];
+            const y1 = transformed[(i + 1) % n][1];
             return [x0 + t * (x1 - x0), y0 + t * (y1 - y0)];
         }
         remain -= lens[i];
@@ -470,9 +483,10 @@ function tryInsertFogWallVertexOnEdge(mouseX, mouseY) {
     let bestWorld = null;
     let bestScreenD = EDGE_INSERT_SCREEN_DIST + 1;
 
-    for (let i = 0; i < n - 1; i++) {
+    const segCount = fogWallIsClosed(wall) ? n : n - 1;
+    for (let i = 0; i < segCount; i++) {
         const [x1, y1] = wall.vertices[i];
-        const [x2, y2] = wall.vertices[i + 1];
+        const [x2, y2] = wall.vertices[(i + 1) % n];
         const sx1 = x1 * scale + offsetX;
         const sy1 = y1 * scale + offsetY;
         const sx2 = x2 * scale + offsetX;
@@ -515,6 +529,8 @@ let lastMouseY = 0;
 let editingFindId = null;
 let editingZoneId = null;
 let pendingZoneVertices = null;
+/** При сохранении модалки стены: замкнутый контур (палочка) vs открытая ломаная. */
+let pendingFogWallClosed = false;
 let hoveredSnapVertex = null;
 
 /** Ближайшая вершина существующей зоны в радиусе снапа (координаты карты). */
@@ -3572,13 +3588,616 @@ function masterActiveFogWallSegmentsWorld() {
     const out = [];
     for (const w of walls) {
         const v = w.vertices;
-        for (let i = 0; i < v.length - 1; i++) {
+        const n = v.length;
+        const last = fogWallIsClosed(w) ? n : n - 1;
+        for (let i = 0; i < last; i++) {
             const a = v[i];
-            const b = v[i + 1];
+            const b = v[(i + 1) % n];
             out.push([a[0], a[1], b[0], b[1]]);
         }
     }
     return out;
+}
+
+/** Таблица marching squares и склейка контуров — по d3-contour (Mike Bostock). */
+const _FOG_WAND_MS_CASES = [
+    [],
+    [
+        [
+            [1.0, 1.5],
+            [0.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [1.5, 1.0],
+            [1.0, 1.5],
+        ],
+    ],
+    [
+        [
+            [1.5, 1.0],
+            [0.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [1.0, 0.5],
+            [1.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [1.0, 1.5],
+            [0.5, 1.0],
+        ],
+        [
+            [1.0, 0.5],
+            [1.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [1.0, 0.5],
+            [1.0, 1.5],
+        ],
+    ],
+    [
+        [
+            [1.0, 0.5],
+            [0.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [0.5, 1.0],
+            [1.0, 0.5],
+        ],
+    ],
+    [
+        [
+            [1.0, 1.5],
+            [1.0, 0.5],
+        ],
+    ],
+    [
+        [
+            [0.5, 1.0],
+            [1.0, 0.5],
+        ],
+        [
+            [1.5, 1.0],
+            [1.0, 1.5],
+        ],
+    ],
+    [
+        [
+            [1.5, 1.0],
+            [1.0, 0.5],
+        ],
+    ],
+    [
+        [
+            [0.5, 1.0],
+            [1.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [1.0, 1.5],
+            [1.5, 1.0],
+        ],
+    ],
+    [
+        [
+            [0.5, 1.0],
+            [1.0, 1.5],
+        ],
+    ],
+    [],
+];
+
+function _fogWandPolygonSignedArea(ring) {
+    let a = 0;
+    const n = ring.length;
+    if (n < 3) return 0;
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        a += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1];
+    }
+    return a / 2;
+}
+
+function _fogWandPointInPolygon(x, y, ring) {
+    if (!ring || ring.length < 3) return false;
+    let inside = false;
+    const n = ring.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = ring[i][0];
+        const yi = ring[i][1];
+        const xj = ring[j][0];
+        const yj = ring[j][1];
+        if (Math.abs(yi - yj) < 1e-9) continue;
+        if ((yi > y) === (yj > y)) continue;
+        const xInt = ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+        if (x < xInt) inside = !inside;
+    }
+    return inside;
+}
+
+function _fogWandIsoRingsFromMask(maskFlat, dx, dy, onRing) {
+    const values = maskFlat;
+    const vThr = 0.5;
+    const above = (x) => x != null && +x >= vThr;
+    const fragmentByStart = Object.create(null);
+    const fragmentByEnd = Object.create(null);
+
+    function index(point) {
+        return point[0] * 2 + point[1] * (dx + 1) * 4;
+    }
+
+    function stitch(line) {
+        const x = stitch._cx;
+        const y = stitch._cy;
+        const start = [line[0][0] + x, line[0][1] + y];
+        const end = [line[1][0] + x, line[1][1] + y];
+        const startIndex = index(start);
+        const endIndex = index(end);
+        let f;
+        let g;
+        if ((f = fragmentByEnd[startIndex])) {
+            if ((g = fragmentByStart[endIndex])) {
+                delete fragmentByEnd[f.end];
+                delete fragmentByStart[g.start];
+                if (f === g) {
+                    f.ring.push(end);
+                    onRing(f.ring);
+                } else {
+                    fragmentByStart[f.start] = fragmentByEnd[g.end] = {
+                        start: f.start,
+                        end: g.end,
+                        ring: f.ring.concat(g.ring),
+                    };
+                }
+            } else {
+                delete fragmentByEnd[f.end];
+                f.ring.push(end);
+                fragmentByEnd[(f.end = endIndex)] = f;
+            }
+        } else if ((f = fragmentByStart[endIndex])) {
+            if ((g = fragmentByEnd[startIndex])) {
+                delete fragmentByStart[f.start];
+                delete fragmentByEnd[g.end];
+                if (f === g) {
+                    f.ring.push(end);
+                    onRing(f.ring);
+                } else {
+                    fragmentByStart[g.start] = fragmentByEnd[f.end] = {
+                        start: g.start,
+                        end: f.end,
+                        ring: g.ring.concat(f.ring),
+                    };
+                }
+            } else {
+                delete fragmentByStart[f.start];
+                f.ring.unshift(start);
+                fragmentByStart[(f.start = startIndex)] = f;
+            }
+        } else {
+            fragmentByStart[startIndex] = fragmentByEnd[endIndex] = {
+                start: startIndex,
+                end: endIndex,
+                ring: [start, end],
+            };
+        }
+    }
+
+    let x = -1;
+    let y = -1;
+    let t0;
+    let t1 = above(values[0]);
+    let t2;
+    let t3;
+    stitch._cx = x;
+    stitch._cy = y;
+    _FOG_WAND_MS_CASES[t1 << 1].forEach(stitch);
+    while (++x < dx - 1) {
+        t0 = t1;
+        t1 = above(values[x + 1]);
+        stitch._cx = x;
+        stitch._cy = y;
+        _FOG_WAND_MS_CASES[t0 | (t1 << 1)].forEach(stitch);
+    }
+    stitch._cx = x;
+    stitch._cy = y;
+    _FOG_WAND_MS_CASES[t1 << 0].forEach(stitch);
+
+    while (++y < dy - 1) {
+        x = -1;
+        t1 = above(values[y * dx + dx]);
+        t2 = above(values[y * dx]);
+        stitch._cx = x;
+        stitch._cy = y;
+        _FOG_WAND_MS_CASES[(t1 << 1) | (t2 << 2)].forEach(stitch);
+        while (++x < dx - 1) {
+            t0 = t1;
+            t1 = above(values[y * dx + dx + x + 1]);
+            t3 = t2;
+            t2 = above(values[y * dx + x + 1]);
+            stitch._cx = x;
+            stitch._cy = y;
+            _FOG_WAND_MS_CASES[t0 | (t1 << 1) | (t2 << 2) | (t3 << 3)].forEach(stitch);
+        }
+        stitch._cx = x;
+        stitch._cy = y;
+        _FOG_WAND_MS_CASES[t1 | (t2 << 3)].forEach(stitch);
+    }
+
+    x = -1;
+    t2 = values[y * dx] >= vThr;
+    stitch._cx = x;
+    stitch._cy = y;
+    _FOG_WAND_MS_CASES[t2 << 2].forEach(stitch);
+    while (++x < dx - 1) {
+        t3 = t2;
+        t2 = above(values[y * dx + x + 1]);
+        stitch._cx = x;
+        stitch._cy = y;
+        _FOG_WAND_MS_CASES[(t2 << 2) | (t3 << 3)].forEach(stitch);
+    }
+    stitch._cx = x;
+    stitch._cy = y;
+    _FOG_WAND_MS_CASES[t2 << 3].forEach(stitch);
+}
+
+function _fogWandFloodFillMask(data, w, h, sx, sy, tol) {
+    const tol2 = tol * tol;
+    const si = (sy * w + sx) * 4;
+    const sr = data[si];
+    const sg = data[si + 1];
+    const sb = data[si + 2];
+    const mask = new Uint8Array(w * h);
+    const stack = [[sx, sy]];
+    const maxPx = Math.min(w * h, 2_500_000);
+    let count = 0;
+    while (stack.length && count < maxPx) {
+        const [x, y] = stack.pop();
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const i = y * w + x;
+        if (mask[i]) continue;
+        const o = i * 4;
+        const dr = data[o] - sr;
+        const dg = data[o + 1] - sg;
+        const db = data[o + 2] - sb;
+        if (dr * dr + dg * dg + db * db > tol2) continue;
+        mask[i] = 1;
+        count++;
+        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    return { mask, count, maxHit: count >= maxPx };
+}
+
+function _fogWandRdp(points, eps) {
+    if (points.length < 3) return points.slice();
+    const eps2 = eps * eps;
+
+    function dist2(p, a, b) {
+        const px = p[0];
+        const py = p[1];
+        const x1 = a[0];
+        const y1 = a[1];
+        const x2 = b[0];
+        const y2 = b[1];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len2 = dx * dx + dy * dy;
+        if (len2 < 1e-20) return (px - x1) * (px - x1) + (py - y1) * (py - y1);
+        let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const qx = x1 + t * dx;
+        const qy = y1 + t * dy;
+        return (px - qx) * (px - qx) + (py - qy) * (py - qy);
+    }
+
+    function rdpRange(start, end, outFlags) {
+        let idx = -1;
+        let maxD = 0;
+        const a = points[start];
+        const b = points[end];
+        for (let i = start + 1; i < end; i++) {
+            const d2 = dist2(points[i], a, b);
+            if (d2 > maxD) {
+                maxD = d2;
+                idx = i;
+            }
+        }
+        if (maxD > eps2 && idx >= 0) {
+            rdpRange(start, idx, outFlags);
+            outFlags[idx] = 1;
+            rdpRange(idx, end, outFlags);
+        }
+    }
+
+    const flags = new Uint8Array(points.length);
+    flags[0] = 1;
+    flags[points.length - 1] = 1;
+    rdpRange(0, points.length - 1, flags);
+    const out = [];
+    for (let i = 0; i < points.length; i++) {
+        if (flags[i]) out.push(points[i]);
+    }
+    return out;
+}
+
+/**
+ * Палочка: один в один как на экране — рисуем карту в буфер размера видимого канваса (lw×lh),
+ * заливка и контур в пикселях этого буфера, затем вершины → мир: (логический_пиксель − pan) / scale.
+ */
+function _fogWandContourWorldVertices(tolRgb, canvasMX, canvasMY, tf, canvasCss) {
+    if (!mapImage || !mapImage.complete || mapImage.width < 2 || mapImage.height < 2) {
+        return { error: "Карта ещё не загружена." };
+    }
+    if (!tf || !Number.isFinite(canvasMX) || !Number.isFinite(canvasMY)) {
+        return { error: "Некорректные координаты клика." };
+    }
+
+    const nw = mapImage.width;
+    const nh = mapImage.height;
+    const { scale, offsetX, offsetY } = tf;
+    const tw = nw * scale;
+    const th = nh * scale;
+    const lx = canvasMX - offsetX;
+    const ly = canvasMY - offsetY;
+    if (tw <= 0 || th <= 0) return { error: "Некорректный масштаб карты." };
+    if (lx < 0 || ly < 0 || lx > tw || ly > th) {
+        return { error: "Клик мимо изображения карты." };
+    }
+
+    const css = canvasCss || getCanvasCssPixels();
+    const lw = css.w;
+    const lh = css.h;
+    if (lw < 2 || lh < 2) return { error: "Слишком маленький холст." };
+
+    const MAX_SIDE = 1400;
+    const rasterScale = Math.min(1, MAX_SIDE / Math.max(lw, lh));
+    const rw = Math.max(2, Math.round(lw * rasterScale));
+    const rh = Math.max(2, Math.round(lh * rasterScale));
+
+    const c = document.createElement("canvas");
+    c.width = rw;
+    c.height = rh;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = "#000000";
+    g.fillRect(0, 0, rw, rh);
+    g.drawImage(
+        mapImage,
+        offsetX * (rw / lw),
+        offsetY * (rh / lh),
+        tw * (rw / lw),
+        th * (rh / lh)
+    );
+
+    let img;
+    try {
+        img = g.getImageData(0, 0, rw, rh);
+    } catch (_e) {
+        return { error: "Не удалось прочитать пиксели карты (CORS или защита холста)." };
+    }
+
+    const sx = Math.max(0, Math.min(rw - 1, Math.floor(canvasMX * (rw / lw))));
+    const sy = Math.max(0, Math.min(rh - 1, Math.floor(canvasMY * (rh / lh))));
+
+    const { mask, count, maxHit } = _fogWandFloodFillMask(img.data, rw, rh, sx, sy, tolRgb);
+    if (maxHit) return { error: "Область слишком большая — уменьшите чувствительность или кликните по меньшему куску." };
+    if (count < 80) return { error: "Слишком мало пикселей в выделении — увеличьте чувствительность или кликните в другую точку." };
+    const frac = count / (rw * rh);
+    if (frac > 0.45) return { error: "Выделилась почти вся карта — уменьшите чувствительность (палочка)." };
+
+    const floatMask = new Float32Array(rw * rh);
+    for (let i = 0; i < mask.length; i++) floatMask[i] = mask[i] ? 1 : 0;
+
+    const rings = [];
+    _fogWandIsoRingsFromMask(floatMask, rw, rh, (ring) => {
+        if (ring && ring.length >= 4) rings.push(ring);
+    });
+
+    const seedX = sx + 0.5;
+    const seedY = sy + 0.5;
+    const containing = rings.filter((ring) => _fogWandPointInPolygon(seedX, seedY, ring));
+    let best = null;
+    let bestMetric = Infinity;
+    if (containing.length) {
+        for (let r = 0; r < containing.length; r++) {
+            const ring = containing[r];
+            const a = Math.abs(_fogWandPolygonSignedArea(ring));
+            if (a >= 1e-6 && a < bestMetric) {
+                bestMetric = a;
+                best = ring;
+            }
+        }
+    }
+    if (!best) {
+        let bestA = 0;
+        for (let r = 0; r < rings.length; r++) {
+            const ring = rings[r];
+            const a = _fogWandPolygonSignedArea(ring);
+            if (a > bestA) {
+                bestA = a;
+                best = ring;
+            }
+        }
+        if (!best || bestA < 1e-6) return { error: "Не удалось построить контур области." };
+    }
+
+    let closed = best.slice();
+    const first = closed[0];
+    const last = closed[closed.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) closed.push([first[0], first[1]]);
+
+    const epsPx = Math.max(0.9, 1.8 * (lw / rw));
+    let simp = _fogWandRdp(closed, epsPx);
+    if (simp.length > 2) {
+        const f0 = simp[0];
+        const l0 = simp[simp.length - 1];
+        if (f0[0] === l0[0] && f0[1] === l0[1]) simp = simp.slice(0, -1);
+    }
+    while (simp.length > 3) {
+        const a = simp[simp.length - 1];
+        const b = simp[0];
+        const c = simp[1];
+        const dx0 = b[0] - a[0];
+        const dy0 = b[1] - a[1];
+        const dx1 = c[0] - b[0];
+        const dy1 = c[1] - b[1];
+        const len0 = Math.hypot(dx0, dy0);
+        const len1 = Math.hypot(dx1, dy1);
+        if (len0 < 1e-6 || len1 < 1e-6) break;
+        const cos = (dx0 * dx1 + dy0 * dy1) / (len0 * len1);
+        if (cos > 0.995) simp.splice(0, 1);
+        else break;
+    }
+    while (simp.length > 3) {
+        const a = simp[simp.length - 2];
+        const b = simp[simp.length - 1];
+        const c = simp[0];
+        const dx0 = b[0] - a[0];
+        const dy0 = b[1] - a[1];
+        const dx1 = c[0] - b[0];
+        const dy1 = c[1] - b[1];
+        const len0 = Math.hypot(dx0, dy0);
+        const len1 = Math.hypot(dx1, dy1);
+        if (len0 < 1e-6 || len1 < 1e-6) break;
+        const cos = (dx0 * dx1 + dy0 * dy1) / (len0 * len1);
+        if (cos > 0.995) simp.pop();
+        else break;
+    }
+
+    const cap = 650;
+    while (simp.length > cap) {
+        simp = _fogWandRdp(simp, epsPx * 2.2);
+        if (simp.length > 2) {
+            const f0 = simp[0];
+            const l0 = simp[simp.length - 1];
+            if (f0[0] === l0[0] && f0[1] === l0[1]) simp = simp.slice(0, -1);
+        }
+    }
+    if (simp.length < 3) return { error: "Контур получился слишком простым — измените чувствительность." };
+
+    const lxScale = lw / rw;
+    const lyScale = lh / rh;
+    const verts = simp.map(([px, py]) => {
+        const logX = px * lxScale;
+        const logY = py * lyScale;
+        const wx = (logX - offsetX) / scale;
+        const wy = (logY - offsetY) / scale;
+        return [Math.max(0, Math.min(nw, wx)), Math.max(0, Math.min(nh, wy))];
+    });
+    return { vertices: verts };
+}
+
+function getFogWandToleranceInput() {
+    const el = document.getElementById("fogWandTolerance");
+    if (!el) return 32;
+    const v = Number(el.value);
+    return Number.isFinite(v) ? Math.max(5, Math.min(100, v)) : 32;
+}
+
+function syncFogWallWandButton() {
+    const btn = document.getElementById("fogWallWandButton");
+    if (!btn) return;
+    if (fogWallWandMode) btn.classList.add("active");
+    else btn.classList.remove("active");
+}
+
+function toggleFogWallWandMode() {
+    if (!isPlayerFogOfWarMode() || !currentMapId || !mapData) return;
+    fogWallWandMode = !fogWallWandMode;
+    if (fogWallWandMode) {
+        if (isRulerMode) {
+            isRulerMode = false;
+            rulerStart = null;
+            mapData.ruler_start = null;
+            mapData.ruler_end = null;
+            mapData.ruler_visible_to_players = false;
+            const playerRulerToggle = document.getElementById("playerRulerToggle");
+            if (playerRulerToggle) playerRulerToggle.classList.remove("active");
+            socket.emit("ruler_update", { map_id: currentMapId, ruler_start: null, ruler_end: null });
+            socket.emit("ruler_visibility_change", {
+                map_id: currentMapId,
+                ruler_visible_to_players: false,
+            });
+            const rulerBtn = document.getElementById("rulerToggle");
+            if (rulerBtn) rulerBtn.classList.remove("active");
+        }
+        if (isDrawMode || isEraseMode) {
+            isDrawMode = false;
+            isEraseMode = false;
+            const drawToggle = document.getElementById("drawToggle");
+            const eraserToggle = document.getElementById("eraserToggle");
+            if (drawToggle) drawToggle.classList.remove("active");
+            if (eraserToggle) eraserToggle.classList.remove("active");
+            if (drawingStroke) {
+                if (drawThrottle) {
+                    clearTimeout(drawThrottle);
+                    drawThrottle = null;
+                }
+                drawingStroke = null;
+                lastDrawPoint = null;
+            }
+        }
+        if (drawingZone) {
+            drawingZone = false;
+            currentZoneVertices = [];
+            const hint = document.getElementById("drawing-hint");
+            if (hint) hint.remove();
+        }
+    }
+    syncFogWallWandButton();
+    updateCanvasCursor();
+    render();
+}
+
+function applyFogWallMagicWand(canvasMX, canvasMY, tfAtClick) {
+    const tol = getFogWandToleranceInput();
+    const btn = document.getElementById("fogWallWandButton");
+    if (btn) btn.disabled = true;
+    const tf = tfAtClick || getTransform();
+    const canvasCss = getCanvasCssPixels();
+    setTimeout(() => {
+        try {
+            const res = _fogWandContourWorldVertices(tol, canvasMX, canvasMY, tf, canvasCss);
+            if (res.error) {
+                alert(res.error);
+                return;
+            }
+            pendingZoneVertices = res.vertices.map(([x, y]) => [x, y]);
+            pendingFogWallClosed = true;
+            zoneModalPolygonKind = "fog_wall";
+            selectedFogWallId = null;
+            selectedZoneId = null;
+            document.getElementById("zoneName").value = "Стена (палочка)";
+            document.getElementById("zoneDescription").value = "";
+            document.getElementById("zoneModalTitle").textContent = "Новая стена";
+            const sub = document.getElementById("zoneModalSubtitle");
+            const visLbl = document.getElementById("zoneVisibleCheckboxLabel");
+            if (sub) {
+                sub.style.display = "block";
+                sub.textContent =
+                    "Контур по цвету карты (замкнутая линия). При необходимости отредактируйте имя и сохраните.";
+            }
+            if (visLbl) visLbl.textContent = "Стена блокирует обзор";
+            document.getElementById("zoneVisibleCheckbox").checked = true;
+            document.getElementById("zoneModal").style.display = "flex";
+        } catch (err) {
+            console.error(err);
+            alert("Ошибка палочки: " + (err && err.message ? err.message : String(err)));
+        } finally {
+            if (btn) btn.disabled = false;
+            render();
+            updateSidebar();
+        }
+    }, 0);
 }
 
 /** t ∈ (0,1] на пути (ax,ay)→(bx,by), если он пересекает отрезок стены (cx,cy)→(dx,dy). */
@@ -3742,12 +4361,27 @@ function syncPlayerVisibilityModeUI() {
         addZoneBtn.style.pointerEvents = "auto";
         addZoneBtn.title = mode === "fog_of_war" ? "Нарисовать стену (туман)" : "Создать зону";
     }
+    const wandBtn = document.getElementById("fogWallWandButton");
+    const wandTolRow = document.getElementById("fogWandToleranceRow");
+    if (wandBtn) {
+        if (mode === "fog_of_war") {
+            wandBtn.style.display = "";
+        } else {
+            wandBtn.style.display = "none";
+            fogWallWandMode = false;
+            syncFogWallWandButton();
+        }
+    }
+    if (wandTolRow) wandTolRow.style.display = mode === "fog_of_war" ? "block" : "none";
+    const wandHint = document.getElementById("fogWandHint");
+    if (wandHint) wandHint.style.display = mode === "fog_of_war" ? "block" : "none";
     if (zoneList) zoneList.style.display = "";
     const secTitle = document.getElementById("zonesSectionTitle");
     if (secTitle) {
         secTitle.textContent =
             mode === "fog_of_war" ? "Стены тумана" : "Скрытые области";
     }
+    syncFogWallWandButton();
 }
 
 function initPlayerVisibilityModeControls() {
@@ -3761,6 +4395,8 @@ function initPlayerVisibilityModeControls() {
         const prev = mapData.player_visibility_mode;
         mapData.player_visibility_mode = mode;
         if (mode === "zones") {
+            fogWallWandMode = false;
+            syncFogWallWandButton();
             selectedFogWallId = null;
             draggingVertexFogWallId = null;
             draggingVertexFogWallIndex = -1;
@@ -4806,6 +5442,7 @@ function drawFogWall(wall, offsetX, offsetY, scale) {
     for (let i = 1; i < transformed.length; i++) {
         ctx.lineTo(transformed[i][0], transformed[i][1]);
     }
+    if (fogWallIsClosed(wall)) ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.lineCap = "butt";
@@ -4821,6 +5458,7 @@ function drawFogWall(wall, offsetX, offsetY, scale) {
         for (let i = 1; i < transformed.length; i++) {
             ctx.lineTo(transformed[i][0], transformed[i][1]);
         }
+        if (fogWallIsClosed(wall)) ctx.closePath();
         ctx.stroke();
         ctx.lineCap = "butt";
         ctx.lineJoin = "miter";
@@ -4845,7 +5483,7 @@ function drawFogWall(wall, offsetX, offsetY, scale) {
         });
     }
 
-    const [labelX, labelY] = fogWallLabelPositionScreen(transformed);
+    const [labelX, labelY] = fogWallLabelPositionScreen(transformed, wall);
     ctx.font = "14px Inter";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -4917,6 +5555,8 @@ function addZone() {
         }
     }
 
+    fogWallWandMode = false;
+    syncFogWallWandButton();
     drawingZone = true;
     currentZoneVertices = [];
     updateCanvasCursor();
@@ -5072,7 +5712,7 @@ function closeTokenModal(force) {
     editingTokenId = null;
 }
 canvas.addEventListener("mousedown", (e) => {
-    const [mouseX, mouseY] = [e.offsetX, e.offsetY];
+    const { x: mouseX, y: mouseY } = canvasEventLocalXY(e);
     const { scale, offsetX, offsetY } = getTransform();
     const isShiftPressed = e.shiftKey;
 
@@ -5094,12 +5734,29 @@ canvas.addEventListener("mousedown", (e) => {
         return;
     }
 
+    if (fogWallWandMode && e.button === 0 && isPlayerFogOfWarMode()) {
+        const tfClick = getTransform();
+        const wx = (mouseX - tfClick.offsetX) / tfClick.scale;
+        const wy = (mouseY - tfClick.offsetY) / tfClick.scale;
+        if (
+            mapImage &&
+            mapImage.width &&
+            wx >= 0 &&
+            wx <= mapImage.width &&
+            wy >= 0 &&
+            wy <= mapImage.height
+        ) {
+            applyFogWallMagicWand(mouseX, mouseY, tfClick);
+            return;
+        }
+    }
+
     if (isDrawMode || isEraseMode) {
         if (e.button !== 0) return;
 
         const { scale, offsetX, offsetY } = getTransform();
-        const x = (e.offsetX - offsetX) / scale;
-        const y = (e.offsetY - offsetY) / scale;
+        const x = (mouseX - offsetX) / scale;
+        const y = (mouseY - offsetY) / scale;
 
         if (isEraseMode) {
             // Сохраняем состояние ДО стирания
@@ -5378,6 +6035,9 @@ canvas.addEventListener("mousedown", (e) => {
         isPanning = true;
         panStartMouseX = e.clientX;
         panStartMouseY = e.clientY;
+        const p0 = clientToCanvasLocalXY(e.clientX, e.clientY);
+        panStartLocalX = p0 ? p0.x : e.offsetX;
+        panStartLocalY = p0 ? p0.y : e.offsetY;
         panStartPanX = panX;
         panStartPanY = panY;
         updateCanvasCursor();
@@ -5409,10 +6069,18 @@ function clientToCanvasLocalXY(clientX, clientY) {
     if (!el) return null;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
+    const { w: lw, h: lh } = getCanvasCssPixels();
     return {
-        x: (clientX - rect.left) * (el.clientWidth / rect.width),
-        y: (clientY - rect.top) * (el.clientHeight / rect.height),
+        x: (clientX - rect.left) * (lw / rect.width),
+        y: (clientY - rect.top) * (lh / rect.height),
     };
+}
+
+/** Те же логические (CSS) координаты, что и у render() после ctx.scale(canvasDpr). */
+function canvasEventLocalXY(e) {
+    const pos = clientToCanvasLocalXY(e.clientX, e.clientY);
+    if (pos) return pos;
+    return { x: e.offsetX, y: e.offsetY };
 }
 
 function processMasterTokenDragAtCanvasXY(mouseX, mouseY) {
@@ -5527,8 +6195,7 @@ function unbindMasterGlobalTokenDragListeners() {
 }
 
 canvas.addEventListener("mousemove", (e) => {
-    const mouseX = e.offsetX;
-    const mouseY = e.offsetY;
+    const { x: mouseX, y: mouseY } = canvasEventLocalXY(e);
 
     const { scale, offsetX, offsetY } = getTransform();
 
@@ -5651,10 +6318,16 @@ canvas.addEventListener("mousemove", (e) => {
 
     updateCanvasCursor();
 
-    // Перемещение карты средней кнопкой мыши
+    // Перемещение карты средней кнопкой мыши (дельта в тех же локальных координатах, что и клики)
     if (isPanning) {
-        panX = panStartPanX + (e.clientX - panStartMouseX);
-        panY = panStartPanY + (e.clientY - panStartMouseY);
+        const p1 = clientToCanvasLocalXY(e.clientX, e.clientY);
+        if (p1) {
+            panX = panStartPanX + (p1.x - panStartLocalX);
+            panY = panStartPanY + (p1.y - panStartLocalY);
+        } else {
+            panX = panStartPanX + (e.clientX - panStartMouseX);
+            panY = panStartPanY + (e.clientY - panStartMouseY);
+        }
         invalidateBg();
         scheduleRender();
 
@@ -5676,8 +6349,8 @@ canvas.addEventListener("mousemove", (e) => {
 
     if (isDrawMode && drawingStroke && e.buttons === 1) {
         const { scale, offsetX, offsetY } = getTransform();
-        const x = (e.offsetX - offsetX) / scale;
-        const y = (e.offsetY - offsetY) / scale;
+        const x = (mouseX - offsetX) / scale;
+        const y = (mouseY - offsetY) / scale;
 
         if (lastDrawPoint) {
             const dist = Math.hypot(x - lastDrawPoint[0], y - lastDrawPoint[1]);
@@ -5703,10 +6376,7 @@ canvas.addEventListener("mousemove", (e) => {
         }
     }
     if (isRulerMode && rulerStart) {
-        const rulerEnd = [
-            (e.offsetX - offsetX) / scale,
-            (e.offsetY - offsetY) / scale
-        ];
+        const rulerEnd = [(mouseX - offsetX) / scale, (mouseY - offsetY) / scale];
 
         mapData.ruler_start = rulerStart;
         mapData.ruler_end = rulerEnd;
@@ -5956,6 +6626,7 @@ function finalizeActiveZoneDrawing() {
 
     if (isPlayerFogOfWarMode()) {
         zoneModalPolygonKind = "fog_wall";
+        pendingFogWallClosed = false;
         selectedFogWallId = null;
         selectedZoneId = null;
         document.getElementById("zoneModalTitle").textContent = "Новая стена";
@@ -6063,8 +6734,11 @@ canvas.addEventListener("contextmenu", (e) => {
         return;
     }
     const { scale, offsetX, offsetY } = getTransform();
+    const locCtx = canvasEventLocalXY(e);
+    const cmx = locCtx ? locCtx.x : e.offsetX;
+    const cmy = locCtx ? locCtx.y : e.offsetY;
 
-    const ctxToken = findTopTokenAtScreenPoint(e.offsetX, e.offsetY, scale, offsetX, offsetY);
+    const ctxToken = findTopTokenAtScreenPoint(cmx, cmy, scale, offsetX, offsetY);
     if (ctxToken) {
         e.preventDefault();
         selectedTokenId = ctxToken.id;
@@ -6079,7 +6753,7 @@ canvas.addEventListener("contextmenu", (e) => {
         const sy = y * scale + offsetY;
         const radius = (mapData.grid_settings.cell_size * scale) / 2;
 
-        if (Math.hypot(e.offsetX - sx, e.offsetY - sy) <= radius) {
+        if (Math.hypot(cmx - sx, cmy - sy) <= radius) {
             e.preventDefault();
             selectedFindId = find.id;
             showFindContextMenu(find, e.pageX, e.pageY);
@@ -6092,7 +6766,7 @@ canvas.addEventListener("contextmenu", (e) => {
         let bestD = FOG_WALL_LINE_HIT_PX + 1;
         for (const wall of mapData.fog_walls || []) {
             if (!wall.vertices || wall.vertices.length < 2) continue;
-            const d = screenDistToFogWallPolyline(e.offsetX, e.offsetY, wall, scale, offsetX, offsetY);
+            const d = screenDistToFogWallPolyline(cmx, cmy, wall, scale, offsetX, offsetY);
             if (d < bestD) {
                 bestD = d;
                 bestWall = wall;
@@ -6112,7 +6786,7 @@ canvas.addEventListener("contextmenu", (e) => {
             if (!zone.vertices || zone.vertices.length < 3) continue;
 
             const transformed = zone.vertices.map(([vx, vy]) => [vx * scale + offsetX, vy * scale + offsetY]);
-            if (pointInPolygon([e.offsetX, e.offsetY], transformed)) {
+            if (pointInPolygon([cmx, cmy], transformed)) {
                 e.preventDefault();
                 selectedZoneId = zone.id;
                 selectedFogWallId = null;
@@ -6355,7 +7029,8 @@ canvas.addEventListener("click", (e) => {
 
     if (!isClick) return;
 
-    const clickedToken = findTopTokenAtScreenPoint(e.offsetX, e.offsetY, scale, offsetX, offsetY);
+    const { x: cx, y: cy } = canvasEventLocalXY(e);
+    const clickedToken = findTopTokenAtScreenPoint(cx, cy, scale, offsetX, offsetY);
 
     if (clickedToken && !isShiftPressed) {
         selectedTokens.clear();
@@ -6376,9 +7051,10 @@ canvas.addEventListener("dblclick", (e) => {
     if (!currentMapId || !mapData) return;
     if (drawingZone || isDrawMode || isEraseMode || isRulerMode) return;
     if (e.button !== 0) return;
+    const { x: dcx, y: dcy } = canvasEventLocalXY(e);
     if (isPlayerFogOfWarMode()) {
-        if (tryInsertFogWallVertexOnEdge(e.offsetX, e.offsetY)) e.preventDefault();
-    } else if (tryInsertZoneVertexOnEdge(e.offsetX, e.offsetY)) {
+        if (tryInsertFogWallVertexOnEdge(dcx, dcy)) e.preventDefault();
+    } else if (tryInsertZoneVertexOnEdge(dcx, dcy)) {
         e.preventDefault();
     }
 });
@@ -6387,9 +7063,10 @@ canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
 
     const { scale } = getTransform();
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const pos = clientToCanvasLocalXY(e.clientX, e.clientY);
+    if (!pos) return;
+    const mouseX = pos.x;
+    const mouseY = pos.y;
 
     const worldX = (mouseX - panX) / scale;
     const worldY = (mouseY - panY) / scale;
@@ -6602,6 +7279,13 @@ document.addEventListener("keydown", (e) => {
                 render();
             }
 
+            if (fogWallWandMode) {
+                fogWallWandMode = false;
+                syncFogWallWandButton();
+                updateCanvasCursor();
+                render();
+            }
+
             // Закрываем контекстные меню
             const contextMenus = [
                 'tokenContextMenu',
@@ -6712,6 +7396,7 @@ document.addEventListener("keydown", (e) => {
             if (wall && wall.vertices && vidx < wall.vertices.length) {
                 e.preventDefault();
                 wall.vertices.splice(vidx, 1);
+                if (wall.vertices.length < 3) delete wall.closed;
                 if (wall.vertices.length < 2) {
                     mapData.fog_walls = mapData.fog_walls.filter((w) => w.id !== wid);
                     if (selectedFogWallId === wid) selectedFogWallId = null;
@@ -6924,6 +7609,7 @@ function closeZoneModal() {
     document.getElementById("zoneModal").style.display = "none";
     editingZoneId = null;
     pendingZoneVertices = null;
+    pendingFogWallClosed = false;
     zoneModalPolygonKind = "zone";
     const sub = document.getElementById("zoneModalSubtitle");
     if (sub) sub.style.display = "none";
@@ -6955,15 +7641,19 @@ function submitZone() {
                 wall.description = description;
                 wall.vertices = [...pendingZoneVertices];
                 wall.is_visible = isVisible;
+                if (pendingFogWallClosed && wall.vertices.length >= 3) wall.closed = true;
+                else delete wall.closed;
             }
         } else {
-            mapData.fog_walls.push({
+            const wallObj = {
                 id: `wall_${Date.now()}`,
                 name,
                 description,
                 vertices: [...pendingZoneVertices],
                 is_visible: isVisible,
-            });
+            };
+            if (pendingFogWallClosed && pendingZoneVertices.length >= 3) wallObj.closed = true;
+            mapData.fog_walls.push(wallObj);
         }
         selectedFogWallId = null;
     } else {
@@ -6990,6 +7680,7 @@ function submitZone() {
 
     zoneModalPolygonKind = "zone";
     pendingZoneVertices = null;
+    pendingFogWallClosed = false;
     document.getElementById("zoneModal").style.display = "none";
     const sub = document.getElementById("zoneModalSubtitle");
     if (sub) sub.style.display = "none";
@@ -7483,6 +8174,8 @@ function updateCanvasCursor() {
         hoveredVertexFogWallIndex >= 0
     ) {
         canvas.style.cursor = 'move';
+    } else if (fogWallWandMode) {
+        canvas.style.cursor = "crosshair";
     } else if (drawingZone) {
         canvas.classList.add('zone-drawing-mode');
     } else if (isRulerMode) {
@@ -8589,6 +9282,7 @@ function showNotification(message, type = 'info') {
 function openEditZoneModal(zone, isFogWall = false) {
     zoneModalPolygonKind = isFogWall ? "fog_wall" : "zone";
     pendingZoneVertices = [...zone.vertices];
+    pendingFogWallClosed = isFogWall && zone.closed === true;
 
     document.getElementById("zoneName").value = zone.name || "";
     document.getElementById("zoneDescription").value = zone.description || "";
@@ -10002,13 +10696,12 @@ function initSidebarCollapse() {
     render();
 }
 function resizeCanvas() {
-    const canvasContainer = document.getElementById('canvas-container');
     const canvasEl = document.getElementById('mapCanvas');
 
-    if (!canvasEl || !canvasContainer) return;
+    if (!canvasEl) return;
 
-    const w = Math.max(1, Math.round(canvasContainer.clientWidth));
-    const h = Math.max(1, Math.round(canvasContainer.clientHeight));
+    const w = Math.max(1, Math.round(canvasEl.clientWidth));
+    const h = Math.max(1, Math.round(canvasEl.clientHeight));
     const dpr = measureCanvasDevicePixelRatio();
     const bw = Math.max(1, Math.round(w * dpr));
     const bh = Math.max(1, Math.round(h * dpr));
@@ -11057,6 +11750,7 @@ function closeAllModals() {
     editingZoneId = null;
     window.editingCharacterId = null;
     pendingZoneVertices = null;
+    pendingFogWallClosed = false;
 
     // Если закрыли модалку зоны (черновик уже не в drawingZone), без render() «залипает» превью чертежа
     render();

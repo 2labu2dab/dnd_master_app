@@ -3123,6 +3123,17 @@ body.sidebar-collapsed-both #canvas-container {
 #eraserToggle.active {
     animation: pulse-green 1.5s infinite;
 }
+
+#fogWallWandButton.active svg {
+    color: #e65100;
+    filter: drop-shadow(0 0 4px rgba(230, 81, 0, 0.45));
+}
+
+#fogWallWandButton.active {
+    outline: 1px solid rgba(230, 81, 0, 0.5);
+    border-radius: 6px;
+}
+
 /* Курсоры */
 canvas.draw-mode {
     cursor: crosshair !important;
