@@ -31,6 +31,7 @@ from utils.character_bank import (
 )
 from utils.master_lock import (
     acquire_master_lock,
+    clear_master_lock_file,
     get_current_master,
     is_master_active,
     release_master_lock,
@@ -160,12 +161,16 @@ def _build_player_data(map_id, data):
         "tokens": _prepare_player_tokens(data.get("tokens", [])),
         "characters": _prepare_player_characters(data.get("characters", [])),
         "zones": data.get("zones", []),
+        "fog_walls": data.get("fog_walls", []),
         "finds": data.get("finds", []),
         "grid_settings": data.get("grid_settings", {}),
         "ruler_visible_to_players": data.get("ruler_visible_to_players", False),
         "player_map_enabled": data.get("player_map_enabled", True),
         "has_image": data.get("has_image", False),
         "combat": data.get("combat"),
+        "player_visibility_mode": data.get("player_visibility_mode", "zones"),
+        "fog_of_war_radius_cells": data.get("fog_of_war_radius_cells", 4),
+        "fog_of_war_explored": data.get("fog_of_war_explored", []),
     }
     if data.get("has_image"):
         image_path = get_image_filepath(map_id)
@@ -1429,6 +1434,7 @@ def handle_request_map_data(data):
         "tokens": tokens_for_players,
         "characters": characters_for_players,
         "zones": map_data.get("zones", []),
+        "fog_walls": map_data.get("fog_walls", []),
         "finds": map_data.get("finds", []),
         "grid_settings": map_data.get("grid_settings", {}),
         "ruler_visible_to_players": map_data.get("ruler_visible_to_players", False),
@@ -1444,6 +1450,9 @@ def handle_request_map_data(data):
         "pan_x": map_data.get("pan_x", 0),
         "pan_y": map_data.get("pan_y", 0),
         "combat": map_data.get("combat"),
+        "player_visibility_mode": map_data.get("player_visibility_mode", "zones"),
+        "fog_of_war_radius_cells": map_data.get("fog_of_war_radius_cells", 4),
+        "fog_of_war_explored": map_data.get("fog_of_war_explored", []),
     }
 
     emit("map_updated", player_data, room=request.sid)
@@ -1918,15 +1927,36 @@ def handle_token_move(data):
     if not token_id or not position:
         return
 
+    payload = {
+        "map_id": map_id,
+        "token_id": token_id,
+        "position": position,
+        "is_visible": data.get("is_visible", True),
+        "is_dead": data.get("is_dead", False),
+    }
+    if "fog_of_war_explored" in data:
+        payload["fog_of_war_explored"] = data["fog_of_war_explored"]
+
     emit(
         "token_move",
-        {
-            "map_id": map_id,
-            "token_id": token_id,
-            "position": position,
-            "is_visible": data.get("is_visible", True),
-            "is_dead": data.get("is_dead", False),
-        },
+        payload,
+        to=f"map_{map_id}",
+        include_self=False,
+    )
+
+
+@socketio.on("fog_explored_sync")
+def handle_fog_explored_sync(data):
+    """Синхронизация памяти тумана войны с игроками во время перетаскивания."""
+    map_id = data.get("map_id")
+    if not map_id:
+        return
+    fog = data.get("fog_of_war_explored")
+    if fog is None:
+        return
+    emit(
+        "fog_explored_sync",
+        {"map_id": map_id, "fog_of_war_explored": fog},
         to=f"map_{map_id}",
         include_self=False,
     )
@@ -2405,6 +2435,17 @@ def release_master():
     if session_id and release_master_lock(session_id):
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 400
+
+
+@app.route("/api/master/emergency-release", methods=["POST"])
+def master_emergency_release():
+    """
+    Сбросить блокировку на диске, если сессия «зависла» (мастер уже не в сети).
+    Для домашней/LAN-игры; на публичном сервере ограничьте доступ.
+    """
+    if clear_master_lock_file():
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "error"}), 500
 
 
 if __name__ == "__main__":

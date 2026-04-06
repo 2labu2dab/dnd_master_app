@@ -4,8 +4,9 @@ import json
 import os
 
 MASTER_LOCK_FILE = "data/master_lock.json"
-# Вкладка в фоне может заморозить setInterval; короткий таймаут даёт ложное «мастер отсутствует».
-MASTER_LOCK_STALE_SECONDS = 3600  # 1 час
+# Пинг мастера с клиента ~10 с; фоновая вкладка может реже слать пинг.
+# Слишком большое значение оставляет «занято» после краша/закрытия браузера на часы.
+MASTER_LOCK_STALE_SECONDS = 120  # 2 мин без пинга — блокировка считается мёртвой
 
 
 def acquire_master_lock(session_id, socket_id=None):
@@ -138,3 +139,15 @@ def is_master_active():
     Проверить, активен ли мастер
     """
     return get_current_master() is not None
+
+
+def clear_master_lock_file():
+    """Аварийно удалить файл блокировки (зависшая сессия, сбой без disconnect)."""
+    try:
+        if os.path.exists(MASTER_LOCK_FILE):
+            os.remove(MASTER_LOCK_FILE)
+            print("Master lock file cleared (emergency)")
+        return True
+    except Exception as e:
+        print(f"Error clearing master lock file: {e}")
+        return False

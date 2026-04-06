@@ -239,7 +239,7 @@ function applyTokenUpdates() {
     if (pendingTokenUpdates.size > 0 && mapData && mapData.tokens) {
         for (const [tokenId, update] of pendingTokenUpdates) {
             const token = mapData.tokens.find(t => t.id === tokenId);
-            if (token) {
+            if (token && update.position) {
                 token.position = update.position;
             }
         }
@@ -851,6 +851,7 @@ socket.on("map_updated", (data) => {
     Object.assign(mapData, {
         tokens: data.tokens || [],
         zones: data.zones || [],
+        fog_walls: data.fog_walls !== undefined ? data.fog_walls : (mapData.fog_walls || []),
         finds: data.finds || [],
         characters: mergedCharacters,
         grid_settings: data.grid_settings || mapData.grid_settings,
@@ -861,8 +862,23 @@ socket.on("map_updated", (data) => {
         has_image: data.has_image || false,
         master_canvas_width: data.master_canvas_width,
         master_canvas_height: data.master_canvas_height,
-        combat: data.combat !== undefined ? data.combat : mapData.combat
+        combat: data.combat !== undefined ? data.combat : mapData.combat,
+        player_visibility_mode: data.player_visibility_mode !== undefined
+            ? data.player_visibility_mode
+            : (mapData.player_visibility_mode || "zones"),
+        fog_of_war_radius_cells: data.fog_of_war_radius_cells !== undefined
+            ? data.fog_of_war_radius_cells
+            : (mapData.fog_of_war_radius_cells ?? 4),
+        fog_of_war_explored: data.fog_of_war_explored !== undefined
+            ? data.fog_of_war_explored
+            : (mapData.fog_of_war_explored || []),
     });
+
+    if (data.fog_walls !== undefined) {
+        invalidatePlayerFogWallSegmentCache();
+    }
+
+    clearPlayerFogLiveTrail();
 
     preloadPortraits(mapData.characters);
 
@@ -1038,6 +1054,7 @@ socket.on("master_switched_map", (data) => {
         mapId = null;
         window.playerMapId = null;
         mapData = null;
+        invalidatePlayerFogWallSegmentCache();
         requestRender();
         updatePortraits(); // Обновляем портреты при смене карты
     }
@@ -1118,7 +1135,16 @@ function render() {
 
     ctx.drawImage(mapImage, offsetX, offsetY, mapW * playerScale, mapH * playerScale);
 
-    drawLayers(offsetX, offsetY, playerScale, lw, lh);
+    if (isPlayerFogOfWarActive()) {
+        if (mapData.grid_settings && mapData.grid_settings.visible_to_players === true) {
+            drawGrid(offsetX, offsetY, playerScale, lw, lh);
+        }
+        drawPlayerStrokes(offsetX, offsetY, playerScale);
+        drawPlayerFogOfWarOverlay(offsetX, offsetY, playerScale, mapW, mapH);
+        drawFogOfWarPlayerTokens(offsetX, offsetY, playerScale);
+    } else {
+        drawLayers(offsetX, offsetY, playerScale, lw, lh);
+    }
 
     if (mapData.ruler_visible_to_players && mapData.ruler_start && mapData.ruler_end) {
         drawMasterRuler(mapData.ruler_start, mapData.ruler_end, offsetX, offsetY, playerScale, lw, lh);
@@ -1229,6 +1255,534 @@ function updatePlayerInitiativeStrip() {
         strip.style.display = "none";
         strip.innerHTML = "";
         if (parent) parent.classList.remove("has-initiative-strip");
+    }
+}
+
+function isPlayerFogOfWarActive() {
+    return mapData && mapData.player_visibility_mode === "fog_of_war";
+}
+
+function playerFogHeroTokens() {
+    return (mapData && mapData.tokens ? mapData.tokens : []).filter(
+        (t) => t.is_player && t.is_visible !== false && !t.is_dead
+    );
+}
+
+function getPlayerFogRadiusWorld() {
+    const cell = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    const cells = Number(mapData && mapData.fog_of_war_radius_cells);
+    const n = Number.isFinite(cells) ? cells : 4;
+    return Math.max(1, n) * cell;
+}
+
+function playerFogExploredCenters() {
+    const raw = (mapData && mapData.fog_of_war_explored) || [];
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+        const p = raw[i];
+        if (Array.isArray(p) && p.length >= 2) {
+            out.push([p[0], p[1]]);
+        } else if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            out.push([p.x, p.y]);
+        }
+    }
+    return out;
+}
+
+/** Точки по token_move (герой), пока сервер не прислал полный fog_of_war_explored — чтобы след был во время перетаскивания. */
+const PLAYER_FOG_LIVE_TRAIL_CAP = 5000;
+const _playerFogLiveTrail = [];
+const _playerFogLiveTrailLastByToken = new Map();
+
+function clearPlayerFogLiveTrail() {
+    _playerFogLiveTrail.length = 0;
+    _playerFogLiveTrailLastByToken.clear();
+}
+
+function appendPlayerFogLiveTrail(tokenId, wx, wy) {
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) return;
+    const cs = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    const minStep = Math.max(cs * 0.02, 0.06);
+    const min2 = minStep * minStep;
+    const tid = String(tokenId);
+    const prev = _playerFogLiveTrailLastByToken.get(tid);
+    if (prev) {
+        const dx = prev[0] - wx;
+        const dy = prev[1] - wy;
+        if (dx * dx + dy * dy < min2) return;
+    }
+    _playerFogLiveTrailLastByToken.set(tid, [wx, wy]);
+    _playerFogLiveTrail.push([wx, wy]);
+    while (_playerFogLiveTrail.length > PLAYER_FOG_LIVE_TRAIL_CAP) {
+        _playerFogLiveTrail.shift();
+    }
+    requestRender();
+}
+
+/** Максимум дыр по живому следу за кадр (пока мастер тянет героя). */
+const MAX_FOG_LIVE_TRAIL_PUNCHES = 72;
+/**
+ * Сколько последних точек живого следа участвуют в отрисовке.
+ * Раньше субдискретизация шла по всему массиву (до 5000) — при движении героя набор из 72 точек
+ * «перескакивал» по всей карте и визуально перерисовывал старые открытые зоны.
+ */
+const PLAYER_FOG_LIVE_TRAIL_RENDER_TAIL = 520;
+
+/** Больше шагов — острее углы у стен (меньше «скругления» от дискретизации лучей). */
+const _FOG_WALL_RAY_STEPS = 34;
+
+/** Предвычисление направлений лучей — без cos/sin в горячем цикле. */
+const _FOG_RAY_DIRS = (() => {
+    const n = _FOG_WALL_RAY_STEPS;
+    const c = new Float64Array(n + 1);
+    const s = new Float64Array(n + 1);
+    for (let i = 0; i <= n; i++) {
+        const th = (i / n) * Math.PI * 2;
+        c[i] = Math.cos(th);
+        s[i] = Math.sin(th);
+    }
+    return { c, s };
+})();
+
+/** Кэш слоя «сохранённый explored» в координатах карты (не зависит от zoom). */
+let _fogHistoricSavedCanvas = null;
+let _fogHistoricSavedState = {
+    mapW: 0,
+    mapH: 0,
+    cacheScale: 1,
+    cw: 0,
+    ch: 0,
+    rWorld: 0,
+};
+
+/** Инкрементальный кэш «сохранённого» тумана: без полной пересборки субдискретизацией (она смещалась при каждом новом пункте). */
+let _fogHistGeomKey = "";
+let _fogHistPunchedCount = 0;
+let _fogHistTrackedFirst = null;
+
+const _FOG_HISTORIC_MAX_PIXELS = 4_500_000;
+
+let _cachedFogWallSegmentsRef = null;
+let _cachedFogWallSegments = null;
+
+function getActiveFogWallSegmentsWorld() {
+    const wallsArr = mapData && mapData.fog_walls;
+    if (_cachedFogWallSegmentsRef === wallsArr && _cachedFogWallSegments) {
+        return _cachedFogWallSegments;
+    }
+    const walls = (wallsArr || []).filter(
+        (w) => w.is_visible !== false && w.vertices && w.vertices.length >= 2
+    );
+    const out = [];
+    for (const w of walls) {
+        const v = w.vertices;
+        for (let i = 0; i < v.length - 1; i++) {
+            const a = v[i];
+            const b = v[i + 1];
+            out.push([a[0], a[1], b[0], b[1]]);
+        }
+    }
+    _cachedFogWallSegmentsRef = wallsArr;
+    _cachedFogWallSegments = out;
+    return out;
+}
+
+function invalidatePlayerFogHistoricLayer() {
+    _fogHistGeomKey = "";
+    _fogHistPunchedCount = 0;
+    _fogHistTrackedFirst = null;
+}
+
+function invalidatePlayerFogWallSegmentCache() {
+    _cachedFogWallSegmentsRef = null;
+    _cachedFogWallSegments = null;
+    invalidatePlayerFogHistoricLayer();
+}
+
+/** Квадрат расстояния от точки до отрезка (мир). */
+function distPointToSegmentSq(px, py, x1, y1, x2, y2) {
+    const vx = x2 - x1;
+    const vy = y2 - y1;
+    const wx = px - x1;
+    const wy = py - y1;
+    const c1 = wx * vx + wy * vy;
+    if (c1 <= 0) return wx * wx + wy * wy;
+    const c2 = vx * vx + vy * vy;
+    if (c2 <= c1) {
+        const dx = px - x2;
+        const dy = py - y2;
+        return dx * dx + dy * dy;
+    }
+    const t = c1 / c2;
+    const projx = x1 + t * vx;
+    const projy = y1 + t * vy;
+    const dx = px - projx;
+    const dy = py - projy;
+    return dx * dx + dy * dy;
+}
+
+/**
+ * Сегменты стен, которые могут пересечь диск видимости (cx,cy,r) — остальные не режут лучи длиной r.
+ */
+function fogWallSegmentsNearDisk(cx, cy, rWorld, segments) {
+    if (!segments.length) return segments;
+    const r2 = rWorld * rWorld * 1.0001;
+    const out = [];
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const d2 = distPointToSegmentSq(cx, cy, s[0], s[1], s[2], s[3]);
+        if (d2 <= r2) out.push(s);
+    }
+    return out;
+}
+
+/** Только недавний хвост живого следа — для оверлея (полный след хранится до sync отдельно). */
+function playerFogLiveTrailSliceForRender() {
+    const t = _playerFogLiveTrail;
+    const n = t.length;
+    if (n === 0) return t;
+    if (n <= PLAYER_FOG_LIVE_TRAIL_RENDER_TAIL) return t;
+    return t.slice(n - PLAYER_FOG_LIVE_TRAIL_RENDER_TAIL);
+}
+
+/** Равномерная выборка центров для отрисовки тумана (память следа остаётся полной в данных карты). */
+function subsampleCentersForFogPunch(centers, maxPoints) {
+    const n = centers.length;
+    if (n <= maxPoints) return centers;
+    const out = [];
+    const last = n - 1;
+    for (let j = 0; j < maxPoints; j++) {
+        const i = Math.floor((j * last) / Math.max(1, maxPoints - 1));
+        out.push(centers[i]);
+    }
+    return out;
+}
+
+/** Пересечение отрезка (h→p) с отрезком стены; true если есть блокирующее пересечение внутри обоих. */
+function fogLosSegmentBlocks(hx, hy, px, py, seg) {
+    const [x1, y1, x2, y2] = seg;
+    const det = (px - hx) * (y1 - y2) - (py - hy) * (x1 - x2);
+    if (Math.abs(det) < 1e-12) return false;
+    const t = ((x1 - hx) * (y1 - y2) - (y1 - hy) * (x1 - x2)) / det;
+    const u = ((x1 - hx) * (py - hy) - (y1 - hy) * (px - hx)) / det;
+    const eps = 1e-4;
+    if (t <= eps || t >= 1 - eps) return false;
+    if (u < -eps || u > 1 + eps) return false;
+    return true;
+}
+
+/** AABB-отсечение: стена вне расширенного коридора герой→токен не может перекрыть LOS. */
+function fogWallSegmentsCrossingLosBand(hx, hy, px, py, segments) {
+    if (segments.length <= 20) return segments;
+    const pad = 6;
+    const minx = Math.min(hx, px) - pad;
+    const maxx = Math.max(hx, px) + pad;
+    const miny = Math.min(hy, py) - pad;
+    const maxy = Math.max(hy, py) + pad;
+    const out = [];
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const x1 = s[0];
+        const y1 = s[1];
+        const x2 = s[2];
+        const y2 = s[3];
+        const sminx = Math.min(x1, x2);
+        const smaxx = Math.max(x1, x2);
+        const sminy = Math.min(y1, y2);
+        const smaxy = Math.max(y1, y2);
+        if (smaxx < minx || sminx > maxx || smaxy < miny || sminy > maxy) continue;
+        out.push(s);
+    }
+    return out.length ? out : segments;
+}
+
+function fogPointVisibleFromAnyHero(wx, wy, heroCenters, segments) {
+    if (!segments.length) return true;
+    for (let i = 0; i < heroCenters.length; i++) {
+        const c = heroCenters[i];
+        const hx = c[0];
+        const hy = c[1];
+        const segs = fogWallSegmentsCrossingLosBand(hx, hy, wx, wy, segments);
+        let blocked = false;
+        for (let s = 0; s < segs.length; s++) {
+            if (fogLosSegmentBlocks(hx, hy, wx, wy, segs[s])) {
+                blocked = true;
+                break;
+            }
+        }
+        if (!blocked) return true;
+    }
+    return false;
+}
+
+/** Дальность вдоль луча из (ox,oy) с направлением (rdx,rdy) до отрезка в мировых координатах, ≤ maxDist */
+function fogRayWallHitWorld(ox, oy, rdx, rdy, maxDist, seg) {
+    const [x1, y1, x2, y2] = seg;
+    const sdx = x2 - x1;
+    const sdy = y2 - y1;
+    const det = rdx * sdy - rdy * sdx;
+    if (Math.abs(det) < 1e-14) return null;
+    const t = ((x1 - ox) * sdy - (y1 - oy) * sdx) / det;
+    const u = ((x1 - ox) * rdy - (y1 - oy) * rdx) / det;
+    if (t < 1e-6 || t > maxDist + 1e-6) return null;
+    if (u < -1e-6 || u > 1 + 1e-6) return null;
+    return t;
+}
+
+function fogPunchVisibilityPolygon(f, cxWorld, cyWorld, rWorld, scale, segments) {
+    const sx = cxWorld * scale;
+    const sy = cyWorld * scale;
+    const rPx = rWorld * scale;
+    if (rPx <= 0) return;
+    const localSegs =
+        segments.length > 18 ? fogWallSegmentsNearDisk(cxWorld, cyWorld, rWorld, segments) : segments;
+    const { c: rc, s: rs } = _FOG_RAY_DIRS;
+    const n = _FOG_WALL_RAY_STEPS;
+    f.beginPath();
+    f.moveTo(sx, sy);
+    for (let i = 0; i <= n; i++) {
+        const rdx = rc[i];
+        const rdy = rs[i];
+        let tMax = rPx;
+        if (localSegs.length) {
+            for (let s = 0; s < localSegs.length; s++) {
+                const hw = fogRayWallHitWorld(cxWorld, cyWorld, rdx, rdy, rWorld, localSegs[s]);
+                if (hw != null) {
+                    const hp = hw * scale;
+                    if (hp < tMax) tMax = hp;
+                }
+            }
+        }
+        f.lineTo(sx + rdx * tMax, sy + rdy * tMax);
+    }
+    f.closePath();
+    f.fill();
+}
+
+function fogWallChecksumSimple(segments) {
+    let h = segments.length | 0;
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        h =
+            (Math.imul(h, 4099) +
+                ((s[0] | 0) + (s[1] | 0) * 3 + (s[2] | 0) * 5 + (s[3] | 0) * 7 + i)) |
+            0;
+    }
+    return h;
+}
+
+function fogHistExploredXY(saved, i) {
+    const p = saved[i];
+    if (!p) return null;
+    if (Array.isArray(p) && p.length >= 2) {
+        const x = Number(p[0]);
+        const y = Number(p[1]);
+        return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+    }
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        return [p.x, p.y];
+    }
+    return null;
+}
+
+/** Пересобирает только «сохранённый» explored: новые точки дорисовываются, без субвыборки по всей длине массива. */
+function ensureFogHistoricSavedLayer(mapW, mapH, rWorld, wallSegs) {
+    const saved = playerFogExploredCenters();
+    const n = saved.length;
+    const wallCk = fogWallChecksumSimple(wallSegs);
+
+    const area = mapW * mapH;
+    let cacheScale = 1;
+    if (area > _FOG_HISTORIC_MAX_PIXELS) {
+        cacheScale = Math.sqrt(_FOG_HISTORIC_MAX_PIXELS / area);
+    }
+    const cw = Math.max(1, Math.ceil(mapW * cacheScale));
+    const ch = Math.max(1, Math.ceil(mapH * cacheScale));
+    const geomKey = `${mapW}|${mapH}|${rWorld}|${cw}|${ch}|${wallCk}|${cacheScale}|r${_FOG_WALL_RAY_STEPS}`;
+
+    if (!_fogHistoricSavedCanvas) {
+        _fogHistoricSavedCanvas = document.createElement("canvas");
+    }
+
+    let resized = false;
+    if (_fogHistoricSavedCanvas.width !== cw || _fogHistoricSavedCanvas.height !== ch) {
+        _fogHistoricSavedCanvas.width = cw;
+        _fogHistoricSavedCanvas.height = ch;
+        resized = true;
+    }
+
+    const firstPt = n > 0 ? fogHistExploredXY(saved, 0) : null;
+    const firstMoved =
+        _fogHistTrackedFirst != null &&
+        firstPt != null &&
+        (Math.abs(firstPt[0] - _fogHistTrackedFirst[0]) > 0.5 ||
+            Math.abs(firstPt[1] - _fogHistTrackedFirst[1]) > 0.5);
+    const shrunk = n < _fogHistPunchedCount;
+    const geomMismatch = geomKey !== _fogHistGeomKey;
+
+    const needFullRebuild = resized || geomMismatch || firstMoved || shrunk;
+
+    const hf = _fogHistoricSavedCanvas.getContext("2d");
+    hf.setTransform(1, 0, 0, 1, 0, 0);
+
+    const punchOne = (cx, cy) => {
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+        if (wallSegs.length) {
+            fogPunchVisibilityPolygon(hf, cx, cy, rWorld, cacheScale, wallSegs);
+        } else {
+            const rPx = rWorld * cacheScale;
+            hf.beginPath();
+            hf.arc(cx * cacheScale, cy * cacheScale, rPx, 0, Math.PI * 2);
+            hf.fill();
+        }
+    };
+
+    if (needFullRebuild) {
+        _fogHistGeomKey = geomKey;
+        hf.globalCompositeOperation = "source-over";
+        hf.fillStyle = "#000000";
+        hf.fillRect(0, 0, cw, ch);
+        hf.globalCompositeOperation = "destination-out";
+        hf.fillStyle = "#ffffff";
+        for (let i = 0; i < n; i++) {
+            const pt = fogHistExploredXY(saved, i);
+            if (pt) punchOne(pt[0], pt[1]);
+        }
+        _fogHistPunchedCount = n;
+        _fogHistTrackedFirst = firstPt ? [firstPt[0], firstPt[1]] : null;
+    } else if (n > _fogHistPunchedCount) {
+        hf.globalCompositeOperation = "destination-out";
+        hf.fillStyle = "#ffffff";
+        for (let i = _fogHistPunchedCount; i < n; i++) {
+            const pt = fogHistExploredXY(saved, i);
+            if (pt) punchOne(pt[0], pt[1]);
+        }
+        _fogHistPunchedCount = n;
+        if (_fogHistTrackedFirst == null && firstPt) {
+            _fogHistTrackedFirst = [firstPt[0], firstPt[1]];
+        }
+    }
+
+    hf.globalCompositeOperation = "source-over";
+
+    const st = _fogHistoricSavedState;
+    st.mapW = mapW;
+    st.mapH = mapH;
+    st.cacheScale = cacheScale;
+    st.cw = cw;
+    st.ch = ch;
+    st.rWorld = rWorld;
+}
+
+function isWorldPointInsideFogCircles(wx, wy, centers, rWorld) {
+    const r2 = rWorld * rWorld;
+    for (let i = 0; i < centers.length; i++) {
+        const c = centers[i];
+        const dx = wx - c[0];
+        const dy = wy - c[1];
+        if (dx * dx + dy * dy <= r2) return true;
+    }
+    return false;
+}
+
+function tokenVisibleUnderFogOfWar(token, heroCenters, wallSegs) {
+    if (token.is_visible === false) return false;
+    if (token.is_player) return true;
+    const r = getPlayerFogRadiusWorld();
+    const centers = heroCenters || playerFogHeroTokens().map((t) => t.position);
+    if (!centers.length) return false;
+    const [wx, wy] = token.position || [0, 0];
+    if (!isWorldPointInsideFogCircles(wx, wy, centers, r)) return false;
+    const segs = wallSegs != null ? wallSegs : getActiveFogWallSegmentsWorld();
+    if (!segs.length) return true;
+    return fogPointVisibleFromAnyHero(wx, wy, centers, segs);
+}
+
+let _playerFogScratchCanvas = null;
+
+function drawPlayerFogOfWarOverlay(offsetX, offsetY, scale, mapW, mapH) {
+    const rWorld = getPlayerFogRadiusWorld();
+    const heroes = playerFogHeroTokens();
+    const mx = mapW * scale;
+    const my = mapH * scale;
+    const W = Math.max(1, Math.ceil(mx));
+    const H = Math.max(1, Math.ceil(my));
+    if (!_playerFogScratchCanvas) {
+        _playerFogScratchCanvas = document.createElement("canvas");
+    }
+    if (_playerFogScratchCanvas.width !== W || _playerFogScratchCanvas.height !== H) {
+        _playerFogScratchCanvas.width = W;
+        _playerFogScratchCanvas.height = H;
+    }
+    const f = _playerFogScratchCanvas.getContext("2d");
+    f.setTransform(1, 0, 0, 1, 0, 0);
+    f.clearRect(0, 0, W, H);
+
+    const rPx = rWorld * scale;
+    const wallSegs = getActiveFogWallSegmentsWorld();
+
+    ensureFogHistoricSavedLayer(mapW, mapH, rWorld, wallSegs);
+    const hist = _fogHistoricSavedState;
+    f.save();
+    f.imageSmoothingEnabled = false;
+    f.drawImage(_fogHistoricSavedCanvas, 0, 0, hist.cw, hist.ch, 0, 0, W, H);
+    f.restore();
+
+    if (_playerFogLiveTrail.length && rPx > 0) {
+        f.globalCompositeOperation = "destination-out";
+        f.fillStyle = "#ffffff";
+        const liveTail = playerFogLiveTrailSliceForRender();
+        const livePunch = subsampleCentersForFogPunch(liveTail, MAX_FOG_LIVE_TRAIL_PUNCHES);
+        for (let i = 0; i < livePunch.length; i++) {
+            const [cx, cy] = livePunch[i];
+            if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+            if (wallSegs.length) {
+                fogPunchVisibilityPolygon(f, cx, cy, rWorld, scale, wallSegs);
+            } else {
+                f.beginPath();
+                f.arc(cx * scale, cy * scale, rPx, 0, Math.PI * 2);
+                f.fill();
+            }
+        }
+        f.globalCompositeOperation = "source-over";
+    }
+
+    f.fillStyle = "rgba(0, 0, 0, 0.55)";
+    f.fillRect(0, 0, W, H);
+
+    if (heroes.length && rPx > 0) {
+        f.globalCompositeOperation = "destination-out";
+        f.fillStyle = "#ffffff";
+        for (let i = 0; i < heroes.length; i++) {
+            const t = heroes[i];
+            const [cx, cy] = t.position;
+            if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+            if (wallSegs.length) {
+                fogPunchVisibilityPolygon(f, cx, cy, rWorld, scale, wallSegs);
+            } else {
+                f.beginPath();
+                f.arc(cx * scale, cy * scale, rPx, 0, Math.PI * 2);
+                f.fill();
+            }
+        }
+        f.globalCompositeOperation = "source-over";
+    }
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(_playerFogScratchCanvas, offsetX, offsetY, mx, my);
+    ctx.restore();
+}
+
+function drawFogOfWarPlayerTokens(offsetX, offsetY, scale) {
+    if (!mapData.tokens || !mapData.tokens.length) return;
+    const heroCenters = playerFogHeroTokens().map((t) => t.position);
+    const wallSegs = getActiveFogWallSegmentsWorld();
+    const visible = mapData.tokens.filter((token) =>
+        tokenVisibleUnderFogOfWar(token, heroCenters, wallSegs)
+    );
+    for (const token of getTokensSortedForDrawing(visible)) {
+        drawToken(token, offsetX, offsetY, scale);
     }
 }
 
@@ -1836,16 +2390,34 @@ function pointInPolygon(point, vertices) {
 
 socket.on("token_move", (data) => {
     if (data.map_id === mapId && mapData && mapData.tokens) {
-        // Сохраняем обновление
+        const fogMoveActive = isPlayerFogOfWarActive();
+        if (fogMoveActive && data.position && data.token_id != null) {
+            const pos = data.position;
+            if (Array.isArray(pos) && pos.length >= 2) {
+                const tok = mapData.tokens.find((t) => String(t.id) === String(data.token_id));
+                if (tok && tok.is_player && tok.is_visible !== false && !tok.is_dead) {
+                    appendPlayerFogLiveTrail(data.token_id, pos[0], pos[1]);
+                }
+            }
+        }
+
         pendingTokenUpdates.set(data.token_id, {
-            position: data.position
+            position: data.position,
         });
 
-        // Планируем применение обновлений
         if (!tokenUpdateTimeout) {
-            tokenUpdateTimeout = setTimeout(applyTokenUpdates, 16); // ~60fps
+            tokenUpdateTimeout = setTimeout(applyTokenUpdates, 16);
         }
     }
+});
+
+socket.on("fog_explored_sync", (data) => {
+    if (!data || data.map_id !== mapId || !mapData) return;
+    if (mapData.player_visibility_mode !== "fog_of_war") return;
+    if (!Array.isArray(data.fog_of_war_explored)) return;
+    mapData.fog_of_war_explored = data.fog_of_war_explored;
+    clearPlayerFogLiveTrail();
+    requestRender();
 });
 
 socket.on("token_avatar_updated", (data) => {
@@ -1998,6 +2570,7 @@ function fetchMap(retryCount = 0, maxRetries = 3) {
             if (data.error) throw new Error(data.error);
 
             mapData = data;
+            invalidatePlayerFogWallSegmentCache();
             if (mapData.combat === undefined) mapData.combat = null;
 
             if (data.master_canvas_width) masterCanvasWidth = data.master_canvas_width;

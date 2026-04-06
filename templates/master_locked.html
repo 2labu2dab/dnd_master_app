@@ -33,6 +33,10 @@
           Проверить статус
         </button>
 
+        <button type="button" class="master-lock-btn master-lock-btn--secondary" onclick="emergencyReleaseLock()">
+          Сбросить зависшую блокировку
+        </button>
+
         <p class="master-lock-status" id="statusMessage">Проверка статуса каждые 5 секунд…</p>
       </div>
     </div>
@@ -67,6 +71,25 @@
         });
 
       countdown = 30;
+    }
+
+    function emergencyReleaseLock() {
+      if (!confirm('Удалить блокировку мастера на сервере? Делайте это только если другого открытого мастера точно нет (закрыли вкладку, сбой).')) {
+        return;
+      }
+      fetch('/api/master/emergency-release', { method: 'POST' })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.status === 'ok') {
+            statusMessage.textContent = 'Блокировка снята. Переход…';
+            window.location.href = '/';
+          } else {
+            statusMessage.textContent = 'Не удалось снять блокировку';
+          }
+        })
+        .catch(() => {
+          statusMessage.textContent = 'Ошибка запроса';
+        });
     }
 
     setInterval(() => {

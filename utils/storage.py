@@ -1039,6 +1039,7 @@ def create_new_map(name="Новая карта"):
         "name": name,
         "tokens": [],
         "zones": [],
+        "fog_walls": [],
         "finds": [],
         "has_image": False,  # Флаг наличия изображения
         "ruler_visible_to_players": False,
@@ -1055,6 +1056,9 @@ def create_new_map(name="Новая карта"):
         "pan_y": 0,
         "zoom_level": 1,
         "player_map_enabled": True,
+        "player_visibility_mode": "zones",
+        "fog_of_war_radius_cells": 4,
+        "fog_of_war_explored": [],
         "created": datetime.now().isoformat(),
         "modified": datetime.now().isoformat(),
     }
@@ -1146,10 +1150,18 @@ def load_map_data(map_id):
                 data["tokens"] = []
             if "zones" not in data:
                 data["zones"] = []
+            if "fog_walls" not in data:
+                data["fog_walls"] = []
             if "finds" not in data:
                 data["finds"] = []
             if "characters" not in data:
                 data["characters"] = []
+            if "player_visibility_mode" not in data:
+                data["player_visibility_mode"] = "zones"
+            if "fog_of_war_radius_cells" not in data:
+                data["fog_of_war_radius_cells"] = 4
+            if "fog_of_war_explored" not in data:
+                data["fog_of_war_explored"] = []
 
             _sync_character_portrait_flags(data.get("characters"))
 

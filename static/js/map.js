@@ -265,7 +265,11 @@ let mapData = {
     tokens: [],
     finds: [],
     zones: [],
+    fog_walls: [],
     map_image_base64: "",
+    player_visibility_mode: "zones",
+    fog_of_war_radius_cells: 4,
+    fog_of_war_explored: [],
     grid_settings: { cell_size: 20, color: "#888888", visible: false }
 };
 
@@ -289,9 +293,28 @@ let hoveredVertexIndex   = -1;
 let selectedVertexZoneId = null;  // вершина для Delete (клик по ручке)
 let selectedVertexIndex  = -1;
 
+/** Стены тумана (полилинии в режиме fog_of_war) — отдельное выделение и вершины */
+let selectedFogWallId = null;
+let draggingVertexFogWallId = null;
+let draggingVertexFogWallIndex = -1;
+let hoveredVertexFogWallId = null;
+let hoveredVertexFogWallIndex = -1;
+let selectedVertexFogWallId = null;
+let selectedVertexFogWallIndex = -1;
+
+/** Модалка зоны также создаёт/редактирует стены: "zone" | "fog_wall" */
+let zoneModalPolygonKind = "zone";
+/** Контекстное меню зоны: true = объект из fog_walls */
+let currentContextPolygonIsWall = false;
+
 function clearSelectedVertex() {
     selectedVertexZoneId = null;
     selectedVertexIndex  = -1;
+}
+
+function clearSelectedFogWallVertex() {
+    selectedVertexFogWallId = null;
+    selectedVertexFogWallIndex = -1;
 }
 
 const VERTEX_HIT_R = 10;          // радиус клика по вершине (пиксели экрана)
@@ -323,6 +346,61 @@ function closestPointOnSegmentWorld(px, py, x1, y1, x2, y2) {
     let t = ((px - x1) * dx + (py - y1) * dy) / len2;
     t = Math.max(0, Math.min(1, t));
     return { x: x1 + t * dx, y: y1 + t * dy, t };
+}
+
+/** Расстояние в пикселях экрана от точки до полилинии стены (только соседние вершины, без замыкания). */
+function screenDistToFogWallPolyline(mx, my, wall, scale, offsetX, offsetY) {
+    if (!wall.vertices || wall.vertices.length < 2) return Infinity;
+    let best = Infinity;
+    const wx = (mx - offsetX) / scale;
+    const wy = (my - offsetY) / scale;
+    for (let i = 0; i < wall.vertices.length - 1; i++) {
+        const [x1, y1] = wall.vertices[i];
+        const [x2, y2] = wall.vertices[i + 1];
+        const cp = closestPointOnSegmentWorld(wx, wy, x1, y1, x2, y2);
+        const scx = cp.x * scale + offsetX;
+        const scy = cp.y * scale + offsetY;
+        const d = Math.hypot(mx - scx, my - scy);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+const FOG_WALL_LINE_HIT_PX = 12;
+
+/** Точка подписи стены: середина по длине ломаной (экранные координаты). */
+function fogWallLabelPositionScreen(transformed) {
+    if (!transformed.length) return [0, 0];
+    if (transformed.length === 1) return transformed[0];
+    let total = 0;
+    const lens = [];
+    for (let i = 0; i < transformed.length - 1; i++) {
+        const len = Math.hypot(
+            transformed[i + 1][0] - transformed[i][0],
+            transformed[i + 1][1] - transformed[i][1]
+        );
+        lens.push(len);
+        total += len;
+    }
+    if (total < 1e-6) {
+        const a = transformed[0];
+        const b = transformed[transformed.length - 1];
+        return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    }
+    let remain = total / 2;
+    for (let i = 0; i < lens.length; i++) {
+        if (remain <= lens[i]) {
+            const t = lens[i] > 0 ? remain / lens[i] : 0;
+            const x0 = transformed[i][0];
+            const y0 = transformed[i][1];
+            const x1 = transformed[i + 1][0];
+            const y1 = transformed[i + 1][1];
+            return [x0 + t * (x1 - x0), y0 + t * (y1 - y0)];
+        }
+        remain -= lens[i];
+    }
+    const last = transformed[transformed.length - 1];
+    return [last[0], last[1]];
 }
 
 /** Двойной клик по грани выделенной зоны — новая вершина на ребре */
@@ -378,6 +456,58 @@ function tryInsertZoneVertexOnEdge(mouseX, mouseY) {
     return true;
 }
 
+function tryInsertFogWallVertexOnEdge(mouseX, mouseY) {
+    if (!selectedFogWallId || !mapData?.fog_walls || !mapImage?.width) return false;
+    const wall = mapData.fog_walls.find((w) => w.id === selectedFogWallId);
+    if (!wall?.vertices || wall.vertices.length < 2) return false;
+
+    const { scale, offsetX, offsetY } = getTransform();
+    const wxClick = (mouseX - offsetX) / scale;
+    const wyClick = (mouseY - offsetY) / scale;
+
+    const n = wall.vertices.length;
+    let bestI = -1;
+    let bestWorld = null;
+    let bestScreenD = EDGE_INSERT_SCREEN_DIST + 1;
+
+    for (let i = 0; i < n - 1; i++) {
+        const [x1, y1] = wall.vertices[i];
+        const [x2, y2] = wall.vertices[i + 1];
+        const sx1 = x1 * scale + offsetX;
+        const sy1 = y1 * scale + offsetY;
+        const sx2 = x2 * scale + offsetX;
+        const sy2 = y2 * scale + offsetY;
+        if (Math.hypot(mouseX - sx1, mouseY - sy1) <= VERTEX_HIT_R) continue;
+        if (Math.hypot(mouseX - sx2, mouseY - sy2) <= VERTEX_HIT_R) continue;
+
+        const cp = closestPointOnSegmentWorld(wxClick, wyClick, x1, y1, x2, y2);
+        if (cp.t <= 0.04 || cp.t >= 0.96) continue;
+
+        const scx = cp.x * scale + offsetX;
+        const scy = cp.y * scale + offsetY;
+        const d = Math.hypot(mouseX - scx, mouseY - scy);
+        if (d < bestScreenD) {
+            bestScreenD = d;
+            bestI = i;
+            bestWorld = { x: cp.x, y: cp.y };
+        }
+    }
+
+    if (bestI < 0 || bestScreenD > EDGE_INSERT_SCREEN_DIST || !bestWorld) return false;
+
+    const nx = Math.max(0, Math.min(bestWorld.x, mapImage.width));
+    const ny = Math.max(0, Math.min(bestWorld.y, mapImage.height));
+    wall.vertices.splice(bestI + 1, 0, [nx, ny]);
+
+    clearSelectedFogWallVertex();
+    saveDrawingStateToHistory();
+    debouncedSave(300);
+    invalidateBg();
+    render();
+    updateSidebar();
+    return true;
+}
+
 let isRulerMode = false;
 let rulerStart = null;
 let lastMouseX = 0;
@@ -406,6 +536,30 @@ function findZoneVertexSnapWorld(wx, wy, scale) {
             }
         }
     }
+    return best;
+}
+
+/** Снап при рисовании стен: вершины других стен + уже поставленные точки текущего контура */
+function findFogWallVertexSnapWorld(wx, wy, scale) {
+    if (!Number.isFinite(scale) || scale <= 0) return null;
+    const r = 10 / scale;
+    const r2 = r * r;
+    let best = null;
+    let bestD2 = r2;
+    function consider(px, py) {
+        const dx = wx - px;
+        const dy = wy - py;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2) {
+            bestD2 = d2;
+            best = [px, py];
+        }
+    }
+    for (const wall of mapData.fog_walls || []) {
+        if (!wall.vertices) continue;
+        for (const [vx, vy] of wall.vertices) consider(vx, vy);
+    }
+    for (const [vx, vy] of currentZoneVertices) consider(vx, vy);
     return best;
 }
 
@@ -1756,16 +1910,26 @@ function setupSidebarContextMenus() {
 
             e.preventDefault();
 
-            const nameSpan = li.querySelector('span:first-child');
-            if (!nameSpan) return;
+            const pid = li.dataset.zoneId;
+            const kind = li.dataset.polygonKind;
+            if (!pid) return;
 
-            const zoneName = nameSpan.textContent;
-            const zone = mapData.zones.find(z => z.name === zoneName);
-
-            if (zone) {
-                selectedZoneId = zone.id;
-                clearSelectedVertex();
-                showZoneContextMenu(zone, e.pageX, e.pageY);
+            if (kind === "fog_wall") {
+                const wall = (mapData.fog_walls || []).find((w) => w.id === pid);
+                if (wall) {
+                    selectedFogWallId = wall.id;
+                    selectedZoneId = null;
+                    clearSelectedVertex();
+                    showZoneContextMenu(wall, e.pageX, e.pageY, true);
+                }
+            } else {
+                const zone = mapData.zones.find((z) => z.id === pid);
+                if (zone) {
+                    selectedZoneId = zone.id;
+                    selectedFogWallId = null;
+                    clearSelectedFogWallVertex();
+                    showZoneContextMenu(zone, e.pageX, e.pageY, false);
+                }
             }
         });
     }
@@ -2056,7 +2220,9 @@ function initMasterSidebarListsDragOnce() {
             masterSidebarListDnD.draggedItem = li;
             masterSidebarListDnD.draggedIndex = fromIndex;
             masterSidebarListDnD.draggedUl = ul;
-            masterSidebarListDnD.draggedMapKey = key;
+            const mapKey =
+                id === "zoneList" ? ul.dataset.dragMapKey || "zones" : key;
+            masterSidebarListDnD.draggedMapKey = mapKey;
             li.classList.add("dragging");
             e.dataTransfer.effectAllowed = "move";
             e.dataTransfer.dropEffect = "move";
@@ -2088,19 +2254,24 @@ function initMasterSidebarListsDragOnce() {
 // static/js/map.js - Исправленная функция updateSidebar()
 
 function updateSidebar() {
+    syncPlayerVisibilityModeUI();
+
     // Зоны
     const zoneList = document.getElementById("zoneList");
     zoneList.innerHTML = "";
 
-    mapData.zones.forEach((zone, index) => {
+    const wallMode = isPlayerFogOfWarMode();
+    const polyList = wallMode ? (mapData.fog_walls || []) : mapData.zones;
+
+    polyList.forEach((zone, index) => {
         const li = document.createElement("li");
         li.style.display = "flex";
         li.style.alignItems = "center";
         li.style.justifyContent = "space-between";
         li.dataset.sidebarIndex = String(index);
 
-        // Только один стиль выделения - цвет фона
-        if (selectedZoneId === zone.id) {
+        const isSel = wallMode ? selectedFogWallId === zone.id : selectedZoneId === zone.id;
+        if (isSel) {
             li.style.background = "#3a4a6b";
             li.style.borderLeft = "4px solid #4C5BEF";
         } else {
@@ -2115,6 +2286,7 @@ function updateSidebar() {
         li.style.position = "relative";
         li.draggable = true;
         li.dataset.zoneId = zone.id;
+        li.dataset.polygonKind = wallMode ? "fog_wall" : "zone";
 
         const nameSpan = document.createElement("span");
         nameSpan.textContent = zone.name;
@@ -2125,10 +2297,10 @@ function updateSidebar() {
         nameSpan.style.flex = "1";
 
         const eye = document.createElement("span");
-        eye.innerHTML = zone.is_visible ? getOpenEyeSVG() : getClosedEyeSVG();
+        eye.innerHTML = zone.is_visible !== false ? getOpenEyeSVG() : getClosedEyeSVG();
         eye.style.cursor = "pointer";
         eye.style.flexShrink = "0";
-        eye.title = "Показать/скрыть зону";
+        eye.title = wallMode ? "Стена блокирует обзор" : "Показать/скрыть зону";
         eye.onclick = (e) => {
             e.stopPropagation();
             zone.is_visible = !zone.is_visible;
@@ -2139,11 +2311,18 @@ function updateSidebar() {
 
         li.onclick = (e) => {
             e.stopPropagation();
-            selectedZoneId = zone.id;
+            if (wallMode) {
+                selectedFogWallId = zone.id;
+                selectedZoneId = null;
+                clearSelectedVertex();
+            } else {
+                selectedZoneId = zone.id;
+                selectedFogWallId = null;
+                clearSelectedFogWallVertex();
+            }
             selectedTokenId = null;
             selectedFindId = null;
             selectedCharacterId = null;
-            clearSelectedVertex();
             selectedTokens.clear();
             updateSidebar();
             render();
@@ -2153,6 +2332,7 @@ function updateSidebar() {
         li.appendChild(eye);
         zoneList.appendChild(li);
     });
+    zoneList.dataset.dragMapKey = wallMode ? "fog_walls" : "zones";
 
     // Токены
     const tokenList = document.getElementById("tokenList");
@@ -2470,6 +2650,13 @@ function checkMapExists() {
 function switchMap(mapId) {
     console.log("switchMap called with:", mapId);
 
+    if (_fogExploredSyncTimer != null) {
+        clearTimeout(_fogExploredSyncTimer);
+        _fogExploredSyncTimer = null;
+    }
+    _fogExploredSyncDirty = false;
+    _fogExploredLastByTokenId.clear();
+
     saveCurrentMapToStorage(mapId);
     updateActiveMapInList(mapId);
 
@@ -2484,8 +2671,12 @@ function switchMap(mapId) {
             tokens: [],
             finds: [],
             zones: [],
+            fog_walls: [],
             characters: [],
             combat: null,
+            player_visibility_mode: "zones",
+            fog_of_war_radius_cells: 4,
+            fog_of_war_explored: [],
             grid_settings: {
                 cell_count: 20,
                 cell_size: 20,
@@ -3124,7 +3315,10 @@ function fetchMap() {
             return res.json();
         })
         .then(data => {
-            console.log("Map data loaded:", data);
+            console.log("Map data loaded", {
+                tokens: (data.tokens || []).length,
+                fog_points: (data.fog_of_war_explored || []).length,
+            });
 
             const oldHasImage = mapData?.has_image;
             const oldImageSrc = mapImage?.src;
@@ -3163,6 +3357,7 @@ function fetchMap() {
             if (!mapData.tokens) mapData.tokens = [];
             if (!mapData.finds) mapData.finds = [];
             if (!mapData.zones) mapData.zones = [];
+            if (!mapData.fog_walls) mapData.fog_walls = [];
             if (!mapData.characters) mapData.characters = [];
             if (!mapData.grid_settings) {
                 mapData.grid_settings = {
@@ -3233,6 +3428,384 @@ function fetchMap() {
         });
 }
 
+function isPlayerFogOfWarMode() {
+    return mapData && mapData.player_visibility_mode === "fog_of_war";
+}
+
+function getFogRadiusWorldPx() {
+    const cell = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    const cells = Number(mapData && mapData.fog_of_war_radius_cells);
+    const n = Number.isFinite(cells) ? cells : 4;
+    return Math.max(1, n) * cell;
+}
+
+function fogHeroTokensFromData() {
+    return (mapData && mapData.tokens ? mapData.tokens : []).filter(
+        (t) => t.is_player && t.is_visible !== false && !t.is_dead
+    );
+}
+
+const FOG_EXPLORED_CAP = 4000;
+
+/** Последняя записанная позиция по id токена — дедуп только от неё (не от всех кругов). */
+const _fogExploredLastByTokenId = new Map();
+
+let _fogExploredSyncTimer = null;
+let _fogExploredSyncDirty = false;
+
+/** Не чаще этого интервала шлём игрокам полный fog_of_war_explored (иначе гигабайты JSON/сек и фризы). */
+const FOG_EXPLORED_SYNC_INTERVAL_MS = 350;
+
+function copyFogExploredForPayload() {
+    const raw = mapData.fog_of_war_explored;
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+        const p = raw[i];
+        if (Array.isArray(p) && p.length >= 2) {
+            out.push([p[0], p[1]]);
+        } else if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            out.push([p.x, p.y]);
+        }
+    }
+    return out;
+}
+
+function emitFogExploredSyncNow() {
+    if (!isPlayerFogOfWarMode() || !currentMapId || !Array.isArray(mapData.fog_of_war_explored)) return;
+    try {
+        socket.emit("fog_explored_sync", {
+            map_id: currentMapId,
+            fog_of_war_explored: copyFogExploredForPayload(),
+        });
+    } catch (e) {
+        /* ignore */
+    }
+}
+
+function scheduleFogExploredSync() {
+    if (!isPlayerFogOfWarMode() || !currentMapId) return;
+    if (!Array.isArray(mapData.fog_of_war_explored)) return;
+    _fogExploredSyncDirty = true;
+    if (_fogExploredSyncTimer != null) return;
+    _fogExploredSyncTimer = setTimeout(() => {
+        _fogExploredSyncTimer = null;
+        if (!_fogExploredSyncDirty) return;
+        _fogExploredSyncDirty = false;
+        emitFogExploredSyncNow();
+    }, FOG_EXPLORED_SYNC_INTERVAL_MS);
+}
+
+function flushFogExploredSync() {
+    if (_fogExploredSyncTimer != null) {
+        clearTimeout(_fogExploredSyncTimer);
+        _fogExploredSyncTimer = null;
+    }
+    _fogExploredSyncDirty = false;
+    emitFogExploredSyncNow();
+}
+
+function appendFogExploredWorldForToken(tokenId, wx, wy) {
+    if (!isPlayerFogOfWarMode() || !Number.isFinite(wx) || !Number.isFinite(wy)) return;
+    if (!mapData.fog_of_war_explored) mapData.fog_of_war_explored = [];
+    const arr = mapData.fog_of_war_explored;
+    const cs = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    const minStep = Math.max(cs * 0.02, 0.06);
+    const minStep2 = minStep * minStep;
+
+    const tid = tokenId != null && tokenId !== "" ? String(tokenId) : null;
+    if (tid) {
+        const prev = _fogExploredLastByTokenId.get(tid);
+        if (prev) {
+            const dx = prev[0] - wx;
+            const dy = prev[1] - wy;
+            if (dx * dx + dy * dy < minStep2) return;
+        }
+        _fogExploredLastByTokenId.set(tid, [wx, wy]);
+    }
+
+    arr.push([wx, wy]);
+    while (arr.length > FOG_EXPLORED_CAP) arr.shift();
+    scheduleFogExploredSync();
+}
+
+function seedFogExploredFromHeroes() {
+    if (!isPlayerFogOfWarMode()) return;
+    _fogExploredLastByTokenId.clear();
+    for (const t of fogHeroTokensFromData()) {
+        if (t.position && t.position.length >= 2 && t.id != null) {
+            appendFogExploredWorldForToken(t.id, t.position[0], t.position[1]);
+        }
+    }
+}
+
+function resetFogOfWarExplored() {
+    if (!mapData || !currentMapId) return;
+    if (!isPlayerFogOfWarMode()) return;
+    if (!confirm("Сбросить открытый туман войны? Игроки снова увидят только область вокруг героев.")) {
+        return;
+    }
+    mapData.fog_of_war_explored = [];
+    seedFogExploredFromHeroes();
+    flushFogExploredSync();
+    saveMapData().catch(() => {});
+    render();
+}
+
+function recordFogExplorationForHeroToken(token) {
+    if (!token || !token.is_player || token.is_visible === false || token.is_dead) return;
+    if (!token.position || token.position.length < 2 || token.id == null) return;
+    appendFogExploredWorldForToken(token.id, token.position[0], token.position[1]);
+}
+
+/** Раньше сюда клали весь fog_of_war_explored на каждый token_move — десятки полных копий/сек и лаги. Туман шлём только через fog_explored_sync (дроссель) + позиция героя в token_move для live trail. */
+function attachFogExploredToTokenMovePayload(_payload) {}
+
+let _masterFogScratchCanvas = null;
+
+const _MASTER_FOG_RAY_STEPS = 52;
+
+function masterActiveFogWallSegmentsWorld() {
+    const walls = (mapData.fog_walls || []).filter(
+        (w) => w.is_visible !== false && w.vertices && w.vertices.length >= 2
+    );
+    const out = [];
+    for (const w of walls) {
+        const v = w.vertices;
+        for (let i = 0; i < v.length - 1; i++) {
+            const a = v[i];
+            const b = v[i + 1];
+            out.push([a[0], a[1], b[0], b[1]]);
+        }
+    }
+    return out;
+}
+
+/** t ∈ (0,1] на пути (ax,ay)→(bx,by), если он пересекает отрезок стены (cx,cy)→(dx,dy). */
+function masterMovementHitFogWallParam(ax, ay, bx, by, cx, cy, dx, dy) {
+    const rdx = bx - ax;
+    const rdy = by - ay;
+    const sdx = dx - cx;
+    const sdy = dy - cy;
+    const det = rdx * sdy - rdy * sdx;
+    if (Math.abs(det) < 1e-14) return null;
+    const t = ((cx - ax) * sdy - (cy - ay) * sdx) / det;
+    const u = ((cx - ax) * rdy - (cy - ay) * rdx) / det;
+    if (t <= 1e-9 || t > 1) return null;
+    if (u < -1e-9 || u > 1 + 1e-9) return null;
+    return t;
+}
+
+/** Ограничить новую позицию героя, чтобы центр токена не пересёк сегмент стены тумана. */
+function masterClipHeroMoveAgainstFogWalls(x0, y0, x1, y1, tokenRadiusWorld) {
+    if (!mapImage || !Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) {
+        return [x1, y1];
+    }
+    const segs = masterActiveFogWallSegmentsWorld();
+    if (!segs.length) return [x1, y1];
+    let bestT = 2;
+    for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        const t = masterMovementHitFogWallParam(x0, y0, x1, y1, s[0], s[1], s[2], s[3]);
+        if (t != null && t < bestT) bestT = t;
+    }
+    if (bestT > 1) return [x1, y1];
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) return [x0, y0];
+    const cell = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    const skin = Math.max(0.5, cell * 0.04);
+    const travel = Math.max(0, bestT * len - tokenRadiusWorld - skin);
+    const ux = dx / len;
+    const uy = dy / len;
+    return [x0 + ux * travel, y0 + uy * travel];
+}
+
+function masterHeroTokenRadiusWorld(token) {
+    const cell = (mapData && mapData.grid_settings && mapData.grid_settings.cell_size) || 20;
+    return (cell * getTokenSizeScale(token)) / 2;
+}
+
+function masterClampWorldXYToMap(x, y) {
+    if (!mapImage) return [x, y];
+    const mw = mapImage.width;
+    const mh = mapImage.height;
+    return [
+        Math.max(0, Math.min(x, mw)),
+        Math.max(0, Math.min(y, mh)),
+    ];
+}
+
+function masterFogRayWallHitWorld(ox, oy, rdx, rdy, maxDist, seg) {
+    const [x1, y1, x2, y2] = seg;
+    const sdx = x2 - x1;
+    const sdy = y2 - y1;
+    const det = rdx * sdy - rdy * sdx;
+    if (Math.abs(det) < 1e-14) return null;
+    const t = ((x1 - ox) * sdy - (y1 - oy) * sdx) / det;
+    const u = ((x1 - ox) * rdy - (y1 - oy) * rdx) / det;
+    if (t < 1e-6 || t > maxDist + 1e-6) return null;
+    if (u < -1e-6 || u > 1 + 1e-6) return null;
+    return t;
+}
+
+function masterFogPunchHeroVisibility(f, cxWorld, cyWorld, rWorld, scale, segments) {
+    const sx = cxWorld * scale;
+    const sy = cyWorld * scale;
+    const rPx = rWorld * scale;
+    if (rPx <= 0) return;
+    f.beginPath();
+    f.moveTo(sx, sy);
+    for (let i = 0; i <= _MASTER_FOG_RAY_STEPS; i++) {
+        const th = (i / _MASTER_FOG_RAY_STEPS) * Math.PI * 2;
+        const rdx = Math.cos(th);
+        const rdy = Math.sin(th);
+        let tMax = rPx;
+        if (segments.length) {
+            for (let s = 0; s < segments.length; s++) {
+                const hw = masterFogRayWallHitWorld(cxWorld, cyWorld, rdx, rdy, rWorld, segments[s]);
+                if (hw != null) {
+                    const hp = hw * scale;
+                    if (hp < tMax) tMax = hp;
+                }
+            }
+        }
+        f.lineTo(sx + rdx * tMax, sy + rdy * tMax);
+    }
+    f.closePath();
+    f.fill();
+}
+
+function drawMasterFogDimOverlay(offsetX, offsetY, scale, mapW, mapH) {
+    const heroes = fogHeroTokensFromData();
+    const rWorld = getFogRadiusWorldPx();
+    const mx = mapW * scale;
+    const my = mapH * scale;
+    const W = Math.max(1, Math.ceil(mx));
+    const H = Math.max(1, Math.ceil(my));
+    if (!_masterFogScratchCanvas) {
+        _masterFogScratchCanvas = document.createElement("canvas");
+    }
+    if (_masterFogScratchCanvas.width !== W || _masterFogScratchCanvas.height !== H) {
+        _masterFogScratchCanvas.width = W;
+        _masterFogScratchCanvas.height = H;
+    }
+    const f = _masterFogScratchCanvas.getContext("2d");
+    f.setTransform(1, 0, 0, 1, 0, 0);
+    f.clearRect(0, 0, W, H);
+    f.fillStyle = "rgba(0, 0, 0, 0.5)";
+    f.fillRect(0, 0, W, H);
+
+    const rPx = rWorld * scale;
+    const wallSegs = masterActiveFogWallSegmentsWorld();
+    if (heroes.length && rPx > 0) {
+        f.globalCompositeOperation = "destination-out";
+        f.fillStyle = "#ffffff";
+        for (const t of heroes) {
+            const [cx, cy] = t.position;
+            if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+            if (wallSegs.length) {
+                masterFogPunchHeroVisibility(f, cx, cy, rWorld, scale, wallSegs);
+            } else {
+                f.beginPath();
+                f.arc(cx * scale, cy * scale, rPx, 0, Math.PI * 2);
+                f.fill();
+            }
+        }
+        f.globalCompositeOperation = "source-over";
+    }
+
+    ctx.drawImage(_masterFogScratchCanvas, offsetX, offsetY, mx, my);
+}
+
+function syncPlayerVisibilityModeUI() {
+    const zonesRadio = document.getElementById("visibilityModeZones");
+    const fogRadio = document.getElementById("visibilityModeFog");
+    const fogRow = document.getElementById("fogOfWarControls");
+    const fogInput = document.getElementById("fogRadiusCellsInput");
+    const addZoneBtn = document.getElementById("addZoneButton");
+    const zoneList = document.getElementById("zoneList");
+    if (!zonesRadio || !fogRadio) return;
+
+    const mode = mapData && mapData.player_visibility_mode === "fog_of_war" ? "fog_of_war" : "zones";
+    zonesRadio.checked = mode === "zones";
+    fogRadio.checked = mode === "fog_of_war";
+
+    if (fogRow) fogRow.style.display = mode === "fog_of_war" ? "block" : "none";
+    if (fogInput && mapData) {
+        const v = Number(mapData.fog_of_war_radius_cells);
+        fogInput.value = Number.isFinite(v) ? v : 4;
+    }
+    if (addZoneBtn) {
+        addZoneBtn.style.opacity = "1";
+        addZoneBtn.style.pointerEvents = "auto";
+        addZoneBtn.title = mode === "fog_of_war" ? "Нарисовать стену (туман)" : "Создать зону";
+    }
+    if (zoneList) zoneList.style.display = "";
+    const secTitle = document.getElementById("zonesSectionTitle");
+    if (secTitle) {
+        secTitle.textContent =
+            mode === "fog_of_war" ? "Стены тумана" : "Скрытые области";
+    }
+}
+
+function initPlayerVisibilityModeControls() {
+    const zonesRadio = document.getElementById("visibilityModeZones");
+    const fogRadio = document.getElementById("visibilityModeFog");
+    const fogInput = document.getElementById("fogRadiusCellsInput");
+    if (!zonesRadio || !fogRadio) return;
+
+    const applyMode = (mode) => {
+        if (!mapData || !currentMapId) return;
+        const prev = mapData.player_visibility_mode;
+        mapData.player_visibility_mode = mode;
+        if (mode === "zones") {
+            selectedFogWallId = null;
+            draggingVertexFogWallId = null;
+            draggingVertexFogWallIndex = -1;
+            hoveredVertexFogWallId = null;
+            hoveredVertexFogWallIndex = -1;
+            clearSelectedFogWallVertex();
+        } else {
+            selectedZoneId = null;
+            draggingVertexZoneId = null;
+            draggingVertexIndex = -1;
+            hoveredVertexZoneId = null;
+            hoveredVertexIndex = -1;
+            clearSelectedVertex();
+        }
+        if (mode === "fog_of_war" && prev !== "fog_of_war") {
+            seedFogExploredFromHeroes();
+            flushFogExploredSync();
+        }
+        syncPlayerVisibilityModeUI();
+        saveMapData().catch(() => {});
+        render();
+        updateSidebar();
+    };
+
+    zonesRadio.addEventListener("change", () => {
+        if (zonesRadio.checked) applyMode("zones");
+    });
+    fogRadio.addEventListener("change", () => {
+        if (fogRadio.checked) applyMode("fog_of_war");
+    });
+
+    if (fogInput) {
+        fogInput.addEventListener("change", () => {
+            if (!mapData || !currentMapId) return;
+            let n = parseInt(fogInput.value, 10);
+            if (!Number.isFinite(n)) n = 4;
+            n = Math.max(1, Math.min(80, n));
+            fogInput.value = n;
+            mapData.fog_of_war_radius_cells = n;
+            saveMapData().catch(() => {});
+            render();
+        });
+    }
+}
+
 function render() {
     const { w: lw, h: lh } = getCanvasCssPixels();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3267,8 +3840,12 @@ function render() {
     _renderBg(offsetX, offsetY, scale);
     ctx.drawImage(_bgCanvas, 0, 0, lw, lh);
 
-    // Динамические слои (меняются чаще: зоны, рисунки, токены, находки)
-    mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
+    // Динамические слои (меняются чаще: зоны или стены тумана, рисунки, токены, находки)
+    if (isPlayerFogOfWarMode()) {
+        (mapData.fog_walls || []).forEach((w) => drawFogWall(w, offsetX, offsetY, scale));
+    } else {
+        mapData.zones.forEach((z) => drawZone(z, offsetX, offsetY, scale));
+    }
     drawAllStrokes(offsetX, offsetY, scale);
     getTokensSortedForDrawing(mapData.tokens).forEach(t => drawToken(t, offsetX, offsetY, scale));
     mapData.finds.forEach(f => drawFind(f, offsetX, offsetY, scale));
@@ -3285,10 +3862,17 @@ function render() {
         drawRuler(offsetX, offsetY, scale);
     }
 
+    const mapW = mapImage.naturalWidth || mapImage.width;
+    const mapH = mapImage.naturalHeight || mapImage.height;
+    if (isPlayerFogOfWarMode()) {
+        drawMasterFogDimOverlay(offsetX, offsetY, scale, mapW, mapH);
+    }
+
     syncCombatToolbarButton();
     updateMasterInitiativeStrip();
 }
 function drawTempZone(offsetX, offsetY, scale) {
+    const wallDraft = isPlayerFogOfWarMode();
     if (currentZoneVertices.length === 0) {
         if (hoveredSnapVertex) {
             const [hx, hy] = hoveredSnapVertex;
@@ -3296,9 +3880,61 @@ function drawTempZone(offsetX, offsetY, scale) {
             const py = hy * scale + offsetY;
             ctx.beginPath();
             ctx.arc(px, py, 6, 0, 2 * Math.PI);
-            ctx.fillStyle = "cyan";
+            ctx.fillStyle = wallDraft ? "#ffcc80" : "cyan";
             ctx.fill();
-            ctx.strokeStyle = "#00ffff";
+            ctx.strokeStyle = wallDraft ? "#e65100" : "#00ffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        return;
+    }
+
+    if (wallDraft) {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "#e65100";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const [sx0, sy0] = currentZoneVertices[0];
+        ctx.moveTo(sx0 * scale + offsetX, sy0 * scale + offsetY);
+        for (let i = 1; i < currentZoneVertices.length; i++) {
+            const [x, y] = currentZoneVertices[i];
+            ctx.lineTo(x * scale + offsetX, y * scale + offsetY);
+        }
+        ctx.stroke();
+        const [lx, ly] = currentZoneVertices[currentZoneVertices.length - 1];
+        const lxS = lx * scale + offsetX;
+        const lyS = ly * scale + offsetY;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = "rgba(230, 81, 0, 0.55)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(lxS, lyS);
+        ctx.lineTo(lastMouseX, lastMouseY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        currentZoneVertices.forEach(([wx, wy], idx) => {
+            const px = wx * scale + offsetX;
+            const py = wy * scale + offsetY;
+            ctx.beginPath();
+            ctx.arc(px, py, idx === 0 ? 5 : 4, 0, 2 * Math.PI);
+            ctx.fillStyle = idx === 0 ? "#ffb74d" : "#ffcc80";
+            ctx.fill();
+            ctx.strokeStyle = "#bf360c";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+        if (hoveredSnapVertex) {
+            const [hx, hy] = hoveredSnapVertex;
+            const px = hx * scale + offsetX;
+            const py = hy * scale + offsetY;
+            ctx.beginPath();
+            ctx.arc(px, py, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = "#ffcc80";
+            ctx.fill();
+            ctx.strokeStyle = "#e65100";
             ctx.lineWidth = 2;
             ctx.stroke();
         }
@@ -3320,7 +3956,6 @@ function drawTempZone(offsetX, offsetY, scale) {
     ctx.fill();
     ctx.stroke();
 
-    // Показ первой точки многоугольника, чтобы было понятно, где замкнётся зона
     const [firstX, firstY] = currentZoneVertices[0];
     const fx = firstX * scale + offsetX;
     const fy = firstY * scale + offsetY;
@@ -3349,8 +3984,11 @@ function drawTempZone(offsetX, offsetY, scale) {
 function drawLayers(offsetX, offsetY, scale) {
     if (mapData.grid_settings.visible) drawGrid(offsetX, offsetY, scale);
 
-    // Рисуем зоны (скрытые области)
-    mapData.zones.forEach(z => drawZone(z, offsetX, offsetY, scale));
+    if (isPlayerFogOfWarMode()) {
+        (mapData.fog_walls || []).forEach((w) => drawFogWall(w, offsetX, offsetY, scale));
+    } else {
+        mapData.zones.forEach((z) => drawZone(z, offsetX, offsetY, scale));
+    }
 
     // Рисуем рисунки мастера (НОВОЕ)
     drawAllStrokes(offsetX, offsetY, scale);
@@ -4150,6 +4788,74 @@ function drawZone(zone, offsetX, offsetY, scale) {
     }
 }
 
+function drawFogWall(wall, offsetX, offsetY, scale) {
+    if (!wall.vertices || wall.vertices.length < 2) return;
+
+    const active = wall.is_visible !== false;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = active ? "#e65100" : "#6b7280";
+    ctx.setLineDash(active ? [] : [6, 6]);
+
+    const isSelected = wall.id === selectedFogWallId;
+    ctx.lineWidth = isSelected ? 4 : 3;
+
+    const transformed = wall.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+    ctx.beginPath();
+    ctx.moveTo(transformed[0][0], transformed[0][1]);
+    for (let i = 1; i < transformed.length; i++) {
+        ctx.lineTo(transformed[i][0], transformed[i][1]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
+
+    if (isSelected) {
+        ctx.beginPath();
+        ctx.strokeStyle = "#00ffff";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.moveTo(transformed[0][0], transformed[0][1]);
+        for (let i = 1; i < transformed.length; i++) {
+            ctx.lineTo(transformed[i][0], transformed[i][1]);
+        }
+        ctx.stroke();
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+
+        wall.vertices.forEach(([wx, wy], i) => {
+            const sx = wx * scale + offsetX;
+            const sy = wy * scale + offsetY;
+            const isHov =
+                hoveredVertexFogWallId === wall.id && hoveredVertexFogWallIndex === i;
+            const isDrag =
+                draggingVertexFogWallId === wall.id && draggingVertexFogWallIndex === i;
+            const isSel =
+                selectedVertexFogWallId === wall.id && selectedVertexFogWallIndex === i;
+            const r = isDrag || isHov ? 9 : isSel ? 8 : 7;
+            ctx.beginPath();
+            ctx.arc(sx, sy, r, 0, Math.PI * 2);
+            ctx.fillStyle = isDrag ? "#ffd700" : isHov ? "#fffaaa" : "#ffffff";
+            ctx.fill();
+            ctx.strokeStyle = isSel ? "#e040fb" : isDrag ? "#ff8c00" : "#00ffff";
+            ctx.lineWidth = isSel ? 3 : 2;
+            ctx.stroke();
+        });
+    }
+
+    const [labelX, labelY] = fogWallLabelPositionScreen(transformed);
+    ctx.font = "14px Inter";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.strokeText(wall.name || "Стена", labelX, labelY);
+    ctx.fillStyle = active ? "#1a1a1a" : "#4b5563";
+    ctx.fillText(wall.name || "Стена", labelX, labelY);
+}
+
 function addZone() {
     // Если включаем рисование зон
     if (!drawingZone) {
@@ -4220,9 +4926,14 @@ function addZone() {
 }
 
 function showZoneDrawingHint() {
-    // Создаем временную подсказку
-    const hint = document.createElement('div');
-    hint.id = 'drawing-hint';
+    const wall = isPlayerFogOfWarMode();
+    const border = wall ? "#e65100" : "#2196F3";
+    const title = wall ? "Режим рисования стены" : "Режим рисования зоны";
+    const sub = wall
+        ? "Клики — вершины ломаной (прилипание к точкам стен и черновика) • ПКМ — завершить"
+        : "Кликните для добавления точек • ПКМ для завершения";
+    const hint = document.createElement("div");
+    hint.id = "drawing-hint";
     hint.innerHTML = `
         <div style="
             position: fixed;
@@ -4235,10 +4946,10 @@ function showZoneDrawingHint() {
             border-radius: 8px;
             z-index: 1000;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            border-left: 4px solid #2196F3;
+            border-left: 4px solid ${border};
         ">
-            <strong>Режим рисования зоны</strong><br>
-            <small>Кликните для добавления точек • ПКМ для завершения</small>
+            <strong>${title}</strong><br>
+            <small>${sub}</small>
         </div>
     `;
 
@@ -4419,7 +5130,9 @@ canvas.addEventListener("mousedown", (e) => {
         if (e.button === 0) {
             let x = (mouseX - offsetX) / scale;
             let y = (mouseY - offsetY) / scale;
-            const snap = findZoneVertexSnapWorld(x, y, scale);
+            const snap = isPlayerFogOfWarMode()
+                ? findFogWallVertexSnapWorld(x, y, scale)
+                : findZoneVertexSnapWorld(x, y, scale);
             if (snap) {
                 [x, y] = snap;
             }
@@ -4431,6 +5144,27 @@ canvas.addEventListener("mousedown", (e) => {
             render();
         }
         return;
+    }
+
+    // ── Высший приоритет: клик по вершине любой стены тумана ────────────────
+    if (e.button === 0 && !drawingZone && !isRulerMode && isPlayerFogOfWarMode()) {
+        for (const _wall of mapData.fog_walls || []) {
+            if (!_wall?.vertices) continue;
+            for (let _vi = 0; _vi < _wall.vertices.length; _vi++) {
+                const [wx, wy] = _wall.vertices[_vi];
+                if (Math.hypot(mouseX - (wx * scale + offsetX), mouseY - (wy * scale + offsetY)) <= VERTEX_HIT_R) {
+                    draggingVertexFogWallId = _wall.id;
+                    draggingVertexFogWallIndex = _vi;
+                    selectedVertexFogWallId = _wall.id;
+                    selectedVertexFogWallIndex = _vi;
+                    selectedFogWallId = _wall.id;
+                    selectedZoneId = null;
+                    clearSelectedVertex();
+                    render();
+                    return;
+                }
+            }
+        }
     }
 
     // ── Высший приоритет: клик по вершине выделенной зоны ───────────────────
@@ -4468,9 +5202,11 @@ canvas.addEventListener("mousedown", (e) => {
         clearTokenMarqueeInteraction();
 
         selectedZoneId = null;
+        selectedFogWallId = null;
         selectedFindId = null;
         selectedCharacterId = null;
         clearSelectedVertex();
+        clearSelectedFogWallVertex();
 
         if (isShiftPressed) {
             // Shift + клик - переключаем выделение
@@ -4522,6 +5258,7 @@ canvas.addEventListener("mousedown", (e) => {
             }
         }
 
+        bindMasterGlobalTokenDragListeners();
         updateSidebar();
     }
 
@@ -4541,27 +5278,59 @@ canvas.addEventListener("mousedown", (e) => {
                 selectedCharacterId = null;
                 selectedTokens.clear();
                 selectedTokenId = null;
+                selectedZoneId = null;
+                selectedFogWallId = null;
+                clearSelectedVertex();
+                clearSelectedFogWallVertex();
                 clicked = true;
+                bindMasterGlobalTokenDragListeners();
                 updateSidebar();
                 break;
             }
         }
     }
 
-    // Обработка клика по зоне
+    // Обработка клика по стене тумана (полилиния) или по зоне
     if (!clicked) {
-        for (const zone of mapData.zones) {
-            if (!zone.vertices || zone.vertices.length < 3) continue;
-            const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
-            if (pointInPolygon([mouseX, mouseY], transformed)) {
+        if (isPlayerFogOfWarMode()) {
+            let bestWall = null;
+            let bestD = FOG_WALL_LINE_HIT_PX + 1;
+            for (const wall of mapData.fog_walls || []) {
+                if (!wall.vertices || wall.vertices.length < 2) continue;
+                const d = screenDistToFogWallPolyline(mouseX, mouseY, wall, scale, offsetX, offsetY);
+                if (d < bestD) {
+                    bestD = d;
+                    bestWall = wall;
+                }
+            }
+            if (bestWall && bestD <= FOG_WALL_LINE_HIT_PX) {
                 clearTokenMarqueeInteraction();
-                selectedZoneId = zone.id;
+                selectedFogWallId = bestWall.id;
+                selectedZoneId = null;
+                clearSelectedVertex();
+                clearSelectedFogWallVertex();
                 selectedCharacterId = null;
                 selectedTokens.clear();
                 selectedTokenId = null;
                 clicked = true;
                 updateSidebar();
-                break;
+            }
+        } else {
+            for (const zone of mapData.zones) {
+                if (!zone.vertices || zone.vertices.length < 3) continue;
+                const transformed = zone.vertices.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+                if (pointInPolygon([mouseX, mouseY], transformed)) {
+                    clearTokenMarqueeInteraction();
+                    selectedZoneId = zone.id;
+                    selectedFogWallId = null;
+                    clearSelectedFogWallVertex();
+                    selectedCharacterId = null;
+                    selectedTokens.clear();
+                    selectedTokenId = null;
+                    clicked = true;
+                    updateSidebar();
+                    break;
+                }
             }
         }
     }
@@ -4596,9 +5365,11 @@ canvas.addEventListener("mousedown", (e) => {
         selectedTokenId = null;
         selectedFindId = null;
         selectedZoneId = null;
+        selectedFogWallId = null;
         selectedCharacterId = null;
         selectedTokens.clear();
         clearSelectedVertex();
+        clearSelectedFogWallVertex();
         updateSidebar();
     }
 
@@ -4633,6 +5404,128 @@ function pointInPolygon(point, vs) {
 
 let hoveringFind = null;
 
+function clientToCanvasLocalXY(clientX, clientY) {
+    const el = document.getElementById("mapCanvas");
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+        x: (clientX - rect.left) * (el.clientWidth / rect.width),
+        y: (clientY - rect.top) * (el.clientHeight / rect.height),
+    };
+}
+
+function processMasterTokenDragAtCanvasXY(mouseX, mouseY) {
+    const { scale, offsetX, offsetY } = getTransform();
+
+    if (isDraggingMultiple && selectedTokens.size > 0) {
+        const newX = (mouseX - offsetX) / scale;
+        const newY = (mouseY - offsetY) / scale;
+
+        for (const tokenId of selectedTokens) {
+            const token = mapData.tokens.find(t => t.id === tokenId);
+            const offset = multiDragOffsets.get(tokenId);
+
+            if (token && offset) {
+                const x0 = token.position[0];
+                const y0 = token.position[1];
+                let x1 = newX - offset[0];
+                let y1 = newY - offset[1];
+                if (isPlayerFogOfWarMode() && token.is_player) {
+                    const r = masterHeroTokenRadiusWorld(token);
+                    [x1, y1] = masterClipHeroMoveAgainstFogWalls(x0, y0, x1, y1, r);
+                }
+                [x1, y1] = masterClampWorldXYToMap(x1, y1);
+                token.position = [x1, y1];
+                recordFogExplorationForHeroToken(token);
+            }
+        }
+
+        if (!window.multiTokenMoveThrottle) {
+            window.multiTokenMoveThrottle = setTimeout(() => {
+                for (const tokenId of selectedTokens) {
+                    const token = mapData.tokens.find(t => t.id === tokenId);
+                    if (token) {
+                        const p = {
+                            map_id: currentMapId,
+                            token_id: tokenId,
+                            position: token.position,
+                            is_visible: token.is_visible,
+                            is_dead: token.is_dead
+                        };
+                        attachFogExploredToTokenMovePayload(p);
+                        socket.emit("token_move", p);
+                    }
+                }
+                window.multiTokenMoveThrottle = null;
+            }, 16);
+        }
+
+        scheduleRender();
+        return;
+    }
+
+    if (draggingToken || draggingFind) {
+        const newX = (mouseX - offsetX) / scale - dragOffset[0];
+        const newY = (mouseY - offsetY) / scale - dragOffset[1];
+
+        if (draggingToken) {
+            const x0 = draggingToken.position[0];
+            const y0 = draggingToken.position[1];
+            let x1 = newX;
+            let y1 = newY;
+            if (isPlayerFogOfWarMode() && draggingToken.is_player) {
+                const r = masterHeroTokenRadiusWorld(draggingToken);
+                [x1, y1] = masterClipHeroMoveAgainstFogWalls(x0, y0, x1, y1, r);
+            }
+            [x1, y1] = masterClampWorldXYToMap(x1, y1);
+            draggingToken.position = [x1, y1];
+            recordFogExplorationForHeroToken(draggingToken);
+
+            if (!window.tokenMoveThrottle) {
+                window.tokenMoveThrottle = setTimeout(() => {
+                    const p = {
+                        map_id: currentMapId,
+                        token_id: draggingToken.id,
+                        position: draggingToken.position,
+                        is_visible: draggingToken.is_visible,
+                        is_dead: draggingToken.is_dead
+                    };
+                    attachFogExploredToTokenMovePayload(p);
+                    socket.emit("token_move", p);
+                    window.tokenMoveThrottle = null;
+                }, 16);
+            }
+        }
+
+        if (draggingFind) draggingFind.position = [newX, newY];
+        scheduleRender();
+    }
+}
+
+function onWindowMoveWhileTokenDragging(e) {
+    if (!draggingToken && !(isDraggingMultiple && selectedTokens.size > 0) && !draggingFind) {
+        return;
+    }
+    const pos = clientToCanvasLocalXY(e.clientX, e.clientY);
+    if (!pos) return;
+    processMasterTokenDragAtCanvasXY(pos.x, pos.y);
+}
+
+function bindMasterGlobalTokenDragListeners() {
+    if (window._masterTokenDragGlobalBound) return;
+    window._masterTokenDragGlobalBound = true;
+    window.addEventListener("mousemove", onWindowMoveWhileTokenDragging, true);
+    window.addEventListener("mouseup", unbindMasterGlobalTokenDragListeners, true);
+}
+
+function unbindMasterGlobalTokenDragListeners() {
+    if (!window._masterTokenDragGlobalBound) return;
+    window._masterTokenDragGlobalBound = false;
+    window.removeEventListener("mousemove", onWindowMoveWhileTokenDragging, true);
+    window.removeEventListener("mouseup", unbindMasterGlobalTokenDragListeners, true);
+}
+
 canvas.addEventListener("mousemove", (e) => {
     const mouseX = e.offsetX;
     const mouseY = e.offsetY;
@@ -4645,7 +5538,9 @@ canvas.addEventListener("mousemove", (e) => {
     if (drawingZone) {
         let x = (mouseX - offsetX) / scale;
         let y = (mouseY - offsetY) / scale;
-        hoveredSnapVertex = findZoneVertexSnapWorld(x, y, scale);
+        hoveredSnapVertex = isPlayerFogOfWarMode()
+            ? findFogWallVertexSnapWorld(x, y, scale)
+            : findZoneVertexSnapWorld(x, y, scale);
         scheduleRender();
         return;
     }
@@ -4688,9 +5583,50 @@ canvas.addEventListener("mousemove", (e) => {
         return;
     }
 
-    // ── Hover-подсветка вершин выделенной зоны ───────────────────────────────
-    if (selectedZoneId && !drawingZone && !isRulerMode) {
-        const zone = mapData.zones.find(z => z.id === selectedZoneId);
+    // ── Перетаскивание вершины стены тумана ─────────────────────────────────
+    if (draggingVertexFogWallId !== null && draggingVertexFogWallIndex >= 0) {
+        const wall = (mapData.fog_walls || []).find((w) => w.id === draggingVertexFogWallId);
+        if (wall) {
+            const wx = (mouseX - offsetX) / scale;
+            const wy = (mouseY - offsetY) / scale;
+            wall.vertices[draggingVertexFogWallIndex] = [
+                Math.max(0, Math.min(wx, mapImage.width)),
+                Math.max(0, Math.min(wy, mapImage.height)),
+            ];
+            scheduleRender();
+        }
+        return;
+    }
+
+    // ── Hover-подсветка вершин выделенной зоны или стены ───────────────────
+    if (selectedFogWallId && !drawingZone && !isRulerMode && isPlayerFogOfWarMode()) {
+        const wall = (mapData.fog_walls || []).find((w) => w.id === selectedFogWallId);
+        let foundVtx = -1;
+        if (wall) {
+            for (let i = 0; i < wall.vertices.length; i++) {
+                const [wx, wy] = wall.vertices[i];
+                if (Math.hypot(mouseX - (wx * scale + offsetX), mouseY - (wy * scale + offsetY)) <= VERTEX_HIT_R) {
+                    foundVtx = i;
+                    break;
+                }
+            }
+        }
+        if (
+            hoveredVertexFogWallIndex !== foundVtx ||
+            hoveredVertexFogWallId !== selectedFogWallId
+        ) {
+            hoveredVertexFogWallIndex = foundVtx;
+            hoveredVertexFogWallId = foundVtx >= 0 ? selectedFogWallId : null;
+            scheduleRender();
+        }
+    } else if (hoveredVertexFogWallIndex >= 0) {
+        hoveredVertexFogWallIndex = -1;
+        hoveredVertexFogWallId = null;
+        scheduleRender();
+    }
+
+    if (selectedZoneId && !drawingZone && !isRulerMode && !isPlayerFogOfWarMode()) {
+        const zone = mapData.zones.find((z) => z.id === selectedZoneId);
         let foundVtx = -1;
         if (zone) {
             for (let i = 0; i < zone.vertices.length; i++) {
@@ -4702,12 +5638,12 @@ canvas.addEventListener("mousemove", (e) => {
             }
         }
         if (hoveredVertexIndex !== foundVtx || hoveredVertexZoneId !== selectedZoneId) {
-            hoveredVertexIndex  = foundVtx;
+            hoveredVertexIndex = foundVtx;
             hoveredVertexZoneId = foundVtx >= 0 ? selectedZoneId : null;
             scheduleRender();
         }
-    } else if (hoveredVertexIndex >= 0) {
-        hoveredVertexIndex  = -1;
+    } else if (hoveredVertexIndex >= 0 && !isPlayerFogOfWarMode()) {
+        hoveredVertexIndex = -1;
         hoveredVertexZoneId = null;
         scheduleRender();
     }
@@ -4791,70 +5727,8 @@ canvas.addEventListener("mousemove", (e) => {
         return;
     }
 
-    // Групповое перетаскивание нескольких токенов
-    if (isDraggingMultiple && selectedTokens.size > 0) {
-        const newX = (mouseX - offsetX) / scale;
-        const newY = (mouseY - offsetY) / scale;
-
-        // Перемещаем все выделенные токены
-        for (const tokenId of selectedTokens) {
-            const token = mapData.tokens.find(t => t.id === tokenId);
-            const offset = multiDragOffsets.get(tokenId);
-
-            if (token && offset) {
-                token.position = [newX - offset[0], newY - offset[1]];
-            }
-        }
-
-        // Отправляем перемещения в реальном времени с throttle
-        if (!window.multiTokenMoveThrottle) {
-            window.multiTokenMoveThrottle = setTimeout(() => {
-                for (const tokenId of selectedTokens) {
-                    const token = mapData.tokens.find(t => t.id === tokenId);
-                    if (token) {
-                        socket.emit("token_move", {
-                            map_id: currentMapId,
-                            token_id: tokenId,
-                            position: token.position,
-                            is_visible: token.is_visible,
-                            is_dead: token.is_dead
-                        });
-                    }
-                }
-                window.multiTokenMoveThrottle = null;
-            }, 16);
-        }
-
-        scheduleRender();
-        return;
-    }
-
-    // Одиночное перетаскивание
-    if (draggingToken || draggingFind) {
-        const newX = (mouseX - offsetX) / scale - dragOffset[0];
-        const newY = (mouseY - offsetY) / scale - dragOffset[1];
-
-        if (draggingToken) {
-            draggingToken.position = [newX, newY];
-
-            if (!window.tokenMoveThrottle) {
-                window.tokenMoveThrottle = setTimeout(() => {
-                    socket.emit("token_move", {
-                        map_id: currentMapId,
-                        token_id: draggingToken.id,
-                        position: [newX, newY],
-                        is_visible: draggingToken.is_visible,
-                        is_dead: draggingToken.is_dead
-                    });
-                    window.tokenMoveThrottle = null;
-                }, 16);
-            }
-        }
-
-        if (draggingFind) draggingFind.position = [newX, newY];
-        scheduleRender();
-        return;
-    }
+    // Перетаскивание токенов/находок: координаты обновляются через window mousemove
+    // (bindMasterGlobalTokenDragListeners), чтобы путь тумана шёл непрерывно.
 
     // Ховер для находок
     let hovered = null;
@@ -5047,12 +5921,17 @@ function renderTokenContextMenu(token, x, y) {
     menu.style.display = "block";
 }
 
-/** Завершить чертёж зоны (ПКМ по холсту или Enter): минимум 3 вершины — открыть модалку. */
+/** Завершить чертёж (ПКМ по холсту или Enter): зона ≥3 вершин, стена тумана ≥2 — открыть модалку. */
 function finalizeActiveZoneDrawing() {
     if (!drawingZone || !currentMapId || !mapData) return false;
 
-    if (currentZoneVertices.length < 3) {
-        alert("Зона должна иметь минимум 3 точки.");
+    const minPts = isPlayerFogOfWarMode() ? 2 : 3;
+    if (currentZoneVertices.length < minPts) {
+        alert(
+            isPlayerFogOfWarMode()
+                ? "Стена должна иметь минимум 2 точки (отрезок)."
+                : "Зона должна иметь минимум 3 точки."
+        );
         drawingZone = false;
         currentZoneVertices = [];
         updateCanvasCursor();
@@ -5072,9 +5951,30 @@ function finalizeActiveZoneDrawing() {
 
     document.getElementById("zoneName").value = "";
     document.getElementById("zoneDescription").value = "";
-    document.getElementById("zoneModalTitle").textContent = "Создание зоны";
+    const sub = document.getElementById("zoneModalSubtitle");
+    const visLbl = document.getElementById("zoneVisibleCheckboxLabel");
+
+    if (isPlayerFogOfWarMode()) {
+        zoneModalPolygonKind = "fog_wall";
+        selectedFogWallId = null;
+        selectedZoneId = null;
+        document.getElementById("zoneModalTitle").textContent = "Новая стена";
+        if (sub) {
+            sub.style.display = "block";
+            sub.textContent =
+                "Ломаная по вершинам (в т.ч. с прилипанием к точкам), без замыкания. Стена блокирует линию обзора между героем и объектом.";
+        }
+        if (visLbl) visLbl.textContent = "Стена блокирует обзор";
+        document.getElementById("zoneVisibleCheckbox").checked = true;
+    } else {
+        zoneModalPolygonKind = "zone";
+        document.getElementById("zoneModalTitle").textContent = "Создание зоны";
+        if (sub) sub.style.display = "none";
+        if (visLbl) visLbl.textContent = "Зона видима игрокам";
+        document.getElementById("zoneVisibleCheckbox").checked = false;
+    }
+
     document.getElementById("zoneModal").style.display = "flex";
-    document.getElementById("zoneVisibleCheckbox").checked = false;
 
     // Иначе на холсте остаётся последний кадр с drawTempZone, пока не будет нового render()
     render();
@@ -5187,17 +6087,39 @@ canvas.addEventListener("contextmenu", (e) => {
         }
     }
 
-    // Проверяем клик по зоне
-    for (const zone of mapData.zones) {
-        if (!zone.vertices || zone.vertices.length < 3) continue;
-
-        const transformed = zone.vertices.map(([vx, vy]) => [vx * scale + offsetX, vy * scale + offsetY]);
-        if (pointInPolygon([e.offsetX, e.offsetY], transformed)) {
+    if (isPlayerFogOfWarMode()) {
+        let bestWall = null;
+        let bestD = FOG_WALL_LINE_HIT_PX + 1;
+        for (const wall of mapData.fog_walls || []) {
+            if (!wall.vertices || wall.vertices.length < 2) continue;
+            const d = screenDistToFogWallPolyline(e.offsetX, e.offsetY, wall, scale, offsetX, offsetY);
+            if (d < bestD) {
+                bestD = d;
+                bestWall = wall;
+            }
+        }
+        if (bestWall && bestD <= FOG_WALL_LINE_HIT_PX) {
             e.preventDefault();
-            selectedZoneId = zone.id;
+            selectedFogWallId = bestWall.id;
+            selectedZoneId = null;
             clearSelectedVertex();
-            showZoneContextMenu(zone, e.pageX, e.pageY);
+            clearSelectedFogWallVertex();
+            showZoneContextMenu(bestWall, e.pageX, e.pageY, true);
             return;
+        }
+    } else {
+        for (const zone of mapData.zones) {
+            if (!zone.vertices || zone.vertices.length < 3) continue;
+
+            const transformed = zone.vertices.map(([vx, vy]) => [vx * scale + offsetX, vy * scale + offsetY]);
+            if (pointInPolygon([e.offsetX, e.offsetY], transformed)) {
+                e.preventDefault();
+                selectedZoneId = zone.id;
+                selectedFogWallId = null;
+                clearSelectedFogWallVertex();
+                showZoneContextMenu(zone, e.pageX, e.pageY, false);
+                return;
+            }
         }
     }
 
@@ -5246,16 +6168,20 @@ canvas.addEventListener("mouseup", (e) => {
             selectedTokenId = picked.length ? picked[picked.length - 1] : null;
             selectedFindId = null;
             selectedZoneId = null;
+            selectedFogWallId = null;
             selectedCharacterId = null;
             clearSelectedVertex();
+            clearSelectedFogWallVertex();
             updateSidebar();
         } else {
             selectedTokenId = null;
             selectedFindId = null;
             selectedZoneId = null;
+            selectedFogWallId = null;
             selectedCharacterId = null;
             selectedTokens.clear();
             clearSelectedVertex();
+            clearSelectedFogWallVertex();
             updateSidebar();
         }
 
@@ -5276,16 +6202,20 @@ canvas.addEventListener("mouseup", (e) => {
         for (const tokenId of selectedTokens) {
             const token = mapData.tokens.find(t => t.id === tokenId);
             if (token) {
-                socket.emit("token_move", {
+                recordFogExplorationForHeroToken(token);
+                const p = {
                     map_id: currentMapId,
                     token_id: tokenId,
                     position: token.position,
                     is_visible: token.is_visible,
                     is_dead: token.is_dead
-                });
+                };
+                attachFogExploredToTokenMovePayload(p);
+                socket.emit("token_move", p);
             }
         }
 
+        flushFogExploredSync();
         // Сохраняем на сервере
         saveMapData();
     }
@@ -5298,15 +6228,19 @@ canvas.addEventListener("mouseup", (e) => {
         }
 
         if (draggingToken) {
-            socket.emit("token_move", {
+            recordFogExplorationForHeroToken(draggingToken);
+            const p = {
                 map_id: currentMapId,
                 token_id: draggingToken.id,
                 position: draggingToken.position,
                 is_visible: draggingToken.is_visible,
                 is_dead: draggingToken.is_dead
-            });
+            };
+            attachFogExploredToTokenMovePayload(p);
+            socket.emit("token_move", p);
         }
 
+        flushFogExploredSync();
         debouncedSave(300);
     }
 
@@ -5348,6 +6282,7 @@ canvas.addEventListener("mouseup", (e) => {
         window.rulerThrottle = null;
     }
 
+    unbindMasterGlobalTokenDragListeners();
     draggingToken = null;
     draggingFind = null;
     isDraggingMultiple = false;
@@ -5357,6 +6292,13 @@ canvas.addEventListener("mouseup", (e) => {
     if (draggingVertexZoneId !== null) {
         draggingVertexZoneId = null;
         draggingVertexIndex  = -1;
+        saveDrawingStateToHistory();
+        debouncedSave(300);
+        render();
+    }
+    if (draggingVertexFogWallId !== null) {
+        draggingVertexFogWallId = null;
+        draggingVertexFogWallIndex = -1;
         saveDrawingStateToHistory();
         debouncedSave(300);
         render();
@@ -5386,9 +6328,21 @@ canvas.addEventListener("mouseleave", () => {
         debouncedSave(300);
         render();
     }
+    if (draggingVertexFogWallId !== null) {
+        draggingVertexFogWallId = null;
+        draggingVertexFogWallIndex = -1;
+        saveDrawingStateToHistory();
+        debouncedSave(300);
+        render();
+    }
     if (hoveredVertexIndex >= 0) {
         hoveredVertexIndex  = -1;
         hoveredVertexZoneId = null;
+        scheduleRender();
+    }
+    if (hoveredVertexFogWallIndex >= 0) {
+        hoveredVertexFogWallIndex = -1;
+        hoveredVertexFogWallId = null;
         scheduleRender();
     }
 });
@@ -5422,7 +6376,9 @@ canvas.addEventListener("dblclick", (e) => {
     if (!currentMapId || !mapData) return;
     if (drawingZone || isDrawMode || isEraseMode || isRulerMode) return;
     if (e.button !== 0) return;
-    if (tryInsertZoneVertexOnEdge(e.offsetX, e.offsetY)) {
+    if (isPlayerFogOfWarMode()) {
+        if (tryInsertFogWallVertexOnEdge(e.offsetX, e.offsetY)) e.preventDefault();
+    } else if (tryInsertZoneVertexOnEdge(e.offsetX, e.offsetY)) {
         e.preventDefault();
     }
 });
@@ -5507,11 +6463,15 @@ document.addEventListener("keydown", (e) => {
 
             const hasVertexHandle =
                 selectedVertexZoneId != null && selectedVertexIndex >= 0;
+            const hasFogWallVertexHandle =
+                selectedVertexFogWallId != null && selectedVertexFogWallIndex >= 0;
             const hasObjectSelection =
                 hasVertexHandle ||
+                hasFogWallVertexHandle ||
                 Boolean(selectedTokenId) ||
                 Boolean(selectedFindId) ||
                 Boolean(selectedZoneId) ||
+                Boolean(selectedFogWallId) ||
                 selectedTokens.size > 0;
 
             if (hasObjectSelection) {
@@ -5519,11 +6479,18 @@ document.addEventListener("keydown", (e) => {
                 selectedTokenId = null;
                 selectedFindId = null;
                 selectedZoneId = null;
+                selectedFogWallId = null;
                 clearSelectedVertex();
+                clearSelectedFogWallVertex();
                 hoveredVertexIndex = -1;
                 hoveredVertexZoneId = null;
+                hoveredVertexFogWallIndex = -1;
+                hoveredVertexFogWallId = null;
                 draggingVertexZoneId = null;
                 draggingVertexIndex = -1;
+                draggingVertexFogWallId = null;
+                draggingVertexFogWallIndex = -1;
+                unbindMasterGlobalTokenDragListeners();
                 draggingToken = null;
                 draggingFind = null;
                 isDraggingMultiple = false;
@@ -5732,6 +6699,35 @@ document.addEventListener("keydown", (e) => {
     }
 
     if (e.key === "Delete") {
+        if (
+            !drawingZone &&
+            selectedVertexFogWallId != null &&
+            selectedVertexFogWallIndex >= 0 &&
+            mapData?.fog_walls &&
+            selectedVertexFogWallId === selectedFogWallId
+        ) {
+            const wid = selectedVertexFogWallId;
+            const vidx = selectedVertexFogWallIndex;
+            const wall = mapData.fog_walls.find((w) => w.id === wid);
+            if (wall && wall.vertices && vidx < wall.vertices.length) {
+                e.preventDefault();
+                wall.vertices.splice(vidx, 1);
+                if (wall.vertices.length < 2) {
+                    mapData.fog_walls = mapData.fog_walls.filter((w) => w.id !== wid);
+                    if (selectedFogWallId === wid) selectedFogWallId = null;
+                }
+                clearSelectedFogWallVertex();
+                hoveredVertexFogWallIndex = -1;
+                hoveredVertexFogWallId = null;
+                saveDrawingStateToHistory();
+                debouncedSave(300);
+                invalidateBg();
+                render();
+                updateSidebar();
+                return;
+            }
+        }
+
         // Удаление вершины: только явно выделенной (клик по ручке)
         if (!drawingZone && selectedVertexZoneId != null && selectedVertexIndex >= 0 && mapData?.zones &&
             selectedVertexZoneId === selectedZoneId) {
@@ -5819,6 +6815,14 @@ document.addEventListener("keydown", (e) => {
             // Удаляем токен из локальных данных
             mapData.tokens = mapData.tokens.filter(t => t.id !== selectedTokenId);
             selectedTokenId = null;
+            changed = true;
+        }
+
+        if (selectedFogWallId) {
+            if (!confirm(`Удалить стену?`)) return;
+            mapData.fog_walls = (mapData.fog_walls || []).filter((w) => w.id !== selectedFogWallId);
+            selectedFogWallId = null;
+            clearSelectedFogWallVertex();
             changed = true;
         }
 
@@ -5920,6 +6924,11 @@ function closeZoneModal() {
     document.getElementById("zoneModal").style.display = "none";
     editingZoneId = null;
     pendingZoneVertices = null;
+    zoneModalPolygonKind = "zone";
+    const sub = document.getElementById("zoneModalSubtitle");
+    if (sub) sub.style.display = "none";
+    const visLbl = document.getElementById("zoneVisibleCheckboxLabel");
+    if (visLbl) visLbl.textContent = "Зона видима игрокам";
     // Создание зоны отменено — убрать «залипший» чертёж; при редактировании просто перерисовать
     render();
     updateCanvasCursor();
@@ -5931,43 +6940,62 @@ function submitZone() {
     const description = document.getElementById("zoneDescription").value.trim();
 
     if (!name || !pendingZoneVertices) {
-        alert("Введите имя зоны.");
+        alert(zoneModalPolygonKind === "fog_wall" ? "Введите имя стены." : "Введите имя зоны.");
         return;
     }
 
-    if (selectedZoneId) {
-        // Редактирование существующей зоны
-        const zone = mapData.zones.find(z => z.id === selectedZoneId);
-        if (zone) {
-            zone.name = name;
-            zone.description = description;
-            zone.vertices = [...pendingZoneVertices];
-            zone.is_visible = isVisible;
+    const kind = zoneModalPolygonKind;
+
+    if (kind === "fog_wall") {
+        if (!mapData.fog_walls) mapData.fog_walls = [];
+        if (selectedFogWallId) {
+            const wall = mapData.fog_walls.find((w) => w.id === selectedFogWallId);
+            if (wall) {
+                wall.name = name;
+                wall.description = description;
+                wall.vertices = [...pendingZoneVertices];
+                wall.is_visible = isVisible;
+            }
+        } else {
+            mapData.fog_walls.push({
+                id: `wall_${Date.now()}`,
+                name,
+                description,
+                vertices: [...pendingZoneVertices],
+                is_visible: isVisible,
+            });
         }
+        selectedFogWallId = null;
     } else {
-        // Проверка на пересечение для новой зоны
-        const hasIntersection = mapData.zones.some(z =>
-            z.vertices && z.vertices.length >= 3 && zonesIntersect(z.vertices, pendingZoneVertices)
-        );
-
-        // if (hasIntersection) {
-        //   alert("Новая зона пересекается с существующей! Измените форму.");
-        //   return;
-        // }
-
-        const newZone = {
-            id: `zone_${Date.now()}`,
-            name,
-            description,
-            vertices: [...pendingZoneVertices],
-            is_visible: isVisible,
-        };
-        mapData.zones.push(newZone);
+        if (selectedZoneId) {
+            const zone = mapData.zones.find((z) => z.id === selectedZoneId);
+            if (zone) {
+                zone.name = name;
+                zone.description = description;
+                zone.vertices = [...pendingZoneVertices];
+                zone.is_visible = isVisible;
+            }
+        } else {
+            const newZone = {
+                id: `zone_${Date.now()}`,
+                name,
+                description,
+                vertices: [...pendingZoneVertices],
+                is_visible: isVisible,
+            };
+            mapData.zones.push(newZone);
+        }
+        selectedZoneId = null;
     }
 
-    selectedZoneId = null;
+    zoneModalPolygonKind = "zone";
     pendingZoneVertices = null;
     document.getElementById("zoneModal").style.display = "none";
+    const sub = document.getElementById("zoneModalSubtitle");
+    if (sub) sub.style.display = "none";
+    const visLbl = document.getElementById("zoneVisibleCheckboxLabel");
+    if (visLbl) visLbl.textContent = "Зона видима игрокам";
+
     render();
     updateSidebar();
 
@@ -6448,7 +7476,12 @@ function updateCanvasCursor() {
         canvas.classList.add('erase-mode');
     } else if (tokenMarqueeAnchorX !== null) {
         canvas.style.cursor = 'crosshair';
-    } else if (draggingVertexZoneId !== null || hoveredVertexIndex >= 0) {
+    } else if (
+        draggingVertexZoneId !== null ||
+        hoveredVertexIndex >= 0 ||
+        draggingVertexFogWallId !== null ||
+        hoveredVertexFogWallIndex >= 0
+    ) {
         canvas.style.cursor = 'move';
     } else if (drawingZone) {
         canvas.classList.add('zone-drawing-mode');
@@ -6715,12 +7748,19 @@ function showFindContextMenu(find, x, y) {
 }
 
 // Функция для показа контекстного меню зоны
-function showZoneContextMenu(zone, x, y) {
+function showZoneContextMenu(zone, x, y, isFogWall = false) {
     currentContextZone = zone;
+    currentContextPolygonIsWall = !!isFogWall;
 
     const menu = document.getElementById("zoneContextMenu");
     document.getElementById("contextZoneName").textContent = zone.name;
     document.getElementById("contextZoneVisible").checked = zone.is_visible !== false;
+    const toggleLbl = document.getElementById("contextZoneToggleLabel");
+    if (toggleLbl) {
+        toggleLbl.textContent = isFogWall
+            ? "Блокирует обзор"
+            : "Видна игрокам";
+    }
 
     // Сначала показываем меню для измерения
     menu.style.display = "block";
@@ -6983,20 +8023,30 @@ document.getElementById("contextZoneVisible").addEventListener("change", functio
 
 document.getElementById("contextEditZone").addEventListener("click", function () {
     if (currentContextZone) {
-        openEditZoneModal(currentContextZone);
+        openEditZoneModal(currentContextZone, currentContextPolygonIsWall);
         document.getElementById("zoneContextMenu").style.display = "none";
     }
 });
 
 document.getElementById("contextDeleteZone").addEventListener("click", function () {
-    if (currentContextZone && confirm(`Удалить зону "${currentContextZone.name}"?`)) {
-        mapData.zones = mapData.zones.filter(z => z.id !== currentContextZone.id);
+    if (!currentContextZone) return;
+    const label = currentContextPolygonIsWall ? "стену" : "зону";
+    if (!confirm(`Удалить ${label} "${currentContextZone.name}"?`)) return;
+    if (currentContextPolygonIsWall) {
+        mapData.fog_walls = (mapData.fog_walls || []).filter(
+            (w) => w.id !== currentContextZone.id
+        );
+        if (selectedFogWallId === currentContextZone.id) selectedFogWallId = null;
+        clearSelectedFogWallVertex();
+    } else {
+        mapData.zones = mapData.zones.filter((z) => z.id !== currentContextZone.id);
         selectedZoneId = null;
-        saveMapData();
-        render();
-        updateSidebar();
-        document.getElementById("zoneContextMenu").style.display = "none";
+        clearSelectedVertex();
     }
+    saveMapData();
+    render();
+    updateSidebar();
+    document.getElementById("zoneContextMenu").style.display = "none";
 });
 
 function reloadAvatarInModal(tokenId) {
@@ -7536,18 +8586,41 @@ function showNotification(message, type = 'info') {
 }
 
 // Функция для открытия модального окна редактирования зоны
-function openEditZoneModal(zone) {
+function openEditZoneModal(zone, isFogWall = false) {
+    zoneModalPolygonKind = isFogWall ? "fog_wall" : "zone";
     pendingZoneVertices = [...zone.vertices];
 
     document.getElementById("zoneName").value = zone.name || "";
     document.getElementById("zoneDescription").value = zone.description || "";
     document.getElementById("zoneVisibleCheckbox").checked = zone.is_visible !== false;
 
-    document.getElementById("zoneModalTitle").textContent = "Редактирование зоны";
+    const sub = document.getElementById("zoneModalSubtitle");
+    const visLbl = document.getElementById("zoneVisibleCheckboxLabel");
+    if (isFogWall) {
+        document.getElementById("zoneModalTitle").textContent = "Редактирование стены";
+        if (sub) {
+            sub.style.display = "block";
+            sub.textContent =
+                "Стена — линия препятствия для тумана: за ней из одной точки обзора не видно, пока герой не обойдёт.";
+        }
+        if (visLbl) visLbl.textContent = "Стена блокирует обзор";
+    } else {
+        document.getElementById("zoneModalTitle").textContent = "Редактирование зоны";
+        if (sub) sub.style.display = "none";
+        if (visLbl) visLbl.textContent = "Зона видима игрокам";
+    }
+
     document.getElementById("zoneModal").style.display = "flex";
 
-    selectedZoneId = zone.id;
-    clearSelectedVertex();
+    if (isFogWall) {
+        selectedFogWallId = zone.id;
+        selectedZoneId = null;
+        clearSelectedVertex();
+    } else {
+        selectedZoneId = zone.id;
+        selectedFogWallId = null;
+        clearSelectedFogWallVertex();
+    }
 }
 
 document.addEventListener("click", (e) => {
@@ -8962,6 +10035,7 @@ function initMasterProjectUI() {
         });
     }
     initAppSelectDropdowns();
+    initPlayerVisibilityModeControls();
 }
 
 if (document.readyState === 'loading') {
@@ -10751,10 +11825,14 @@ function applyMasterUndoStateAt(index) {
     if (!e) return;
     draggingVertexZoneId = null;
     draggingVertexIndex  = -1;
+    draggingVertexFogWallId = null;
+    draggingVertexFogWallIndex = -1;
     clearSelectedVertex();
+    clearSelectedFogWallVertex();
     drawingStrokes = JSON.parse(JSON.stringify(e.strokes));
     if (mapData) {
         mapData.zones = JSON.parse(JSON.stringify(e.zones));
+        mapData.fog_walls = JSON.parse(JSON.stringify(e.fog_walls || []));
     }
     saveDrawings();
     socket.emit('drawings_updated', {
@@ -10786,12 +11864,14 @@ function masterRedo() {
 function saveDrawingStateToHistory() {
     const entry = {
         strokes: JSON.parse(JSON.stringify(drawingStrokes)),
-        zones: JSON.parse(JSON.stringify(mapData?.zones || []))
+        zones: JSON.parse(JSON.stringify(mapData?.zones || [])),
+        fog_walls: JSON.parse(JSON.stringify(mapData?.fog_walls || []))
     };
     if (masterUndoHistory.length > 0) {
         const last = masterUndoHistory[masterUndoIndex];
         if (JSON.stringify(last.strokes) === JSON.stringify(entry.strokes) &&
-            JSON.stringify(last.zones) === JSON.stringify(entry.zones)) {
+            JSON.stringify(last.zones) === JSON.stringify(entry.zones) &&
+            JSON.stringify(last.fog_walls || []) === JSON.stringify(entry.fog_walls)) {
             return;
         }
     }

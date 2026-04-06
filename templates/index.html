@@ -75,8 +75,8 @@
         <details open>
           <summary>
             <div class="summary-content">
-              <span class="summary-title">Скрытые области</span>
-              <button class="icon-button" onclick="addZone()" title="Создать зону">
+              <span class="summary-title" id="zonesSectionTitle">Скрытые области</span>
+              <button class="icon-button" id="addZoneButton" onclick="addZone()" title="Создать зону">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
@@ -84,6 +84,32 @@
               </button>
             </div>
           </summary>
+          <div class="fog-of-war-panel">
+            <div class="fog-of-war-panel__heading">Видимость для игроков</div>
+            <div class="fog-of-war-panel__modes" role="radiogroup" aria-label="Режим видимости">
+              <label class="fog-visibility-option">
+                <input type="radio" name="playerVisibilityMode" value="zones" id="visibilityModeZones" checked />
+                <span class="fog-visibility-box" aria-hidden="true"></span>
+                <span class="fog-visibility-text">Скрытые зоны</span>
+              </label>
+              <label class="fog-visibility-option">
+                <input type="radio" name="playerVisibilityMode" value="fog_of_war" id="visibilityModeFog" />
+                <span class="fog-visibility-box" aria-hidden="true"></span>
+                <span class="fog-visibility-text">Туман войны</span>
+              </label>
+            </div>
+            <div id="fogOfWarControls" class="fog-of-war-subpanel" style="display: none;">
+              <label class="fog-of-war-field__label" for="fogRadiusCellsInput">Радиус обзора героя</label>
+              <div class="fog-of-war-field__row">
+                <input type="number" id="fogRadiusCellsInput" class="fog-of-war-input" min="1" max="80" step="1" value="4" />
+                <span class="fog-of-war-field__unit">клеток · круг</span>
+              </div>
+              <button type="button" class="fog-of-war-reset-btn" id="fogResetExploredButton" onclick="resetFogOfWarExplored()" title="Очистить открытые области для игроков">
+                Сбросить туман
+              </button>
+              <p class="fog-of-war-hint">Память открытых областей очистится; вокруг героев сразу снова появится обзор.</p>
+            </div>
+          </div>
           <ul id="zoneList"></ul>
         </details>
       </div>
@@ -684,6 +710,7 @@
     <div class="modal-content large-modal">
       <span class="close" onclick="closeZoneModal()">&times;</span>
       <h3 id="zoneModalTitle">Создание зоны</h3>
+      <p id="zoneModalSubtitle" class="zone-modal-subtitle" style="display:none;margin:0 0 12px;font-size:13px;color:#9ca3af;"></p>
       <div class="token-form">
         <div class="token-fields">
           <label class="zone-modal-field">Имя зоны
@@ -699,7 +726,7 @@
         <label class="context-checkbox">
           <input type="checkbox" id="zoneVisibleCheckbox" checked />
           <span class="checkbox-custom"></span>
-          <span>Зона видима игрокам</span>
+          <span id="zoneVisibleCheckboxLabel">Зона видима игрокам</span>
         </label>
       </div>
 
@@ -832,7 +859,7 @@
       <label class="context-checkbox">
         <input type="checkbox" id="contextZoneVisible">
         <span class="checkbox-custom"></span>
-        <span>Видна игрокам</span>
+        <span id="contextZoneToggleLabel">Видна игрокам</span>
       </label>
     </div>
 

@@ -25,6 +25,22 @@ body {
   color: #e0e0e0;
 }
 
+/* Квадратный переключатель (чекбоксы модалок / отдельные радио в сайдбаре) — одна палитра */
+:root {
+  --dnd-toggle-size: 18px;
+  --dnd-toggle-border-w: 2px;
+  --dnd-toggle-border-color: #9ca3af;
+  --dnd-toggle-radius: 4px;
+  --dnd-toggle-bg: rgba(42, 47, 63, 0.6);
+  --dnd-toggle-on-bg: #4c5bef;
+  --dnd-toggle-on-border: #4c5bef;
+  --dnd-toggle-focus-ring: 2px solid rgba(76, 91, 239, 0.65);
+  --dnd-toggle-label-color: #d1d5db;
+  --dnd-toggle-mark-color: #fff;
+  --dnd-toggle-mark-size: 14px;
+  --dnd-toggle-ease: 0.2s ease;
+}
+
 .section {
   margin-top: 0px;
   padding-top: 0px;
@@ -654,6 +670,186 @@ large-modal {
   box-shadow: 0 0 4px rgba(0,0,0,0.4);
 }
 
+/* Панель «Туман войны» / видимость — режимы в один ряд, те же контролы что чекбоксы модалки токена */
+.fog-of-war-panel {
+  margin: 6px 0 10px;
+  padding: 0;
+}
+
+.fog-of-war-panel__heading {
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin: 0 0 8px;
+}
+
+/* Радио режима видимости: отдельные классы, те же оттенки/размеры, что у .checkbox-custom */
+#sidebar .fog-of-war-panel__modes {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+#sidebar .fog-visibility-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  margin: 0;
+  cursor: pointer;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--dnd-toggle-label-color);
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+#sidebar .fog-visibility-option:hover {
+  border-radius: 6px;
+}
+
+#sidebar .fog-visibility-option input[type="radio"] {
+  display: none;
+}
+
+#sidebar .fog-visibility-box {
+  flex-shrink: 0;
+  width: var(--dnd-toggle-size);
+  height: var(--dnd-toggle-size);
+  min-width: var(--dnd-toggle-size);
+  min-height: var(--dnd-toggle-size);
+  border: var(--dnd-toggle-border-w) solid var(--dnd-toggle-border-color);
+  border-radius: var(--dnd-toggle-radius);
+  background: var(--dnd-toggle-bg);
+  display: block;
+  position: relative;
+  box-sizing: border-box;
+  transition:
+    background var(--dnd-toggle-ease),
+    border-color var(--dnd-toggle-ease);
+}
+
+#sidebar .fog-visibility-option:focus-within .fog-visibility-box {
+  outline: var(--dnd-toggle-focus-ring);
+  outline-offset: 2px;
+}
+
+#sidebar .fog-visibility-option input[type="radio"]:checked + .fog-visibility-box,
+#sidebar .fog-visibility-option:has(input:checked) .fog-visibility-box {
+  background: var(--dnd-toggle-on-bg);
+  border-color: var(--dnd-toggle-on-border);
+}
+
+#sidebar .fog-visibility-option input[type="radio"]:checked + .fog-visibility-box::after,
+#sidebar .fog-visibility-option:has(input:checked) .fog-visibility-box::after {
+  content: "✓";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--dnd-toggle-mark-color);
+  font-size: var(--dnd-toggle-mark-size);
+  line-height: 1;
+  font-weight: 600;
+}
+
+#sidebar .fog-visibility-text {
+  color: inherit;
+  font-size: inherit;
+  line-height: 1.2;
+}
+
+.fog-of-war-subpanel {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fog-of-war-field__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin: 0 0 6px;
+}
+
+.fog-of-war-field__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+/* Тёмное поле как раньше; стрелки — общий блок .fog-of-war-panel input[type="number"] ниже */
+.fog-of-war-input {
+  width: 56px;
+  height: 32px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0 6px;
+  background: #1e1e2e;
+  color: #f1f5f9;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  color-scheme: dark;
+  accent-color: #4c5bef;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fog-of-war-input:focus {
+  border-color: #4c5bef;
+  box-shadow: 0 0 0 2px rgba(76, 91, 239, 0.25);
+}
+
+.fog-of-war-field__unit {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.fog-of-war-reset-btn {
+  display: inline-block;
+  width: auto;
+  margin-top: 2px;
+  padding: 6px 0;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(248, 113, 113, 0.45);
+  background: transparent;
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.fog-of-war-reset-btn:hover {
+  color: #fecaca;
+  border-bottom-color: rgba(252, 165, 165, 0.75);
+}
+
+.fog-of-war-reset-btn:active {
+  transform: none;
+  opacity: 0.9;
+}
+
+.fog-of-war-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6b7280;
+}
+
 #findTooltip {
   position: fixed;
   background: rgba(255, 255, 255, 0.95);
@@ -1152,7 +1348,7 @@ canvas.map-panning {
   padding: 6px 4px;
   cursor: pointer;
   font-size: 13px;
-  color: #d1d5db;
+  color: var(--dnd-toggle-label-color);
   /* Ширина по содержимому (иконка + текст), без клика по пустоте справа */
   width: max-content;
   max-width: 100%;
@@ -1170,32 +1366,34 @@ canvas.map-panning {
 
 .checkbox-custom {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  border: 2px solid #9ca3af;
-  border-radius: 4px;
-  background: rgba(42, 47, 63, 0.6);
+  width: var(--dnd-toggle-size);
+  height: var(--dnd-toggle-size);
+  border: var(--dnd-toggle-border-w) solid var(--dnd-toggle-border-color);
+  border-radius: var(--dnd-toggle-radius);
+  background: var(--dnd-toggle-bg);
   display: inline-block;
   position: relative;
-  transition: all 0.2s;
+  transition:
+    background var(--dnd-toggle-ease),
+    border-color var(--dnd-toggle-ease);
   box-sizing: border-box;
 }
 
 .context-checkbox:focus-within .checkbox-custom {
-  outline: 2px solid rgba(76, 91, 239, 0.65);
+  outline: var(--dnd-toggle-focus-ring);
   outline-offset: 2px;
 }
 
 .context-checkbox input[type="checkbox"]:checked + .checkbox-custom {
-  background: #4C5BEF;
-  border-color: #4C5BEF;
+  background: var(--dnd-toggle-on-bg);
+  border-color: var(--dnd-toggle-on-border);
 }
 
 .context-checkbox input[type="checkbox"]:checked + .checkbox-custom::after {
   content: "✓";
   position: absolute;
-  color: white;
-  font-size: 14px;
+  color: var(--dnd-toggle-mark-color);
+  font-size: var(--dnd-toggle-mark-size);
   line-height: 1;
   top: 50%;
   left: 50%;
@@ -3292,12 +3490,14 @@ canvas.erase-mode {
     -moz-appearance: number-input;
 }
 
-.grid-control input[type="number"] {
+.grid-control input[type="number"],
+.fog-of-war-panel input[type="number"] {
     accent-color: #4c5bef;
     -moz-appearance: textfield;
 }
 
-.grid-control input[type="number"]::-webkit-inner-spin-button {
+.grid-control input[type="number"]::-webkit-inner-spin-button,
+.fog-of-war-panel input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: inner-spin-button;
     opacity: 0;
     pointer-events: none;
@@ -3306,13 +3506,17 @@ canvas.erase-mode {
 }
 
 .grid-control input[type="number"]:hover::-webkit-inner-spin-button,
-.grid-control input[type="number"]:focus::-webkit-inner-spin-button {
+.grid-control input[type="number"]:focus::-webkit-inner-spin-button,
+.fog-of-war-panel input[type="number"]:hover::-webkit-inner-spin-button,
+.fog-of-war-panel input[type="number"]:focus::-webkit-inner-spin-button {
     opacity: 1;
     pointer-events: auto;
 }
 
 .grid-control input[type="number"]:hover,
-.grid-control input[type="number"]:focus {
+.grid-control input[type="number"]:focus,
+.fog-of-war-panel input[type="number"]:hover,
+.fog-of-war-panel input[type="number"]:focus {
     -moz-appearance: number-input;
 }
 
