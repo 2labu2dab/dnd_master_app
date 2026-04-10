@@ -1328,8 +1328,8 @@ const MAX_FOG_LIVE_TRAIL_PUNCHES = 72;
  */
 const PLAYER_FOG_LIVE_TRAIL_RENDER_TAIL = 520;
 
-/** Больше шагов — острее углы у стен (меньше «скругления» от дискретизации лучей). */
-const _FOG_WALL_RAY_STEPS = 34;
+/** Больше шагов — острее углы у стен (меньше щелей на углах из‑за дискретизации лучей). */
+const _FOG_WALL_RAY_STEPS = 96;
 
 /** Предвычисление направлений лучей — без cos/sin в горячем цикле. */
 const _FOG_RAY_DIRS = (() => {
@@ -1461,23 +1461,10 @@ function subsampleCentersForFogPunch(centers, maxPoints) {
     return out;
 }
 
-/** Пересечение отрезка (h→p) с отрезком стены; true если есть блокирующее пересечение внутри обоих. */
-function fogLosSegmentBlocks(hx, hy, px, py, seg) {
-    const [x1, y1, x2, y2] = seg;
-    const det = (px - hx) * (y1 - y2) - (py - hy) * (x1 - x2);
-    if (Math.abs(det) < 1e-12) return false;
-    const t = ((x1 - hx) * (y1 - y2) - (y1 - hy) * (x1 - x2)) / det;
-    const u = ((x1 - hx) * (py - hy) - (y1 - hy) * (px - hx)) / det;
-    const eps = 1e-4;
-    if (t <= eps || t >= 1 - eps) return false;
-    if (u < -eps || u > 1 + eps) return false;
-    return true;
-}
-
 /** AABB-отсечение: стена вне расширенного коридора герой→токен не может перекрыть LOS. */
 function fogWallSegmentsCrossingLosBand(hx, hy, px, py, segments) {
     if (segments.length <= 20) return segments;
-    const pad = 6;
+    const pad = Math.max(24, Math.hypot(px - hx, py - hy) * 0.02);
     const minx = Math.min(hx, px) - pad;
     const maxx = Math.max(hx, px) + pad;
     const miny = Math.min(hy, py) - pad;
@@ -1499,16 +1486,28 @@ function fogWallSegmentsCrossingLosBand(hx, hy, px, py, segments) {
     return out.length ? out : segments;
 }
 
+/**
+ * Видна ли точка с любого героя. Тот же луч, что и в fogRayWallHitWorld / прорезании тумана,
+ * чтобы не расходиться с отдельной формулой пересечения отрезков (из‑за этого НПС «просвечивали»).
+ */
 function fogPointVisibleFromAnyHero(wx, wy, heroCenters, segments) {
     if (!segments.length) return true;
     for (let i = 0; i < heroCenters.length; i++) {
         const c = heroCenters[i];
         const hx = c[0];
         const hy = c[1];
+        const dx = wx - hx;
+        const dy = wy - hy;
+        const L = Math.hypot(dx, dy);
+        if (L < 1e-9) return true;
+        const ux = dx / L;
+        const uy = dy / L;
         const segs = fogWallSegmentsCrossingLosBand(hx, hy, wx, wy, segments);
         let blocked = false;
+        const margin = Math.max(1e-3, L * 1e-9);
         for (let s = 0; s < segs.length; s++) {
-            if (fogLosSegmentBlocks(hx, hy, wx, wy, segs[s])) {
+            const hit = fogRayWallHitWorld(hx, hy, ux, uy, L, segs[s]);
+            if (hit != null && hit < L - margin) {
                 blocked = true;
                 break;
             }

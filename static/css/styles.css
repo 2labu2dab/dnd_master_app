@@ -771,6 +771,40 @@ large-modal {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+/* Радиус и чувствительность палочки в один ряд (на узкой панели переносятся) */
+.fog-of-war-fields-inline {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 18px;
+  margin-bottom: 4px;
+}
+
+.fog-of-war-field-block {
+  flex: 1 1 0;
+  min-width: 118px;
+}
+
+.fog-of-war-field-block .fog-of-war-field__label {
+  margin-bottom: 4px;
+}
+
+.fog-of-war-field__row--tight {
+  margin-bottom: 0;
+  flex-wrap: nowrap;
+}
+
+.fog-of-war-subpanel__footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fog-of-war-subpanel__footer .fog-of-war-reset-btn {
+  margin-top: 0;
+}
+
 .fog-of-war-field__label {
   display: block;
   font-size: 12px;
@@ -818,9 +852,11 @@ large-modal {
 
 .fog-of-war-reset-btn {
   display: inline-block;
-  width: auto;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
   margin-top: 2px;
-  padding: 6px 0;
+  padding: 8px 0;
   border: none;
   border-radius: 0;
   border-bottom: 1px solid rgba(248, 113, 113, 0.45);
